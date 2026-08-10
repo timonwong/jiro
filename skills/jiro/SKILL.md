@@ -29,6 +29,7 @@ Read the current state and the Jira-owned metadata that constrains the requested
 
 ```bash
 jiro issue show OPS-42 --output=json
+jiro issue list-types OPS-42 --output=json
 jiro issue list-transitions OPS-42 --output=json
 jiro issue link types --output=json
 jiro field list --custom --output=json
@@ -50,6 +51,7 @@ Confirm every target Issue Key, Jira Instance, current status, assignee, relevan
 Resolve Jira-owned names and write semantics before mutating:
 
 - Match a transition by the exact ID, unique name, or unique destination status returned by `issue list-transitions`.
+- Before changing an Issue Type, run `issue list-types ISSUE-KEY`. Resolve an exact ID or case-insensitive unique name only from that Issue's compatible values. Treat a missing target as incompatible even if the Issue Type exists elsewhere in the project or Jira Instance.
 - Resolve a Link Type with `issue link types`; preserve the outward direction from `FROM` to `--to`.
 - Use `customfield_N` directly when known. Use a human alias only after `field list --custom` or `cache refresh` proves it is unique for the current Jira Instance and Principal. Treat `stale_field_cache` as a verification risk: disclose it and verify the written field directly. Direct IDs bypass alias metadata.
 - Determine whether description or comment input is Jira Markup or Jiro Flavored Markdown (JFM). Jira Markup is the byte-preserving default; request JFM conversion with `--input-format=jfm`.
@@ -72,9 +74,12 @@ For bulk changes, preflight the complete JQL selection without changing Jira:
 jiro issue bulk move --jql 'project = OPS AND status = Open' --to Done \
   --resolution Fixed --dry-run --output=json
 jiro issue bulk assign --jql 'project = OPS' --assignee me --dry-run --output=json
+jiro issue bulk update --jql 'project = OPS' --type Story --dry-run --output=json
 ```
 
 Review every returned item. Proceed only when the selection, targets, `ready` count, and failures match the intended scope. Bulk move dry-run proves transition availability but does not ask Jira to validate custom fields or resolution; field validation occurs during `--yes` execution.
+
+Bulk Issue Type dry-run checks each Issue's `editmeta.fields.issuetype.allowedValues`. Preserve `unchanged` separately from `ready`. Affected older Jira Server releases can accept incompatible types and leave invalid workflow state, so the typed command must fail closed instead of sending a target absent from these values.
 
 ## Mutate
 
@@ -84,6 +89,7 @@ Use only the operation and fields requested.
 jiro issue add --project OPS --type Bug --summary "Broken deployment" \
   --description-file issue.md --input-format=jfm --output=json
 jiro issue update OPS-42 --priority High --component API --fix-version 4.5 --output=json
+jiro issue update OPS-42 --type Story --output=json
 jiro issue comment add OPS-42 --body-file comment.md --input-format=jfm --output=json
 jiro issue move OPS-42 --to Done --comment "**Verified** in staging." \
   --input-format=jfm --resolution Fixed --field story-points=5 --output=json
@@ -95,6 +101,8 @@ jiro issue link delete 10001 --output=json
 
 Typed-command `--field key=value` accepts only a Custom Field ID or Custom Field Alias, decodes JSON first, and otherwise uses a string; quote object and array values so the shell passes valid JSON. Use dedicated flags for system fields. `issue move` sends its transition, comment, resolution, and custom fields in one Jira transition request; it never falls back to a later comment request. Use the transition proven during preflight. Delete an Issue Link by its Jira Link ID.
 
+`issue update --type` is exclusive and must not be combined with any other update flag. It sends the resolved Issue Type ID through `PUT /rest/api/2/issue/{key}`, then reads back only `issuetype`. An already-matching type is a no-op. Treat a readback mismatch as failed; treat an unavailable readback as unknown and do not retry until Jira is inspected.
+
 Preserve partial results. A failed Sprint move can leave a newly created issue or ordinary update fields in Jira; retain the returned Issue Key and updated fields when reporting the failure.
 
 After the user authorizes a preflighted broad write, repeat the same JQL and target with `--yes`:
@@ -103,15 +111,17 @@ After the user authorizes a preflighted broad write, repeat the same JQL and tar
 jiro issue bulk move --jql 'project = OPS AND status = Open' --to Done \
   --resolution Fixed --yes --output=json
 jiro issue bulk assign --jql 'project = OPS' --assignee me --yes --output=json
+jiro issue bulk update --jql 'project = OPS' --type Story --yes --output=json
 ```
 
-Keep dry-run and execution results distinct. Bulk writes run serially and may return `failed` or `not_attempted` items.
+Keep dry-run and execution results distinct. Bulk writes run serially and may return `failed`, `unknown`, or `not_attempted` items. An unknown Issue Type readback stops the run because the preceding PUT may already have changed Jira.
 
 ## Read back
 
 Read every consequential result through jiro after the write:
 
 - Use `issue show` for creation, field updates, transitions, assignments, and Sprint membership fields returned by the instance.
+- `issue update --type` and `issue bulk update --type` already perform an immediate Issue Type readback. Preserve their `unknown` result when Jira accepted the PUT but the readback failed; do not hide it behind a later retry.
 - Use `issue comment list` for comments and `issue link list` for link changes.
 - Retain the Issue Keys from a bulk dry-run and read back every targeted issue. A list or search read is sufficient only when it proves the same complete key set and final values.
 - Read normalized standard fields such as status and assignee from `.data.status` and `.data.assignee`. Request custom fields with `issue show --fields` and read them from `.data.fields`.

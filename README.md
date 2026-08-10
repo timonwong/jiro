@@ -239,6 +239,8 @@ jiro issue add --project OPS --type Bug --summary "Broken deployment" \
   --parent OPS-10 --component API --fix-version 4.5 --sprint active
 jiro issue update OPS-42 --priority High --component API --fix-version 4.5
 jiro issue update OPS-42 --component none --sprint active
+jiro issue list-types OPS-42
+jiro issue update OPS-42 --type Story
 jiro issue comment add OPS-42 --body "Deployed to staging."
 jiro issue move OPS-42 --to Done --comment "**Verified** in staging." \
   --input-format=jfm --resolution Fixed
@@ -247,6 +249,21 @@ jiro issue assign OPS-42 --assignee me
 
 `issue update --component` and `--fix-version` replace the complete field.
 A single `none` clears it.
+
+`issue list-types` reads the current Issue Type and the compatible values from
+Jira's Edit metadata. `issue update --type/-t` accepts an exact Issue Type ID
+or a case-insensitive unique name from that list. The flag is exclusive: it
+cannot be combined with summary, description, priority, assignment, Sprint,
+custom-field, or other update flags in one request.
+
+Affected older Jira Server releases can accept an incompatible Issue Type
+through the generic Edit API and leave the Issue attached to an invalid
+workflow state. jiro therefore fails closed unless the target appears in that
+Issue's `editmeta.fields.issuetype.allowedValues`. An already-matching target is
+reported as `unchanged` without a write. After a successful PUT, jiro reads the
+Issue Type back; an unavailable readback is reported as an unknown partial
+result and must be checked before retrying. This operation is a compatible
+same-Issue edit, not Jira's multi-step UI Move flow.
 
 `issue add --sprint` creates the Issue before moving it into the Sprint. A
 failed move does not delete the new Issue. `issue update --sprint` resolves
@@ -309,6 +326,8 @@ jiro issue link list OPS-42
 jiro issue link delete 10001
 jiro issue link types
 
+jiro issue list-types OPS-42
+
 jiro project list
 jiro field list --custom
 jiro cache refresh
@@ -325,6 +344,7 @@ all matches by default.
 jiro issue bulk move --jql 'project = OPS AND status = Open' --to Done \
   --resolution Fixed --dry-run
 jiro issue bulk assign --jql 'project = OPS' --assignee me --yes
+jiro issue bulk update --jql 'project = OPS' --type Story --dry-run
 ```
 
 `issue bulk move --resolution` uses the same name, numeric ID, and `none`
@@ -332,6 +352,13 @@ forms as single-Issue move. A dry-run proves transition availability and shows
 the requested resolution, but Jira validates transition fields only during
 `--yes` execution. A per-Issue validation error fails that item and processing
 continues; systemic errors stop the remaining writes.
+
+`issue bulk update` currently supports only `--type/-t`. It resolves the target
+independently against each Issue's compatible values. Items already at the
+target are `unchanged`; compatible dry-run items are `ready`; confirmed writes
+are `succeeded`. A PUT followed by an unavailable readback is `unknown`, stops
+the serial run, and marks remaining Issues `not_attempted`. Aggregate JSON keeps
+`unchanged` and `unknown` separate from `succeeded` and `failed`.
 
 ## Automation and output
 
@@ -399,7 +426,8 @@ stderr with stable exit codes, while human-readable warnings use stderr.
 For a partial result with exit code `7`, jiro writes the complete normalized
 result to stdout before writing a structured `partial_failure` error to
 stderr. This includes a successful Issue creation whose Sprint move failed and
-bulk runs with failed or unattempted items.
+Issue Type writes whose readback is unknown, plus bulk runs with failed,
+unknown, or unattempted items.
 Cross-Board `sprint list` queries use the same contract: successful Sprint
 relationships remain on stdout and JSON identifies failed Boards.
 

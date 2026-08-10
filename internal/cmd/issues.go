@@ -17,12 +17,13 @@ func (a *app) issueCommand() *cobra.Command {
 	link := &cobra.Command{Use: "link", Short: "Work with issue links"}
 	link.AddCommand(a.issueLinkCommand(), a.issueLinksCommand(), a.issueUnlinkCommand(), a.issueLinkTypesCommand())
 	bulk := &cobra.Command{Use: "bulk", Short: "Apply one action to issues selected by JQL"}
-	bulk.AddCommand(a.issueBulkTransitionCommand(), a.issueBulkAssignCommand())
+	bulk.AddCommand(a.issueBulkTransitionCommand(), a.issueBulkAssignCommand(), a.issueBulkUpdateCommand())
 	command.AddCommand(
 		a.issuesListCommand(),
 		a.issueShowCommand(),
 		a.issueCreateCommand(),
 		a.issueUpdateCommand(),
+		a.issueTypesCommand(),
 		a.issueTransitionsCommand(),
 		a.issueTransitionCommand(),
 		a.issueAssignCommand(),
@@ -203,7 +204,7 @@ func (a *app) issueCreateCommand() *cobra.Command {
 }
 
 func (a *app) issueUpdateCommand() *cobra.Command {
-	var summary, description, descriptionFile, inputFormat string
+	var summary, description, descriptionFile, inputFormat, issueType string
 	var priority, assignee, sprint string
 	var labels, components, fixVersions, fields []string
 	command := &cobra.Command{
@@ -211,6 +212,20 @@ func (a *app) issueUpdateCommand() *cobra.Command {
 		Short: "Update an issue",
 		Args:  exactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
+			if command.Flags().Changed("type") {
+				if strings.TrimSpace(issueType) == "" {
+					return apperr.New(apperr.KindInvalidInput, "--type must not be empty")
+				}
+				if conflicts := issueTypeFlagConflicts(command); len(conflicts) > 0 {
+					return apperr.New(apperr.KindInvalidInput,
+						fmt.Sprintf("--type cannot be combined with other issue update flags: %s", strings.Join(conflicts, ", ")))
+				}
+				client, _, err := a.writableClient()
+				if err != nil {
+					return err
+				}
+				return a.runIssueTypeUpdate(command.Context(), client, args[0], issueType)
+			}
 			client, settings, err := a.writableClient()
 			if err != nil {
 				return err
@@ -275,6 +290,7 @@ func (a *app) issueUpdateCommand() *cobra.Command {
 	}
 	flags := command.Flags()
 	flags.StringVarP(&summary, "summary", "s", "", "new issue summary")
+	flags.StringVarP(&issueType, "type", "t", "", "compatible issue type ID or unique name; cannot be combined with other update flags")
 	flags.StringVar(&description, "description", "", "description text")
 	flags.StringVar(&descriptionFile, "description-file", "", "description file path, or - for stdin")
 	flags.StringVar(&inputFormat, "input-format", "jira", "text input format: jira, jfm, or markdown")

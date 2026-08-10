@@ -31,12 +31,13 @@ type commandSchema struct {
 }
 
 type flagSchema struct {
-	Name       string `json:"name"`
-	Short      string `json:"short,omitempty"`
-	Type       string `json:"type"`
-	Required   bool   `json:"required,omitempty"`
-	Repeatable bool   `json:"repeatable,omitempty"`
-	Default    any    `json:"default,omitempty"`
+	Name          string   `json:"name"`
+	Short         string   `json:"short,omitempty"`
+	Type          string   `json:"type"`
+	Required      bool     `json:"required,omitempty"`
+	Repeatable    bool     `json:"repeatable,omitempty"`
+	Default       any      `json:"default,omitempty"`
+	ConflictsWith []string `json:"conflictsWith,omitempty"`
 }
 
 type outputSchema struct {
@@ -110,10 +111,11 @@ func schemaDocument() cliSchema {
 				repeatableFlag("component", "", "string"), repeatableFlag("fix-version", "", "string"), flag("sprint", "", "string"), repeatableFlag("field", "", "custom-field-alias-or-id=value"),
 			}, object("id", "key", "sprint", "sprintMoved")),
 			commandWithFlags("issue update", nil, true, "ISSUE-KEY", []flagSchema{
-				flag("summary", "s", "string"), flag("description", "", "string"), flag("description-file", "", "path-or-stdin"),
+				flag("summary", "s", "string"), conflictingFlag("type", "t", "string", issueTypeUpdateConflictingFlags...), flag("description", "", "string"), flag("description-file", "", "path-or-stdin"),
 				flagDefault("input-format", "", "enum:jira|jfm|markdown", "jira"), flag("priority", "", "string"), flag("assignee", "", "string"),
 				repeatableFlag("label", "", "string"), repeatableFlag("component", "", "string"), repeatableFlag("fix-version", "", "string"), flag("sprint", "", "string"), repeatableFlag("field", "", "custom-field-alias-or-id=value"),
-			}, object("key", "updated", "sprint", "sprintMoved")),
+			}, object("key", "updated", "unchanged", "unknown", "issueType", "sprint", "sprintMoved")),
+			command("issue list-types", false, "ISSUE-KEY", object("issueKey", "currentIssueType", "issueTypes")),
 			commandWithFlags("issue comment list", nil, false, "ISSUE-KEY", []flagSchema{
 				flagDefault("limit", "n", "integer", 50), flagDefault("offset", "", "integer", 0),
 			}, object("issueKey", "comments")),
@@ -141,6 +143,9 @@ func schemaDocument() cliSchema {
 			}, batchObject()),
 			commandWithFlags("issue bulk assign", nil, true, "", []flagSchema{
 				requiredFlag("jql", "", "string"), requiredFlag("assignee", "", "string"), flag("dry-run", "", "boolean"), flag("yes", "", "boolean"),
+			}, batchObject()),
+			commandWithFlags("issue bulk update", nil, true, "", []flagSchema{
+				requiredFlag("jql", "", "string"), requiredFlag("type", "t", "string"), flag("dry-run", "", "boolean"), flag("yes", "", "boolean"),
 			}, batchObject()),
 			commandWithFlags("search", nil, false, "JQL", []flagSchema{
 				flagDefault("limit", "n", "integer", 50), flagDefault("offset", "", "integer", 0), flag("all", "", "boolean"), flag("fields", "", "string-list"),
@@ -202,6 +207,7 @@ func batchObject() map[string]any {
 func typeDefinitions() map[string]any {
 	return map[string]any{
 		"Board":         object("id", "name", "type"),
+		"IssueType":     object("id", "name", "description", "subtask"),
 		"Version":       object("id", "name", "archived", "released"),
 		"Sprint":        object("id", "name", "state", "boardId", "boardName", "originBoardId", "goal", "startDate", "endDate", "completeDate"),
 		"FailedBoard":   object("boardId", "boardName", "error"),
@@ -210,26 +216,27 @@ func typeDefinitions() map[string]any {
 			"id": "Jira Link ID", "direction": "inward|outward", "relationship": "direction-relative description",
 			"type": "IssueLinkType", "otherIssue": object("id", "key", "summary"),
 		},
-		"BatchCurrent": object("status", "assignee"),
-		"BatchTarget":  object("transitionSpec", "transition", "resolution", "assignee", "unassigned"),
+		"BatchCurrent": object("status", "assignee", "issueType"),
+		"BatchTarget":  object("transitionSpec", "transition", "resolution", "assignee", "unassigned", "issueTypeInput", "issueType"),
 		"BatchItem":    batchItemDefinition(),
 		"BatchResult":  batchResultDefinition(),
 	}
 }
 
 func batchResultDefinition() map[string]any {
-	result := object("operation", "dryRun", "jql", "total", "ready", "succeeded", "failed", "notAttempted")
+	result := object("operation", "dryRun", "jql", "total", "ready", "succeeded", "failed", "unchanged", "unknown", "notAttempted")
 	result["items"] = []any{batchItemDefinition()}
 	return result
 }
 
 func batchItemDefinition() map[string]any {
 	return map[string]any{
-		"issueKey": "Issue Key",
-		"outcome":  "ready|succeeded|failed|not_attempted",
-		"current":  "BatchCurrent",
-		"target":   "BatchTarget",
-		"error":    "present for failed and not_attempted outcomes",
+		"issueKey":        "Issue Key",
+		"outcome":         "ready|succeeded|failed|unchanged|unknown|not_attempted",
+		"current":         "BatchCurrent",
+		"target":          "BatchTarget",
+		"actualIssueType": "present when Issue Type readback differs from the target",
+		"error":           "present for failed, unknown, and not_attempted outcomes",
 	}
 }
 
@@ -240,6 +247,12 @@ func flag(name, short, kind string) flagSchema {
 func requiredFlag(name, short, kind string) flagSchema {
 	value := flag(name, short, kind)
 	value.Required = true
+	return value
+}
+
+func conflictingFlag(name, short, kind string, conflicts ...string) flagSchema {
+	value := flag(name, short, kind)
+	value.ConflictsWith = append([]string(nil), conflicts...)
 	return value
 }
 
