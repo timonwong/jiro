@@ -31,7 +31,7 @@ func TestSchemaDocument(t *testing.T) {
 		document.ExitCodes["7"] != "partial failure" {
 		t.Fatalf("output contract = %+v exitCodes=%+v", document.Output, document.ExitCodes)
 	}
-	for _, name := range []string{"Board", "Version", "Sprint", "IssueLink", "IssueLinkType", "BatchResult", "BatchItem"} {
+	for _, name := range []string{"Board", "IssueType", "Version", "Sprint", "IssueLink", "IssueLinkType", "BatchResult", "BatchItem"} {
 		if document.Types[name] == nil {
 			t.Fatalf("schema type %s is missing: %#v", name, document.Types)
 		}
@@ -51,6 +51,7 @@ func TestSchemaDocument(t *testing.T) {
 		required     bool
 		kind         string
 		defaultValue any
+		conflicts    []string
 	})
 	for _, command := range document.Commands {
 		if len(command.Aliases) != 0 {
@@ -66,6 +67,7 @@ func TestSchemaDocument(t *testing.T) {
 			required     bool
 			kind         string
 			defaultValue any
+			conflicts    []string
 		}, len(command.Flags))
 		for _, flag := range command.Flags {
 			flags[command.Name][flag.Name] = struct {
@@ -73,11 +75,13 @@ func TestSchemaDocument(t *testing.T) {
 				required     bool
 				kind         string
 				defaultValue any
+				conflicts    []string
 			}{
 				repeatable:   flag.Repeatable,
 				required:     flag.Required,
 				kind:         flag.Type,
 				defaultValue: flag.Default,
+				conflicts:    flag.ConflictsWith,
 			}
 		}
 		if strings.HasPrefix(command.Name, "config") {
@@ -166,7 +170,8 @@ func TestSchemaDocument(t *testing.T) {
 	}{
 		{"issue list", false, []string{"resolution", "reporter", "label", "component", "fix-version", "sprint", "parent", "created", "updated"}},
 		{"issue add", true, []string{"parent", "component", "fix-version", "sprint"}},
-		{"issue update", true, []string{"component", "fix-version", "sprint"}},
+		{"issue update", true, []string{"type", "component", "fix-version", "sprint"}},
+		{"issue list-types", false, nil},
 		{"issue move", true, []string{"to", "comment", "input-format", "resolution", "field"}},
 		{"issue assign", true, []string{"assignee"}},
 		{"issue link list", false, nil},
@@ -175,6 +180,7 @@ func TestSchemaDocument(t *testing.T) {
 		{"issue link types", false, nil},
 		{"issue bulk move", true, []string{"jql", "to", "resolution", "field", "dry-run", "yes"}},
 		{"issue bulk assign", true, []string{"jql", "assignee", "dry-run", "yes"}},
+		{"issue bulk update", true, []string{"jql", "type", "dry-run", "yes"}},
 		{"board list", false, nil},
 		{"sprint list", false, []string{"board", "state"}},
 	} {
@@ -203,6 +209,33 @@ func TestSchemaDocument(t *testing.T) {
 	}
 	if target, ok := document.Types["BatchTarget"].(map[string]any); !ok || target["resolution"] == nil {
 		t.Fatalf("BatchTarget schema is missing resolution: %#v", document.Types["BatchTarget"])
+	}
+	if target, ok := document.Types["BatchTarget"].(map[string]any); !ok || target["issueTypeInput"] == nil || target["issueType"] == nil {
+		t.Fatalf("BatchTarget schema is missing Issue Type fields: %#v", document.Types["BatchTarget"])
+	}
+	if current, ok := document.Types["BatchCurrent"].(map[string]any); !ok || current["issueType"] == nil {
+		t.Fatalf("BatchCurrent schema is missing issueType: %#v", document.Types["BatchCurrent"])
+	}
+	for _, field := range []string{"unchanged", "unknown"} {
+		if batch, ok := document.Types["BatchResult"].(map[string]any); !ok || batch[field] == nil {
+			t.Fatalf("BatchResult schema is missing %q: %#v", field, document.Types["BatchResult"])
+		}
+	}
+	for _, field := range []string{"updated", "unchanged", "unknown", "issueType"} {
+		if commands["issue update"].jsonData[field] == nil {
+			t.Fatalf("issue update JSON schema is missing %q: %#v", field, commands["issue update"].jsonData)
+		}
+	}
+	for _, field := range []string{"issueKey", "currentIssueType", "issueTypes"} {
+		if commands["issue list-types"].jsonData[field] == nil {
+			t.Fatalf("issue list-types JSON schema is missing %q: %#v", field, commands["issue list-types"].jsonData)
+		}
+	}
+	if flags["issue update"]["type"].kind != "string" || flags["issue bulk update"]["type"].kind != "string" {
+		t.Fatalf("Issue Type flag schemas = update:%+v bulk:%+v", flags["issue update"]["type"], flags["issue bulk update"]["type"])
+	}
+	if got := flags["issue update"]["type"].conflicts; strings.Join(got, ",") != strings.Join(issueTypeUpdateConflictingFlags, ",") {
+		t.Fatalf("issue update --type conflictsWith = %v", got)
 	}
 	if got := flags["sprint list"]["state"]; got.kind != "enum:active|closed|future|all" || got.defaultValue != "active" {
 		t.Fatalf("sprint list --state schema = %+v", got)

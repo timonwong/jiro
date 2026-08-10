@@ -29,6 +29,15 @@ type wireIssueType struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Subtask     bool   `json:"subtask"`
+}
+
+type wireEditMeta struct {
+	Fields map[string]wireEditMetaField `json:"fields"`
+}
+
+type wireEditMetaField struct {
+	AllowedValues []wireIssueType `json:"allowedValues"`
 }
 
 type wireStatus struct {
@@ -304,7 +313,10 @@ func issueTypeFromValue(value any) *IssueType {
 	if !ok {
 		return nil
 	}
-	return &IssueType{ID: stringValue(raw["id"]), Name: stringValue(raw["name"]), Description: stringValue(raw["description"])}
+	return &IssueType{
+		ID: stringValue(raw["id"]), Name: stringValue(raw["name"]),
+		Description: stringValue(raw["description"]), Subtask: boolValue(raw["subtask"]),
+	}
 }
 
 func statusFromValue(value any) *Status {

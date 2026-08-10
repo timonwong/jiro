@@ -24,6 +24,7 @@ func TestCanonicalCommandTreeUsesSingularPaths(t *testing.T) {
 		"issue show",
 		"issue add",
 		"issue update",
+		"issue list-types",
 		"issue comment add",
 		"issue comment list",
 		"issue link add",
@@ -35,6 +36,7 @@ func TestCanonicalCommandTreeUsesSingularPaths(t *testing.T) {
 		"issue assign",
 		"issue bulk move",
 		"issue bulk assign",
+		"issue bulk update",
 	} {
 		command := exactCommand(root, path)
 		if command == nil || !command.Runnable() {

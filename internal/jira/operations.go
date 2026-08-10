@@ -102,6 +102,44 @@ func (c *Client) UpdateIssue(ctx context.Context, key string, input UpdateIssueI
 	return c.do(ctx, http.MethodPut, "rest/api/2/issue/"+url.PathEscape(key), nil, map[string]any{"fields": fields}, nil)
 }
 
+// ListIssueTypesForIssue returns the Issue Types Jira exposes as compatible on
+// the Issue's Edit screen. Jira Server may leave the operations metadata empty
+// for this system field, so allowedValues is the authoritative list here.
+func (c *Client) ListIssueTypesForIssue(ctx context.Context, key string) ([]IssueType, error) {
+	if strings.TrimSpace(key) == "" {
+		return nil, apperr.New(apperr.KindInvalidInput, "issue key is required")
+	}
+	var wire wireEditMeta
+	if err := c.do(ctx, http.MethodGet, "rest/api/2/issue/"+url.PathEscape(key)+"/editmeta", nil, nil, &wire); err != nil {
+		return nil, err
+	}
+	field, ok := wire.Fields["issuetype"]
+	if !ok {
+		return []IssueType{}, nil
+	}
+	result := make([]IssueType, len(field.AllowedValues))
+	for i, issueType := range field.AllowedValues {
+		result[i] = IssueType{
+			ID: issueType.ID, Name: issueType.Name,
+			Description: issueType.Description, Subtask: issueType.Subtask,
+		}
+	}
+	return result, nil
+}
+
+// UpdateIssueType changes one Issue's type through Jira's generic Edit Issue
+// endpoint. Callers must resolve the target from ListIssueTypesForIssue first;
+// affected older Jira Server releases can otherwise accept incompatible types.
+func (c *Client) UpdateIssueType(ctx context.Context, key, issueTypeID string) error {
+	if strings.TrimSpace(key) == "" || strings.TrimSpace(issueTypeID) == "" {
+		return apperr.New(apperr.KindInvalidInput, "issue key and issue type ID are required")
+	}
+	payload := map[string]any{
+		"fields": map[string]any{"issuetype": map[string]string{"id": issueTypeID}},
+	}
+	return c.do(ctx, http.MethodPut, "rest/api/2/issue/"+url.PathEscape(key), nil, payload, nil)
+}
+
 // ResolveAssignee resolves a username, me, or none once for one operation.
 func (c *Client) ResolveAssignee(ctx context.Context, assignee string) (AssigneeTarget, error) {
 	assignee = strings.TrimSpace(assignee)
