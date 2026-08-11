@@ -48,7 +48,7 @@ func (a *app) issuesListCommand() *cobra.Command {
 			if err := validatePagination(offset, limit); err != nil {
 				return err
 			}
-			client, _, err := a.client()
+			client, settings, err := a.client()
 			if err != nil {
 				return err
 			}
@@ -63,18 +63,22 @@ func (a *app) issuesListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			fieldSelection, resolvedFields, err := a.resolveReadFieldSelectors(command.Context(), client, settings, fields)
+			if err != nil {
+				return err
+			}
 			var result jira.SearchResult
 			if all {
-				result, err = searchAll(command.Context(), client, jql, offset, limit, fields)
+				result, err = searchAll(command.Context(), client, jql, offset, limit, resolvedFields)
 			} else {
 				result, err = client.ListIssues(command.Context(), jira.IssueListOptions{
-					JQL: jql, Page: jira.Page{StartAt: offset, MaxResults: limit}, Fields: fields,
+					JQL: jql, Page: jira.Page{StartAt: offset, MaxResults: limit}, Fields: resolvedFields,
 				})
 			}
 			if err != nil {
 				return err
 			}
-			return a.render(result, output.Table{
+			return a.render(searchOutput{SearchResult: result, FieldSelection: fieldSelection}, output.Table{
 				Columns: []output.Column{output.Fixed("KEY"), output.Flexible("SUMMARY"), output.Flexible("STATUS"), output.Flexible("ASSIGNEE")},
 				Rows:    issueRows(result.Issues),
 			})
@@ -98,7 +102,7 @@ func (a *app) issuesListCommand() *cobra.Command {
 	flags.IntVarP(&limit, "limit", "n", 50, "maximum issues per page")
 	flags.IntVar(&offset, "offset", 0, "zero-based result offset")
 	flags.BoolVar(&all, "all", false, "fetch all result pages")
-	flags.StringSliceVar(&fields, "fields", nil, "comma-separated Jira fields to request")
+	flags.StringSliceVar(&fields, "fields", nil, "comma-separated Field Selectors to resolve and request")
 	return command
 }
 
@@ -109,18 +113,22 @@ func (a *app) issueShowCommand() *cobra.Command {
 		Short: "Show an issue",
 		Args:  exactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			client, _, err := a.client()
+			client, settings, err := a.client()
 			if err != nil {
 				return err
 			}
-			issue, err := client.ShowIssue(command.Context(), args[0], fields)
+			fieldSelection, resolvedFields, err := a.resolveReadFieldSelectors(command.Context(), client, settings, fields)
 			if err != nil {
 				return err
 			}
-			return a.renderIssueShow(issue)
+			issue, err := client.ShowIssue(command.Context(), args[0], resolvedFields)
+			if err != nil {
+				return err
+			}
+			return a.renderIssueShow(issue, fieldSelection)
 		},
 	}
-	command.Flags().StringSliceVar(&fields, "fields", nil, "comma-separated Jira fields to request")
+	command.Flags().StringSliceVar(&fields, "fields", nil, "comma-separated Field Selectors to resolve and request")
 	return command
 }
 

@@ -5,10 +5,78 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/timonwong/jiro/internal/apperr"
 )
+
+func TestResolveFieldSelectorsPreservesOrderedSelection(t *testing.T) {
+	t.Parallel()
+	fields := []Field{
+		{ID: "summary", Name: "Summary"},
+		{ID: "customfield_10006", Name: "Story Points", Custom: true},
+	}
+
+	selection, err := ResolveFieldSelectors([]string{"summary", "Story Points"}, fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []FieldSelection{
+		{Selector: "summary", Resolved: "summary"},
+		{Selector: "Story Points", Resolved: "customfield_10006"},
+	}
+	if !reflect.DeepEqual(selection, want) {
+		t.Fatalf("selection = %#v, want %#v", selection, want)
+	}
+}
+
+func TestResolveFieldSelectorsSupportsDirectSpecialAndExcludedSelectors(t *testing.T) {
+	t.Parallel()
+	selection, err := ResolveFieldSelectors(
+		[]string{"customfield_99999", "*all", "*navigable", "-Story Points"},
+		[]Field{{ID: "customfield_10006", Name: "Story Points", Custom: true}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []FieldSelection{
+		{Selector: "customfield_99999", Resolved: "customfield_99999"},
+		{Selector: "*all", Resolved: "*all"},
+		{Selector: "*navigable", Resolved: "*navigable"},
+		{Selector: "-Story Points", Resolved: "-customfield_10006"},
+	}
+	if !reflect.DeepEqual(selection, want) {
+		t.Fatalf("selection = %#v, want %#v", selection, want)
+	}
+}
+
+func TestResolveFieldSelectorsPrefersExactIDOverNormalizedName(t *testing.T) {
+	t.Parallel()
+	selection, err := ResolveFieldSelectors([]string{"status"}, []Field{
+		{ID: "status", Name: "Status"},
+		{ID: "customfield_10007", Name: "Status", Custom: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := selection[0].Resolved; got != "status" {
+		t.Fatalf("resolved = %q, want status", got)
+	}
+}
+
+func TestResolveFieldSelectorsRejectsNormalizedNameAmbiguity(t *testing.T) {
+	t.Parallel()
+	_, err := ResolveFieldSelectors([]string{"Story_Points"}, []Field{
+		{ID: "customfield_10007", Name: "Story-Points", Custom: true},
+		{ID: "customfield_10006", Name: "Story Points", Custom: true},
+	})
+	if got := apperr.As(err).Kind; got != apperr.KindInvalidInput ||
+		!strings.Contains(err.Error(), "customfield_10006, customfield_10007") {
+		t.Fatalf("ambiguity error = %v", err)
+	}
+}
 
 func TestResolveCustomFieldPriorityAndAmbiguity(t *testing.T) {
 	t.Parallel()

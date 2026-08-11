@@ -265,7 +265,7 @@ func TestCacheFieldsRefreshAndFieldListSources(t *testing.T) {
 		t.Fatalf("refresh code=%d myself=%d fields=%d stdout=%s stderr=%s", code, myselfCalls.Load(), fieldCalls.Load(), stdout.String(), stderr.String())
 	}
 	snapshot, _, err := store.Read(server.URL, testFieldPrincipal)
-	if err != nil || len(snapshot.Fields) != 1 || snapshot.Fields[0].ID != "customfield_10006" {
+	if err != nil || len(snapshot.Fields) != 2 || snapshot.Fields[0].ID != "customfield_10006" || snapshot.Fields[1].ID != "summary" {
 		t.Fatalf("snapshot=%#v err=%v", snapshot, err)
 	}
 

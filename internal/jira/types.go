@@ -240,3 +240,10 @@ type Field struct {
 	Custom bool   `json:"custom"`
 	Type   string `json:"type,omitempty"`
 }
+
+// FieldSelection records one requested Field Selector and the exact Jira
+// selector produced from it.
+type FieldSelection struct {
+	Selector string `json:"selector"`
+	Resolved string `json:"resolved"`
+}

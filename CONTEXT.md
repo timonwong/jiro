@@ -36,12 +36,20 @@ _Avoid_: Custom field key
 A jiro-friendly slug derived from a custom field's display name, such as `story-points`.
 _Avoid_: Custom Field ID, field name
 
+**Field Selector**:
+A user-facing reference to an Issue field. jiro resolves it without requiring the caller to distinguish a Jira field ID, Custom Field ID, or Custom Field Alias.
+_Avoid_: Field name, field reference
+
+**Field Selection**:
+An ordered record of each requested Field Selector and the exact Jira selector produced from it.
+_Avoid_: Field map, selected fields
+
 **Principal**:
 The Jira user identity authenticated for one operation, independent of the local Profile and Credential used to prove it.
 _Avoid_: Profile, Credential, account
 
 **Field Metadata Snapshot**:
-A time-bounded copy of the custom fields visible to one Principal on one Jira Instance. It is disposable and is not the source of truth.
+A time-bounded copy of the fields visible to one Principal on one Jira Instance. It is disposable and is not the source of truth.
 _Avoid_: Field configuration, field registry
 
 **Jira Markup**:

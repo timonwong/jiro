@@ -101,9 +101,9 @@ func schemaDocument() cliSchema {
 				repeatableFlag("label", "", "string"), repeatableFlag("component", "", "string"), repeatableFlag("fix-version", "", "string"),
 				flag("sprint", "", "string"), flag("parent", "", "issue-key"), flag("created", "", "jira-date"), flag("updated", "", "jira-date"),
 				flag("jql", "q", "string"), flagDefault("limit", "n", "integer", 50),
-				flagDefault("offset", "", "integer", 0), flag("all", "", "boolean"), flag("fields", "", "string-list"),
-			}, object("startAt", "maxResults", "total", "issues")),
-			commandWithFlags("issue show", nil, false, "ISSUE-KEY", []flagSchema{flag("fields", "", "string-list")}, object("id", "key", "summary", "description", "status", "fields")),
+				flagDefault("offset", "", "integer", 0), flag("all", "", "boolean"), flag("fields", "", "field-selector-list"),
+			}, objectWithFieldSelection("startAt", "maxResults", "total", "issues")),
+			commandWithFlags("issue show", nil, false, "ISSUE-KEY", []flagSchema{flag("fields", "", "field-selector-list")}, objectWithFieldSelection("id", "key", "summary", "description", "status", "fields")),
 			commandWithFlags("issue add", nil, true, "", []flagSchema{
 				requiredFlag("project", "p", "string"), requiredFlag("type", "t", "string"), requiredFlag("summary", "s", "string"),
 				flag("description", "", "string"), flag("description-file", "", "path-or-stdin"), flagDefault("input-format", "", "enum:jira|jfm|markdown", "jira"),
@@ -148,8 +148,8 @@ func schemaDocument() cliSchema {
 				requiredFlag("jql", "", "string"), requiredFlag("type", "t", "string"), flag("dry-run", "", "boolean"), flag("yes", "", "boolean"),
 			}, batchObject()),
 			commandWithFlags("search", nil, false, "JQL", []flagSchema{
-				flagDefault("limit", "n", "integer", 50), flagDefault("offset", "", "integer", 0), flag("all", "", "boolean"), flag("fields", "", "string-list"),
-			}, object("startAt", "maxResults", "total", "issues")),
+				flagDefault("limit", "n", "integer", 50), flagDefault("offset", "", "integer", 0), flag("all", "", "boolean"), flag("fields", "", "field-selector-list"),
+			}, objectWithFieldSelection("startAt", "maxResults", "total", "issues")),
 			commandWithFlags("project list", nil, false, "", []flagSchema{
 				flagDefault("limit", "n", "integer", 50), flagDefault("offset", "", "integer", 0),
 			}, object("projects")),
@@ -200,16 +200,29 @@ func object(fields ...string) map[string]any {
 	return result
 }
 
+func objectWithFieldSelection(fields ...string) map[string]any {
+	result := object(fields...)
+	result["fieldSelection"] = []any{"FieldSelection"}
+	return result
+}
+
 func batchObject() map[string]any {
 	return batchResultDefinition()
 }
 
 func typeDefinitions() map[string]any {
 	return map[string]any{
-		"Board":         object("id", "name", "type"),
-		"IssueType":     object("id", "name", "description", "subtask"),
-		"Version":       object("id", "name", "archived", "released"),
-		"Sprint":        object("id", "name", "state", "boardId", "boardName", "originBoardId", "goal", "startDate", "endDate", "completeDate"),
+		"Board":     object("id", "name", "type"),
+		"IssueType": object("id", "name", "description", "subtask"),
+		"Version":   object("id", "name", "archived", "released"),
+		"Sprint":    object("id", "name", "state", "boardId", "boardName", "originBoardId", "goal", "startDate", "endDate", "completeDate"),
+		"FieldSelector": map[string]any{
+			"forms":      []any{"Jira field ID", "customfield_N", "Jira display name", "*all", "*navigable", "-FieldSelector"},
+			"resolution": "exact Jira field ID, then locally normalized display name",
+		},
+		"FieldSelection": map[string]any{
+			"selector": "original Field Selector spelling", "resolved": "exact selector sent to Jira",
+		},
 		"FailedBoard":   object("boardId", "boardName", "error"),
 		"IssueLinkType": object("id", "name", "inward", "outward"),
 		"IssueLink": map[string]any{
