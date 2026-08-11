@@ -43,6 +43,8 @@ Each command accepts at most one file. With no file or with `-`, it reads stdin.
 
 Text mode writes only the exact converted document to stdout without adding a newline; conversion warnings go to stderr. JSON mode writes the normal versioned envelope with `.data.jiraMarkup` for `to-jira` or `.data.jfm` for `from-jira`, plus structured warnings when present. Invalid input or a fatal conversion failure produces no partial result; read the current schema for its exit code.
 
+Complete standalone conversion only after capturing the exact converted stdout and every warning from stderr, or reporting the fatal conversion failure without a partial result.
+
 ## Interpret exact JFM semantics
 
 Treat the JFM specification matching the installed jiro version as the source of truth for directives, canonicalization, round-trip guarantees, lossy conversion, and literal fallback. In a jiro source checkout, use `docs/jiro-flavored-markdown.md`; for a release binary, use the same release tag's specification. Keep detailed syntax solely in that normative specification.

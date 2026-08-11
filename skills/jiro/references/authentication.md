@@ -4,7 +4,7 @@ Use this branch for authentication, Profile management, or uncertainty about the
 
 ## Select and verify
 
-Pass a named Profile explicitly when the task identifies one:
+Pass a named Profile explicitly when the task identifies one, and carry that `--profile` through every later Jira command and readback:
 
 ```bash
 jiro --profile bot auth status --output=json

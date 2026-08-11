@@ -1,11 +1,11 @@
 ---
 name: jiro
-description: Manage Jira Data Center and Server with the jiro CLI. Use for profile authentication; issue search and mutation; project, field, transition, link, comment, or bulk workflows; JFM and Jira Markup conversion; automation through jiro's stable JSON contract; or authenticated raw Jira REST requests through jiro api.
+description: Manage Jira Data Center and Server through jiro. Use for Jira reads or writes, Profile authentication, normalized JSON automation, offline JFM and Jira Markup conversion, or authenticated raw REST fallback through jiro api.
 ---
 
 # Jiro
 
-Use `jiro` as the primary interface for Jira Data Center and Server. For every mutation, follow **inspect -> preflight -> mutate -> read back**. Finish only when a read shows the requested Jira state.
+Use `jiro` as the primary interface for Jira Data Center and Server. For every typed Jira state mutation, follow **inspect -> preflight -> mutate -> read back**. Finish a mutation only when a read shows the requested Jira state.
 
 ## Establish the contract
 
@@ -19,128 +19,81 @@ jiro COMMAND --help
 
 Treat `jiro schema --output=json` as the source of truth for commands, flags, mutation status, output shapes, and exit codes. Use the singular resource namespaces `issue`, `project`, and `field`. jiro targets Jira Data Center and Server REST API v2; verify compatibility before acting on Jira Cloud or ADF data.
 
-When the task involves authentication or Profile management, or the effective Jira Instance or Credential is uncertain or rejected, read [Authentication and profiles](references/authentication.md) before Jira work.
+Load each conditional branch before using it:
 
-When the task authors or diagnoses Jiro Flavored Markdown, converts between JFM and Jira Markup, or needs rich-text conversion warnings, read [JFM workflows](references/jfm.md) before choosing flags or interpreting output. Standalone `jiro jfm` conversion is offline and does not enter the Jira mutation loop.
+- For authentication, Profile management, or uncertainty about the effective Jira Instance or Credential, read [Authentication and profiles](references/authentication.md).
+- For explicit read fields, Custom Field Aliases, Field Metadata Snapshots, or Sprint Memberships, read [Fields and Sprint Memberships](references/fields.md).
+- For a single or bulk Issue Type change, read [Issue Type changes](references/issue-types.md).
+- For Board or Sprint discovery, or any `--sprint` selector, read [Boards and Sprints](references/agile.md).
+- For JFM authoring, conversion, mutation input, or `jfm_conversion` warnings, read [JFM workflows](references/jfm.md). Standalone `jiro jfm` conversion is offline and skips the Jira mutation loop.
+- For any `issue bulk` operation, read [Bulk workflows](references/bulk.md) before dry-run.
 
 ## Inspect
 
-Read the current state and the Jira-owned metadata that constrains the requested write. Use normalized JSON for automation and verification.
+Read the current state and the Jira-owned metadata that constrains the request. Use normalized JSON for automation and verification.
 
 ```bash
 jiro issue show OPS-42 --output=json
-jiro issue list-types OPS-42 --output=json
 jiro issue list-transitions OPS-42 --output=json
 jiro issue link types --output=json
-jiro field list --custom --output=json
-jiro board list --output=json
-jiro sprint list --state active --output=json
 ```
 
 Prefer structured filters when they express the search and JQL when they do not:
 
 ```bash
 jiro issue list --project OPS --status "In Progress" --assignee me --output=json
-jiro search 'project = OPS AND updated >= -7d ORDER BY updated DESC' --all \
-  --fields summary,status,Sprint --output=json
+jiro search 'project = OPS AND updated >= -7d ORDER BY updated DESC' --all --output=json
 ```
 
-Confirm every target Issue Key, Jira Instance, current status, assignee, relevant field value, transition, Link Type, and existing comment or link needed to judge the final state. Treat an empty list as valid unless the request requires a match.
+For read-only work, finish only when the returned data covers the requested scope. Exhaust pagination when completeness matters, and report every warning or partial failure. An empty result is valid unless the request requires a match.
+
+Before a write, confirm the Jira Instance, every target Issue Key, and every current value or Jira-owned choice needed to determine whether the final state already holds and whether the write is valid.
 
 ## Preflight
 
 Resolve Jira-owned names and write semantics before mutating:
 
 - Match a transition by the exact ID, unique name, or unique destination status returned by `issue list-transitions`.
-- Before changing an Issue Type, run `issue list-types ISSUE-KEY`. Resolve an exact ID or case-insensitive unique name only from that Issue's compatible values. Treat a missing target as incompatible even if the Issue Type exists elsewhere in the project or Jira Instance.
 - Resolve a Link Type with `issue link types`; preserve the outward direction from `FROM` to `--to`.
-- For read-side `--fields`, use Field Selectors: exact Jira field IDs, direct `customfield_N` IDs, or Jira display names such as `Sprint` and `Story Points`. jiro resolves exact IDs first, then locally normalized display names, and returns the ordered mapping in `.data.fieldSelection`. Duplicate display names require an exact ID. Direct `customfield_N`, `*all`, and `*navigable` selectors bypass metadata; exclusions such as `-Sprint` resolve their inner selector.
-- To request typed Sprint Memberships, select the Sprint field through its display-name Field Selector. When metadata identifies Jira Software's Sprint schema, each Issue adds `.sprints` while preserving the complete value under `.fields[customfield_N]`; direct IDs, special selectors, exclusions, and implicit fields remain raw-only. Treat `sprint_membership_normalization` as a degraded success: valid memberships remain ordered in `.sprints`, malformed data remains raw, and the command keeps exit code `0`.
-- A read-side miss in a fresh Field Metadata Snapshot is `invalid_input` and does not auto-refresh. Run `cache refresh` only when a newly added field is expected. Cold and expired snapshots retain normal fetch and refresh behavior. Treat `stale_field_cache` as a verification risk and report it.
-- For typed mutations, use `customfield_N` directly when known. Use a Custom Field Alias only after `field list --custom` or `cache refresh` proves it is unique for the current Jira Instance and Principal. Direct IDs bypass alias metadata.
-- Determine whether description or comment input is Jira Markup or Jiro Flavored Markdown (JFM). Jira Markup is the byte-preserving default; request JFM conversion with `--input-format=jfm`.
-- Use a file or `-` for stdin for long descriptions and `issue comment add`, keeping inline and file forms mutually exclusive. `issue move --comment` is inline-only.
-- For `issue move --resolution`, use a resolution name, numeric ID, or `none` to clear. Do not pass system fields such as `resolution` through `--field`.
-- Resolve Sprint input as a numeric ID, `active`, or a case-insensitive name substring. Confirm that the first match in Jira board/page order is intended.
-- Use `board list` and `sprint list` only for read-only discovery. `sprint list --board SELECTOR` treats a positive number as an exact Board ID and other values as case-insensitive Board name substrings; multiple name matches are all queried. Its `--state` is `active` by default and also accepts `closed`, `future`, or `all`.
+- Use a file or `-` for stdin for long descriptions and Comment Bodies, keeping inline and file forms mutually exclusive. `issue move --comment` is inline-only.
+- For `issue move --resolution`, use a resolution name, numeric ID, or `none` to clear. Use dedicated flags rather than passing system fields through `--field`.
 - Treat `--component` and `--fix-version` updates as full replacements. Use the single value `none` only for an empty final field.
 
-Refresh field metadata when it is stale or when a newly added field is absent from a fresh snapshot:
-
-```bash
-jiro cache refresh --output=json
-jiro field list --custom --output=json
-```
-
-For bulk changes, preflight the complete JQL selection without changing Jira:
-
-```bash
-jiro issue bulk move --jql 'project = OPS AND status = Open' --to Done \
-  --resolution Fixed --dry-run --output=json
-jiro issue bulk assign --jql 'project = OPS' --assignee me --dry-run --output=json
-jiro issue bulk update --jql 'project = OPS' --type Story --dry-run --output=json
-```
-
-Review every returned item. Proceed only when the selection, targets, `ready` count, and failures match the intended scope. Bulk move dry-run proves transition availability but does not ask Jira to validate custom fields or resolution; field validation occurs during `--yes` execution.
-
-Bulk Issue Type dry-run checks each Issue's `editmeta.fields.issuetype.allowedValues`. Preserve `unchanged` separately from `ready`. Affected older Jira Server releases can accept incompatible types and leave invalid workflow state, so the typed command must fail closed instead of sending a target absent from these values.
+For every bulk write, run the complete JQL selection with `--dry-run`, review every returned item, and proceed only when the target set, targets, `ready` count, and failures match the intended scope. After the user authorizes that exact write, repeat the same JQL and target with `--yes`.
 
 ## Mutate
 
-Use only the operation and fields requested.
+Use only the operation and fields requested. Carry an explicitly selected `--profile` through inspection, mutation, and readback.
 
 ```bash
-jiro issue add --project OPS --type Bug --summary "Broken deployment" \
-  --description-file issue.md --input-format=jfm --output=json
-jiro issue update OPS-42 --priority High --component API --fix-version 4.5 --output=json
-jiro issue update OPS-42 --type Story --output=json
-jiro issue comment add OPS-42 --body-file comment.md --input-format=jfm --output=json
-jiro issue move OPS-42 --to Done --comment "**Verified** in staging." \
-  --input-format=jfm --resolution Fixed --field story-points=5 --output=json
-jiro issue assign OPS-42 --assignee me --output=json
+jiro issue update OPS-42 --priority High --output=json
 jiro issue assign OPS-42 --assignee none --output=json
 jiro issue link add OPS-42 --to OPS-99 --type Blocks --output=json
-jiro issue link delete 10001 --output=json
 ```
 
-Typed-command `--field key=value` accepts only a Custom Field ID or Custom Field Alias, decodes JSON first, and otherwise uses a string; quote object and array values so the shell passes valid JSON. Use dedicated flags for system fields. `issue move` sends its transition, comment, resolution, and custom fields in one Jira transition request; it never falls back to a later comment request. Use the transition proven during preflight. Delete an Issue Link by its Jira Link ID.
+`issue move` sends its transition, Comment, Resolution, and Custom Fields in one Jira transition request; it does not fall back to a later Comment request. Delete an Issue Link by its Jira Link ID.
 
-`issue update --type` is exclusive and must not be combined with any other update flag. It sends the resolved Issue Type ID through `PUT /rest/api/2/issue/{key}`, then reads back only `issuetype`. An already-matching type is a no-op. Treat a readback mismatch as failed; treat an unavailable readback as unknown and do not retry until Jira is inspected.
+Preserve partial results. A failed follow-up operation can leave a newly created Issue or ordinary update fields in Jira; retain the returned Issue Key and every confirmed update when reporting the failure.
 
-Preserve partial results. A failed Sprint move can leave a newly created issue or ordinary update fields in Jira; retain the returned Issue Key and updated fields when reporting the failure.
-
-After the user authorizes a preflighted broad write, repeat the same JQL and target with `--yes`:
-
-```bash
-jiro issue bulk move --jql 'project = OPS AND status = Open' --to Done \
-  --resolution Fixed --yes --output=json
-jiro issue bulk assign --jql 'project = OPS' --assignee me --yes --output=json
-jiro issue bulk update --jql 'project = OPS' --type Story --yes --output=json
-```
-
-Keep dry-run and execution results distinct. Bulk writes run serially and may return `failed`, `unknown`, or `not_attempted` items. An unknown Issue Type readback stops the run because the preceding PUT may already have changed Jira.
+Keep bulk dry-run and execution results distinct. Bulk writes run serially and may return `failed`, `unknown`, or `not_attempted` items. Preserve the complete ordered result.
 
 ## Read back
 
 Read every consequential result through jiro after the write:
 
-- Use `issue show` for creation, field updates, transitions, assignments, and Sprint membership fields returned by the instance.
-- `issue update --type` and `issue bulk update --type` already perform an immediate Issue Type readback. Preserve their `unknown` result when Jira accepted the PUT but the readback failed; do not hide it behind a later retry.
-- Use `issue comment list` for comments and `issue link list` for link changes.
-- Retain the Issue Keys from a bulk dry-run and read back every targeted issue. A list or search read is sufficient only when it proves the same complete key set and final values.
-- Read normalized standard fields such as status and assignee from `.data.status` and `.data.assignee`. Request other fields with `issue show --fields FIELD-SELECTOR,...`; use `.data.fieldSelection` to map each requested selector to its Jira field ID, then read the value from `.data.fields`. For a semantically selected Sprint field, read typed membership from `.data.sprints` and retain `.data.fields[resolved]` as the raw compatibility path. Field Selection proves resolution, not that Jira returned a non-empty value.
+- Use `issue show` for creation, field updates, transitions, and assignments.
+- Use `issue comment list` for Comments and `issue link list` for Issue Link changes.
+- Retain the Issue Keys from a bulk dry-run and read back every targeted Issue. A list or search read is sufficient only when it proves the same complete key set and final values.
 
-A zero exit code is not the completion criterion. Treat a missing field or unintended destination status as incomplete work.
+A zero exit code is not the completion criterion. A missing value, unintended destination status, unresolved partial result, or unavailable readback means the work is incomplete or its final state is unknown.
 
 ## Interpret output and failures
 
 Text is the default. Use `--output=json` for agent or script consumption. Capture normalized stdout and structured stderr separately, and read exit-code meanings from the current schema.
 
-Warnings are degraded successes and retain a successful exit status. On partial failure, preserve and report the complete normalized result from stdout and the structured error from stderr, including every succeeded, failed, and unattempted item.
+Warnings are degraded successes and retain a successful exit status. On partial failure, preserve and report the complete normalized result from stdout and the structured error from stderr, including every succeeded, failed, unknown, and unattempted item.
 
-For cross-Board `sprint list`, do not deduplicate repeated Sprint IDs: each row is one queried Board relationship. Preserve `boardId`, `boardName`, and Jira's distinct `originBoardId`. If JSON includes `failedBoards`, report those failures together with the successful Sprint rows.
-
-Pause after permission errors, missing or ambiguous metadata, rate limiting, or uncertain output. Determine whether Jira applied the write before retrying.
+Before retrying after permission errors, missing or ambiguous metadata, rate limiting, or uncertain output, inspect Jira to determine whether it applied the write.
 
 ## REST fallback
 

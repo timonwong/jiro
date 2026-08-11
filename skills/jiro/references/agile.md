@@ -1,0 +1,24 @@
+# Boards and Sprints
+
+Use this branch for Board discovery, Sprint discovery, or any Issue mutation that supplies `--sprint`.
+
+## Discover Boards and Sprints
+
+`board list` and `sprint list` are read-only discovery commands:
+
+```bash
+jiro board list --output=json
+jiro sprint list --state active --output=json
+```
+
+For `sprint list --board SELECTOR`, a positive number selects one exact Board ID; other values are case-insensitive Board name substrings, and every matching Board is queried. The default Sprint state is `active`; the other current values come from schema and command help.
+
+For cross-Board results, preserve repeated Sprint IDs because each row represents one queried Board relationship. Preserve `boardId`, `boardName`, and Jira's distinct `originBoardId`. Report `failedBoards` together with successful Sprint rows.
+
+Complete discovery only when the requested Board scope has been queried and every successful relationship and failed Board has been reported.
+
+## Select a Sprint for mutation
+
+Resolve Sprint input as a numeric ID, `active`, or a case-insensitive name substring. Confirm that the first match in Jira Board/page order is the intended Sprint before mutating.
+
+After the mutation, read the Issue back. When typed Sprint Memberships are required, also follow [Fields and Sprint Memberships](fields.md).
