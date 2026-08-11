@@ -22,22 +22,23 @@ func (a *app) searchCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fieldSelection, resolvedFields, err := a.resolveReadFieldSelectors(command.Context(), client, settings, fields)
+			fieldResolution, err := a.resolveReadFieldSelectors(command.Context(), client, settings, fields)
 			if err != nil {
 				return err
 			}
 			var result jira.SearchResult
 			if all {
-				result, err = searchAll(command.Context(), client, args[0], offset, limit, resolvedFields)
+				result, err = searchAll(command.Context(), client, args[0], offset, limit, fieldResolution.resolved)
 			} else {
 				result, err = client.Search(command.Context(), jira.IssueListOptions{
-					JQL: args[0], Page: jira.Page{StartAt: offset, MaxResults: limit}, Fields: resolvedFields,
+					JQL: args[0], Page: jira.Page{StartAt: offset, MaxResults: limit}, Fields: fieldResolution.resolved,
 				})
 			}
 			if err != nil {
 				return err
 			}
-			return a.render(searchOutput{SearchResult: result, FieldSelection: fieldSelection}, output.Table{
+			a.normalizeSearchSprintMemberships(&result, fieldResolution.sprintFieldID)
+			return a.render(searchOutput{SearchResult: result, FieldSelection: fieldResolution.selection}, output.Table{
 				Columns: []output.Column{output.Fixed("KEY"), output.Flexible("SUMMARY"), output.Flexible("STATUS"), output.Flexible("ASSIGNEE")},
 				Rows:    issueRows(result.Issues),
 			})

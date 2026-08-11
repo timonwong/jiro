@@ -130,7 +130,8 @@ type wireField struct {
 	Name   string `json:"name"`
 	Custom bool   `json:"custom"`
 	Schema struct {
-		Type string `json:"type"`
+		Type   string `json:"type"`
+		Custom string `json:"custom"`
 	} `json:"schema"`
 }
 
@@ -226,7 +227,7 @@ func normalizeComment(w wireComment) Comment {
 }
 
 func normalizeField(w wireField) Field {
-	return Field{ID: w.ID, Name: w.Name, Custom: w.Custom, Type: w.Schema.Type}
+	return Field{ID: w.ID, Name: w.Name, Custom: w.Custom, Type: w.Schema.Type, SchemaCustom: w.Schema.Custom}
 }
 
 func normalizeTransition(w wireTransition) Transition {

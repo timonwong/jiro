@@ -151,23 +151,24 @@ type MoveIssueToSprintInput struct {
 // Issue is a normalized issue. Fields holds Jira field values keyed by their
 // Jira field IDs, without exposing the rest of Jira's wire document.
 type Issue struct {
-	ID          string         `json:"id"`
-	Key         string         `json:"key"`
-	Summary     string         `json:"summary"`
-	Description string         `json:"description,omitempty"`
-	Project     *Project       `json:"project,omitempty"`
-	IssueType   *IssueType     `json:"issueType,omitempty"`
-	Status      *Status        `json:"status,omitempty"`
-	Priority    *Priority      `json:"priority,omitempty"`
-	Assignee    *User          `json:"assignee,omitempty"`
-	Reporter    *User          `json:"reporter,omitempty"`
-	Parent      *Issue         `json:"parent,omitempty"`
-	Labels      []string       `json:"labels,omitempty"`
-	Components  []Component    `json:"components,omitempty"`
-	FixVersions []Version      `json:"fixVersions,omitempty"`
-	Created     string         `json:"created,omitempty"`
-	Updated     string         `json:"updated,omitempty"`
-	Fields      map[string]any `json:"fields,omitempty"`
+	ID          string              `json:"id"`
+	Key         string              `json:"key"`
+	Summary     string              `json:"summary"`
+	Description string              `json:"description,omitempty"`
+	Project     *Project            `json:"project,omitempty"`
+	IssueType   *IssueType          `json:"issueType,omitempty"`
+	Status      *Status             `json:"status,omitempty"`
+	Priority    *Priority           `json:"priority,omitempty"`
+	Assignee    *User               `json:"assignee,omitempty"`
+	Reporter    *User               `json:"reporter,omitempty"`
+	Parent      *Issue              `json:"parent,omitempty"`
+	Labels      []string            `json:"labels,omitempty"`
+	Components  []Component         `json:"components,omitempty"`
+	FixVersions []Version           `json:"fixVersions,omitempty"`
+	Created     string              `json:"created,omitempty"`
+	Updated     string              `json:"updated,omitempty"`
+	Fields      map[string]any      `json:"fields,omitempty"`
+	Sprints     *[]SprintMembership `json:"sprints,omitempty"`
 }
 
 // IssueListOptions controls a JQL issue list query.
@@ -235,10 +236,11 @@ type TransitionInput struct {
 
 // Field is a normalized Jira field definition.
 type Field struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Custom bool   `json:"custom"`
-	Type   string `json:"type,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Custom       bool   `json:"custom"`
+	Type         string `json:"type,omitempty"`
+	SchemaCustom string `json:"-"`
 }
 
 // FieldSelection records one requested Field Selector and the exact Jira

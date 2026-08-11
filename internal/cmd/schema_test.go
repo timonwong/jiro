@@ -31,7 +31,7 @@ func TestSchemaDocument(t *testing.T) {
 		document.ExitCodes["7"] != "partial failure" {
 		t.Fatalf("output contract = %+v exitCodes=%+v", document.Output, document.ExitCodes)
 	}
-	for _, name := range []string{"Board", "IssueType", "Version", "Sprint", "FieldSelector", "FieldSelection", "IssueLink", "IssueLinkType", "BatchResult", "BatchItem"} {
+	for _, name := range []string{"Board", "Issue", "IssueType", "Version", "Sprint", "SprintMembership", "FieldSelector", "FieldSelection", "IssueLink", "IssueLinkType", "BatchResult", "BatchItem"} {
 		if document.Types[name] == nil {
 			t.Fatalf("schema type %s is missing: %#v", name, document.Types)
 		}
@@ -206,6 +206,25 @@ func TestSchemaDocument(t *testing.T) {
 		selection, ok := commands[name].jsonData["fieldSelection"].([]any)
 		if !ok || len(selection) != 1 || selection[0] != "FieldSelection" {
 			t.Fatalf("%s JSON schema is missing fieldSelection: %#v", name, commands[name].jsonData)
+		}
+	}
+	for _, name := range []string{"search", "issue list"} {
+		issues, ok := commands[name].jsonData["issues"].([]any)
+		if !ok || len(issues) != 1 || issues[0] != "Issue" {
+			t.Fatalf("%s JSON schema is missing typed Issues: %#v", name, commands[name].jsonData)
+		}
+	}
+	showSprints, ok := commands["issue show"].jsonData["sprints"].([]any)
+	if !ok || len(showSprints) != 1 || showSprints[0] != "SprintMembership" {
+		t.Fatalf("issue show JSON schema is missing Sprint Memberships: %#v", commands["issue show"].jsonData)
+	}
+	issueSprints, ok := document.Types["Issue"].(map[string]any)["sprints"].([]any)
+	if !ok || len(issueSprints) != 1 || issueSprints[0] != "SprintMembership" {
+		t.Fatalf("Issue type is missing Sprint Memberships: %#v", document.Types["Issue"])
+	}
+	for _, field := range []string{"id", "name", "state", "boardId", "goal", "startDate", "endDate", "completeDate"} {
+		if membership, ok := document.Types["SprintMembership"].(map[string]any); !ok || membership[field] == nil {
+			t.Fatalf("SprintMembership type is missing %q: %#v", field, document.Types["SprintMembership"])
 		}
 	}
 	if got := flags["issue move"]["input-format"]; got.kind != "enum:jira|jfm|markdown" || got.defaultValue != "jira" {

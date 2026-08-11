@@ -24,6 +24,12 @@ type resolutionOption struct {
 	output     string
 }
 
+type readFieldResolution struct {
+	selection     []jira.FieldSelection
+	resolved      []string
+	sprintFieldID string
+}
+
 // IssueListJQLFilters contains the typed filters supported by issues list.
 // Values in Labels, Components, and FixVersions are combined with IN; every
 // populated field is combined with AND.
@@ -165,35 +171,61 @@ func (a *app) resolveReadFieldSelectors(
 	client *jira.Client,
 	settings config.Settings,
 	selectors []string,
-) ([]jira.FieldSelection, []string, error) {
+) (readFieldResolution, error) {
 	if len(selectors) == 0 {
-		return nil, nil, nil
+		return readFieldResolution{}, nil
 	}
 	needsMetadata, err := jira.FieldSelectorsNeedMetadata(selectors)
 	if err != nil {
-		return nil, nil, err
+		return readFieldResolution{}, err
 	}
 	var fields []jira.Field
 	var metadata fieldMetadata
 	if needsMetadata {
 		metadata, err = a.loadFieldMetadata(ctx, client, settings)
 		if err != nil {
-			return nil, nil, err
+			return readFieldResolution{}, err
 		}
 		fields = metadata.fields
 	}
 	selection, err := jira.ResolveFieldSelectors(selectors, fields)
 	if err != nil {
 		if metadata.refreshErr != nil {
-			return nil, nil, metadata.refreshErr
+			return readFieldResolution{}, metadata.refreshErr
 		}
-		return nil, nil, err
+		return readFieldResolution{}, err
 	}
 	resolved := make([]string, len(selection))
 	for i, item := range selection {
 		resolved[i] = item.Resolved
 	}
-	return selection, resolved, nil
+	sprintFieldID, err := selectedSprintFieldID(selection, fields)
+	if err != nil {
+		return readFieldResolution{}, err
+	}
+	return readFieldResolution{selection: selection, resolved: resolved, sprintFieldID: sprintFieldID}, nil
+}
+
+func selectedSprintFieldID(selection []jira.FieldSelection, fields []jira.Field) (string, error) {
+	const sprintSchemaCustom = "com.pyxis.greenhopper.jira:gh-sprint"
+	byID := make(map[string]jira.Field, len(fields))
+	for _, field := range fields {
+		byID[field.ID] = field
+	}
+	for _, item := range selection {
+		selectsMetadataField, err := jira.FieldSelectorSelectsMetadataField(item.Selector)
+		if err != nil {
+			return "", err
+		}
+		if !selectsMetadataField {
+			continue
+		}
+		field, found := byID[item.Resolved]
+		if found && field.SchemaCustom == sprintSchemaCustom {
+			return field.ID, nil
+		}
+	}
+	return "", nil
 }
 
 func parseResolutionOption(raw string, changed bool) (*resolutionOption, error) {

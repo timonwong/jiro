@@ -125,3 +125,51 @@ func TestResolveCustomFieldAndParseValues(t *testing.T) {
 		t.Fatalf("values = %#v", values)
 	}
 }
+
+func TestListFieldsPreservesSchemaCustomIdentity(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/rest/api/2/field" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.String())
+		}
+		_, _ = w.Write([]byte(`[{"id":"customfield_10001","name":"Iteration","custom":true,"schema":{"type":"array","custom":"com.pyxis.greenhopper.jira:gh-sprint"}}]`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, err := client.ListFields(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Field{{
+		ID: "customfield_10001", Name: "Iteration", Custom: true, Type: "array",
+		SchemaCustom: "com.pyxis.greenhopper.jira:gh-sprint",
+	}}
+	if !reflect.DeepEqual(fields, want) {
+		t.Fatalf("fields = %#v, want %#v", fields, want)
+	}
+}
+
+func TestFieldSelectorSelectsMetadataField(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		selector string
+		want     bool
+	}{
+		{selector: "Sprint", want: true},
+		{selector: "summary", want: true},
+		{selector: "-Sprint", want: false},
+		{selector: "customfield_10001", want: false},
+		{selector: "*all", want: false},
+		{selector: "*navigable", want: false},
+	}
+	for _, test := range tests {
+		got, err := FieldSelectorSelectsMetadataField(test.selector)
+		if err != nil || got != test.want {
+			t.Fatalf("FieldSelectorSelectsMetadataField(%q) = %t, %v; want %t", test.selector, got, err, test.want)
+		}
+	}
+}
