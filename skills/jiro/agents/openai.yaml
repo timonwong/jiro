@@ -1,4 +1,4 @@
 interface:
   display_name: "Jiro"
-  short_description: "Manage Jira and convert JFM with jiro"
-  default_prompt: "Use $jiro to inspect and manage Jira safely or convert JFM and Jira Markup offline."
+  short_description: "Manage Jira DC/Server and convert JFM"
+  default_prompt: "Use $jiro for Jira Data Center or Server operations, or for offline JFM and Jira Markup conversion."
