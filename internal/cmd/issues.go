@@ -63,22 +63,23 @@ func (a *app) issuesListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fieldSelection, resolvedFields, err := a.resolveReadFieldSelectors(command.Context(), client, settings, fields)
+			fieldResolution, err := a.resolveReadFieldSelectors(command.Context(), client, settings, fields)
 			if err != nil {
 				return err
 			}
 			var result jira.SearchResult
 			if all {
-				result, err = searchAll(command.Context(), client, jql, offset, limit, resolvedFields)
+				result, err = searchAll(command.Context(), client, jql, offset, limit, fieldResolution.resolved)
 			} else {
 				result, err = client.ListIssues(command.Context(), jira.IssueListOptions{
-					JQL: jql, Page: jira.Page{StartAt: offset, MaxResults: limit}, Fields: resolvedFields,
+					JQL: jql, Page: jira.Page{StartAt: offset, MaxResults: limit}, Fields: fieldResolution.resolved,
 				})
 			}
 			if err != nil {
 				return err
 			}
-			return a.render(searchOutput{SearchResult: result, FieldSelection: fieldSelection}, output.Table{
+			a.normalizeSearchSprintMemberships(&result, fieldResolution.sprintFieldID)
+			return a.render(searchOutput{SearchResult: result, FieldSelection: fieldResolution.selection}, output.Table{
 				Columns: []output.Column{output.Fixed("KEY"), output.Flexible("SUMMARY"), output.Flexible("STATUS"), output.Flexible("ASSIGNEE")},
 				Rows:    issueRows(result.Issues),
 			})
@@ -117,15 +118,16 @@ func (a *app) issueShowCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fieldSelection, resolvedFields, err := a.resolveReadFieldSelectors(command.Context(), client, settings, fields)
+			fieldResolution, err := a.resolveReadFieldSelectors(command.Context(), client, settings, fields)
 			if err != nil {
 				return err
 			}
-			issue, err := client.ShowIssue(command.Context(), args[0], resolvedFields)
+			issue, err := client.ShowIssue(command.Context(), args[0], fieldResolution.resolved)
 			if err != nil {
 				return err
 			}
-			return a.renderIssueShow(issue, fieldSelection)
+			a.normalizeIssueSprintMemberships(&issue, fieldResolution.sprintFieldID)
+			return a.renderIssueShow(issue, fieldResolution.selection)
 		},
 	}
 	command.Flags().StringSliceVar(&fields, "fields", nil, "comma-separated Field Selectors to resolve and request")

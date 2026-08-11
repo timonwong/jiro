@@ -93,7 +93,10 @@ func (a *app) fetchFieldMetadata(ctx context.Context, client *jira.Client, setti
 	}
 	cacheFields := make([]fieldcache.Field, len(fields))
 	for i, field := range fields {
-		cacheFields[i] = fieldcache.Field{ID: field.ID, Name: field.Name, Alias: jira.Slug(field.Name), Custom: field.Custom, Type: field.Type}
+		cacheFields[i] = fieldcache.Field{
+			ID: field.ID, Name: field.Name, Alias: jira.Slug(field.Name), Custom: field.Custom,
+			Type: field.Type, SchemaCustom: field.SchemaCustom,
+		}
 	}
 	path, pathErr := a.fieldStore.Path(settings.Host, principal)
 	if pathErr != nil {
@@ -138,7 +141,7 @@ func customFieldsOnly(fields []jira.Field) []jira.Field {
 func metadataFromSnapshot(snapshot fieldcache.Snapshot, path string, refreshAttempted bool) fieldMetadata {
 	fields := make([]jira.Field, len(snapshot.Fields))
 	for i, field := range snapshot.Fields {
-		fields[i] = jira.Field{ID: field.ID, Name: field.Name, Custom: field.Custom, Type: field.Type}
+		fields[i] = jira.Field{ID: field.ID, Name: field.Name, Custom: field.Custom, Type: field.Type, SchemaCustom: field.SchemaCustom}
 	}
 	return fieldMetadata{
 		fields: fields, principal: snapshot.Principal, snapshot: snapshot, path: path, refreshAttempted: refreshAttempted,

@@ -81,7 +81,7 @@ func TestRoundTripSortAndFreshness(t *testing.T) {
 	principal := Principal{AccountID: "1", Username: "alice"}
 	snapshot, err := store.NewSnapshot("https://jira.example.test/jira", principal, []Field{
 		{ID: "customfield_2", Name: "Two", Alias: "two", Custom: true, Type: "number"},
-		{ID: "customfield_1", Name: "One", Alias: "one", Custom: true, Type: "string"},
+		{ID: "customfield_1", Name: "Iteration", Alias: "iteration", Custom: true, Type: "array", SchemaCustom: "com.pyxis.greenhopper.jira:gh-sprint"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -94,14 +94,14 @@ func TestRoundTripSortAndFreshness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(contents), "\n  \"schemaVersion\": 2,") {
+	if !strings.Contains(string(contents), "\n  \"schemaVersion\": 3,") || !strings.Contains(string(contents), `"schemaCustom": "com.pyxis.greenhopper.jira:gh-sprint"`) {
 		t.Fatalf("snapshot is not pretty JSON: %s", contents)
 	}
 	got, gotPath, err := store.Read(snapshot.Instance, principal)
 	if err != nil || gotPath != path {
 		t.Fatalf("Read = %#v, %q, %v", got, gotPath, err)
 	}
-	if got.SchemaVersion != schemaVersion || got.Fields[0].ID != "customfield_1" || got.Fields[1].ID != "customfield_2" {
+	if got.SchemaVersion != schemaVersion || got.Fields[0].ID != "customfield_1" || got.Fields[0].SchemaCustom != "com.pyxis.greenhopper.jira:gh-sprint" || got.Fields[1].ID != "customfield_2" {
 		t.Fatalf("round trip = %#v", got)
 	}
 	if !store.Fresh(got) || store.Stale(got) {
@@ -152,7 +152,7 @@ func TestReadMissingInvalidAndIdentityMismatch(t *testing.T) {
 	}
 }
 
-func TestReadRejectsLegacyCustomOnlySnapshot(t *testing.T) {
+func TestReadRejectsVersionTwoSnapshot(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
 	store := New(t.TempDir(), func() time.Time { return now })
@@ -166,12 +166,12 @@ func TestReadRejectsLegacyCustomOnlySnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	legacy := `{
-		"schemaVersion": 1,
+		"schemaVersion": 2,
 		"instance": "https://jira.example.test",
 		"principal": {"accountId": "1", "username": "alice"},
 		"fetchedAt": "2026-07-30T12:00:00Z",
 		"expiresAt": "2026-07-31T12:00:00Z",
-		"fields": [{"id": "customfield_10001", "name": "Sprint", "alias": "sprint"}]
+		"fields": [{"id": "customfield_10001", "name": "Sprint", "alias": "sprint", "custom": true, "type": "array"}]
 	}`
 	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)

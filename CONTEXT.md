@@ -68,6 +68,10 @@ _Avoid_: Project, Sprint container
 A Jira Software planning interval that groups Issues for a time-bounded body of work.
 _Avoid_: Iteration, milestone
 
+**Sprint Membership**:
+A relationship indicating that an Issue belongs or previously belonged to one Sprint. It is distinct from the Board-to-Sprint relationship returned by Sprint discovery.
+_Avoid_: Sprint assignment, Board Sprint
+
 **Issue Link**:
 A directional relationship between two Jira Issues, identified by Jira so it can be listed and removed deterministically.
 _Avoid_: Web Link, dependency

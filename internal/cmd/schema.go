@@ -102,8 +102,8 @@ func schemaDocument() cliSchema {
 				flag("sprint", "", "string"), flag("parent", "", "issue-key"), flag("created", "", "jira-date"), flag("updated", "", "jira-date"),
 				flag("jql", "q", "string"), flagDefault("limit", "n", "integer", 50),
 				flagDefault("offset", "", "integer", 0), flag("all", "", "boolean"), flag("fields", "", "field-selector-list"),
-			}, objectWithFieldSelection("startAt", "maxResults", "total", "issues")),
-			commandWithFlags("issue show", nil, false, "ISSUE-KEY", []flagSchema{flag("fields", "", "field-selector-list")}, objectWithFieldSelection("id", "key", "summary", "description", "status", "fields")),
+			}, issueCollectionWithFieldSelection("startAt", "maxResults", "total")),
+			commandWithFlags("issue show", nil, false, "ISSUE-KEY", []flagSchema{flag("fields", "", "field-selector-list")}, issueWithFieldSelection()),
 			commandWithFlags("issue add", nil, true, "", []flagSchema{
 				requiredFlag("project", "p", "string"), requiredFlag("type", "t", "string"), requiredFlag("summary", "s", "string"),
 				flag("description", "", "string"), flag("description-file", "", "path-or-stdin"), flagDefault("input-format", "", "enum:jira|jfm|markdown", "jira"),
@@ -149,7 +149,7 @@ func schemaDocument() cliSchema {
 			}, batchObject()),
 			commandWithFlags("search", nil, false, "JQL", []flagSchema{
 				flagDefault("limit", "n", "integer", 50), flagDefault("offset", "", "integer", 0), flag("all", "", "boolean"), flag("fields", "", "field-selector-list"),
-			}, objectWithFieldSelection("startAt", "maxResults", "total", "issues")),
+			}, issueCollectionWithFieldSelection("startAt", "maxResults", "total")),
 			commandWithFlags("project list", nil, false, "", []flagSchema{
 				flagDefault("limit", "n", "integer", 50), flagDefault("offset", "", "integer", 0),
 			}, object("projects")),
@@ -206,16 +206,30 @@ func objectWithFieldSelection(fields ...string) map[string]any {
 	return result
 }
 
+func issueCollectionWithFieldSelection(fields ...string) map[string]any {
+	result := objectWithFieldSelection(fields...)
+	result["issues"] = []any{"Issue"}
+	return result
+}
+
+func issueWithFieldSelection() map[string]any {
+	result := issueTypeDefinition()
+	result["fieldSelection"] = []any{"FieldSelection"}
+	return result
+}
+
 func batchObject() map[string]any {
 	return batchResultDefinition()
 }
 
 func typeDefinitions() map[string]any {
 	return map[string]any{
-		"Board":     object("id", "name", "type"),
-		"IssueType": object("id", "name", "description", "subtask"),
-		"Version":   object("id", "name", "archived", "released"),
-		"Sprint":    object("id", "name", "state", "boardId", "boardName", "originBoardId", "goal", "startDate", "endDate", "completeDate"),
+		"Board":            object("id", "name", "type"),
+		"Issue":            issueTypeDefinition(),
+		"IssueType":        object("id", "name", "description", "subtask"),
+		"Version":          object("id", "name", "archived", "released"),
+		"Sprint":           object("id", "name", "state", "boardId", "boardName", "originBoardId", "goal", "startDate", "endDate", "completeDate"),
+		"SprintMembership": object("id", "name", "state", "boardId", "goal", "startDate", "endDate", "completeDate"),
 		"FieldSelector": map[string]any{
 			"forms":      []any{"Jira field ID", "customfield_N", "Jira display name", "*all", "*navigable", "-FieldSelector"},
 			"resolution": "exact Jira field ID, then locally normalized display name",
@@ -234,6 +248,15 @@ func typeDefinitions() map[string]any {
 		"BatchItem":    batchItemDefinition(),
 		"BatchResult":  batchResultDefinition(),
 	}
+}
+
+func issueTypeDefinition() map[string]any {
+	result := object(
+		"id", "key", "summary", "description", "project", "issueType", "status", "priority", "assignee", "reporter",
+		"parent", "labels", "components", "fixVersions", "created", "updated", "fields",
+	)
+	result["sprints"] = []any{"SprintMembership"}
+	return result
 }
 
 func batchResultDefinition() map[string]any {

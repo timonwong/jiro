@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	schemaVersion = 2
+	schemaVersion = 3
 	cacheTTL      = 24 * time.Hour
 )
 
@@ -43,11 +43,12 @@ type Principal struct {
 
 // Field is the cache-safe subset of a Jira field definition.
 type Field struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Alias  string `json:"alias,omitempty"`
-	Custom bool   `json:"custom"`
-	Type   string `json:"type,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Alias        string `json:"alias,omitempty"`
+	Custom       bool   `json:"custom"`
+	Type         string `json:"type,omitempty"`
+	SchemaCustom string `json:"schemaCustom,omitempty"`
 }
 
 // Snapshot is a versioned on-disk field-cache record.

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -250,7 +251,7 @@ func TestCacheFieldsRefreshAndFieldListSources(t *testing.T) {
 			writeTestPrincipal(writer)
 		case "/rest/api/2/field":
 			fieldCalls.Add(1)
-			_, _ = io.WriteString(writer, `[{"id":"summary","name":"Summary","custom":false,"schema":{"type":"string"}},{"id":"customfield_10006","name":"Story Points","custom":true,"schema":{"type":"number"}}]`)
+			_, _ = io.WriteString(writer, `[{"id":"summary","name":"Summary","custom":false,"schema":{"type":"string"}},{"id":"customfield_10001","name":"Iteration","custom":true,"schema":{"type":"array","custom":"com.pyxis.greenhopper.jira:gh-sprint"}}]`)
 		default:
 			t.Fatalf("unexpected path %q", request.URL.Path)
 		}
@@ -265,7 +266,7 @@ func TestCacheFieldsRefreshAndFieldListSources(t *testing.T) {
 		t.Fatalf("refresh code=%d myself=%d fields=%d stdout=%s stderr=%s", code, myselfCalls.Load(), fieldCalls.Load(), stdout.String(), stderr.String())
 	}
 	snapshot, _, err := store.Read(server.URL, testFieldPrincipal)
-	if err != nil || len(snapshot.Fields) != 2 || snapshot.Fields[0].ID != "customfield_10006" || snapshot.Fields[1].ID != "summary" {
+	if err != nil || len(snapshot.Fields) != 2 || snapshot.Fields[0].ID != "customfield_10001" || snapshot.Fields[0].SchemaCustom != "com.pyxis.greenhopper.jira:gh-sprint" || snapshot.Fields[1].ID != "summary" {
 		t.Fatalf("snapshot=%#v err=%v", snapshot, err)
 	}
 
@@ -281,6 +282,51 @@ func TestCacheFieldsRefreshAndFieldListSources(t *testing.T) {
 	code = a.execute([]string{"--config", configPath, "-ojson", "field", "list"})
 	if code != 0 || stderr.Len() != 0 || myselfCalls.Load() != 2 || fieldCalls.Load() != 2 {
 		t.Fatalf("full list code=%d myself=%d fields=%d stdout=%s stderr=%s", code, myselfCalls.Load(), fieldCalls.Load(), stdout.String(), stderr.String())
+	}
+}
+
+func TestVersionTwoFieldCacheRequiresLiveRefreshForSprintIdentity(t *testing.T) {
+	clearCommandEnv(t)
+	store := fieldcache.New(t.TempDir(), nil)
+	var issueCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/rest/api/2/myself":
+			writeTestPrincipal(writer)
+		case "/rest/api/2/field":
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(writer, `{"errorMessages":["metadata unavailable"]}`)
+		case "/rest/api/2/issue/AIT-1":
+			issueCalls.Add(1)
+		default:
+			t.Fatalf("unexpected path %q", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	path, err := store.Path(server.URL, testFieldPrincipal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{
+		"schemaVersion": 2,
+		"instance": ` + strconv.Quote(server.URL) + `,
+		"principal": {"accountId":"account-alice","username":"alice"},
+		"fetchedAt":"2026-08-11T12:00:00Z",
+		"expiresAt":"2026-08-12T12:00:00Z",
+		"fields":[{"id":"customfield_10001","name":"Sprint","alias":"sprint","custom":true,"type":"array"}]
+	}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	a := newFieldCacheTestApp(stdout, stderr, store)
+	code := a.execute([]string{"--config", writeCLIConfig(t, server.URL, false), "-ojson", "issue", "show", "AIT-1", "--fields", "Sprint"})
+	if code != 5 || stdout.Len() != 0 || issueCalls.Load() != 0 || !strings.Contains(stderr.String(), "metadata unavailable") {
+		t.Fatalf("code=%d issueCalls=%d stdout=%s stderr=%s", code, issueCalls.Load(), stdout.String(), stderr.String())
 	}
 }
 
@@ -305,9 +351,13 @@ func writeTestPrincipal(writer http.ResponseWriter) {
 	_, _ = io.WriteString(writer, `{"accountId":"account-alice","name":"alice","displayName":"Alice","active":true}`)
 }
 
-func writeTestSnapshot(t *testing.T, store fieldcache.Store, instance, id, name string) {
+func writeTestSnapshot(t *testing.T, store fieldcache.Store, instance, id, name string, schemaCustom ...string) {
 	t.Helper()
-	snapshot, err := store.NewSnapshot(instance, testFieldPrincipal, []fieldcache.Field{{ID: id, Name: name, Alias: strings.ToLower(strings.ReplaceAll(name, " ", "-")), Type: "number"}})
+	field := fieldcache.Field{ID: id, Name: name, Alias: strings.ToLower(strings.ReplaceAll(name, " ", "-")), Type: "number"}
+	if len(schemaCustom) > 0 {
+		field.SchemaCustom = schemaCustom[0]
+	}
+	snapshot, err := store.NewSnapshot(instance, testFieldPrincipal, []fieldcache.Field{field})
 	if err != nil {
 		t.Fatal(err)
 	}

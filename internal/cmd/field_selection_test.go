@@ -161,7 +161,7 @@ func TestStaleFieldMetadataResolvesSelectorWithWarning(t *testing.T) {
 			if want := []string{"customfield_10001"}; !reflect.DeepEqual(payload.Fields, want) {
 				t.Fatalf("fields = %#v, want %#v", payload.Fields, want)
 			}
-			_, _ = io.WriteString(writer, `{"startAt":0,"maxResults":50,"total":0,"issues":[]}`)
+			_, _ = io.WriteString(writer, `{"startAt":0,"maxResults":50,"total":1,"issues":[{"id":"1","key":"AIT-1","fields":{"customfield_99999":["Sprint@[id=9]"]}}]}`)
 		default:
 			t.Fatalf("unexpected path %q", request.URL.Path)
 		}
@@ -176,7 +176,7 @@ func TestStaleFieldMetadataResolvesSelectorWithWarning(t *testing.T) {
 		"--config", writeCLIConfig(t, server.URL, false), "-ojson", "search", "project = AIT",
 		"--fields", "Sprint",
 	})
-	if code != 0 || stderr.Len() != 0 {
+	if code != 0 || stderr.Len() != 0 || strings.Contains(stdout.String(), `"sprints"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 	var envelope struct {
@@ -276,7 +276,7 @@ func TestSearchWithoutExplicitFieldsOmitsFieldSelectionAndMetadataLookup(t *test
 		case "/rest/api/2/myself", "/rest/api/2/field":
 			t.Fatalf("search without --fields called metadata endpoint %q", request.URL.Path)
 		case "/rest/api/2/search":
-			_, _ = io.WriteString(writer, `{"startAt":0,"maxResults":50,"total":0,"issues":[]}`)
+			_, _ = io.WriteString(writer, `{"startAt":0,"maxResults":50,"total":1,"issues":[{"id":"1","key":"AIT-1","fields":{"customfield_10001":["Sprint@[id=9]"]}}]}`)
 		default:
 			t.Fatalf("unexpected path %q", request.URL.Path)
 		}
@@ -288,7 +288,7 @@ func TestSearchWithoutExplicitFieldsOmitsFieldSelectionAndMetadataLookup(t *test
 	code := a.execute([]string{
 		"--config", writeCLIConfig(t, server.URL, false), "-ojson", "search", "project = AIT",
 	})
-	if code != 0 || stderr.Len() != 0 || strings.Contains(stdout.String(), "fieldSelection") {
+	if code != 0 || stderr.Len() != 0 || strings.Contains(stdout.String(), "fieldSelection") || strings.Contains(stdout.String(), `"sprints"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 }
@@ -423,7 +423,7 @@ func TestIssueListUsesTheSharedFieldSelectorContract(t *testing.T) {
 		case "/rest/api/2/myself":
 			writeTestPrincipal(writer)
 		case "/rest/api/2/field":
-			_, _ = io.WriteString(writer, `[{"id":"customfield_10001","name":"Sprint","custom":true,"schema":{"type":"array"}}]`)
+			_, _ = io.WriteString(writer, `[{"id":"customfield_10001","name":"Sprint","custom":true,"schema":{"type":"array","custom":"com.pyxis.greenhopper.jira:gh-sprint"}}]`)
 		case "/rest/api/2/search":
 			var payload struct {
 				Fields []string `json:"fields"`
@@ -434,7 +434,7 @@ func TestIssueListUsesTheSharedFieldSelectorContract(t *testing.T) {
 			if want := []string{"customfield_10001"}; !reflect.DeepEqual(payload.Fields, want) {
 				t.Fatalf("fields = %#v, want %#v", payload.Fields, want)
 			}
-			_, _ = io.WriteString(writer, `{"startAt":0,"maxResults":50,"total":0,"issues":[]}`)
+			_, _ = io.WriteString(writer, `{"startAt":0,"maxResults":50,"total":1,"issues":[{"id":"1","key":"AIT-1","fields":{"customfield_10001":null}}]}`)
 		default:
 			t.Fatalf("unexpected path %q", request.URL.Path)
 		}
@@ -459,7 +459,7 @@ func TestIssueListUsesTheSharedFieldSelectorContract(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Data.Issues == nil || len(envelope.Data.FieldSelection) != 1 || envelope.Data.FieldSelection[0].Resolved != "customfield_10001" {
+	if len(envelope.Data.Issues) != 1 || envelope.Data.Issues[0].Sprints == nil || len(*envelope.Data.Issues[0].Sprints) != 0 || len(envelope.Data.FieldSelection) != 1 || envelope.Data.FieldSelection[0].Resolved != "customfield_10001" {
 		t.Fatalf("data = %#v", envelope.Data)
 	}
 }

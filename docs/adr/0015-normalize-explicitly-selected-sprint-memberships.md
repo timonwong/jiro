@@ -1,0 +1,5 @@
+# Normalize explicitly selected Sprint Memberships
+
+jiro adds an independent Sprint Membership model to normalized Issue JSON only when a positive, explicit Field Selector resolves through Principal-scoped metadata to Jira Software's `com.pyxis.greenhopper.jira:gh-sprint` field. This keeps default reads, direct `customfield_N` selectors, and special selectors free of hidden metadata requests; avoids conflating Issue membership with the Board relationship represented by `sprint list`; and preserves the original Custom Field value alongside the typed `.sprints` projection.
+
+Normalization accepts both GreenHopper legacy strings and structured Sprint objects and is best effort: valid memberships retain Jira order and duplicates, malformed data remains available in `.fields`, and non-fatal loss is reported through `sprint_membership_normalization` warnings. Field Metadata Snapshots include the schema custom identity and advance to cache schema version 3, while the public CLI remains `contractVersion=3` and JSON `schemaVersion=1`.

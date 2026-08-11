@@ -45,6 +45,16 @@ func FieldSelectorsNeedMetadata(selectors []string) (bool, error) {
 	return false, nil
 }
 
+// FieldSelectorSelectsMetadataField reports whether selector is a positive
+// Field Selector whose target is resolved through Jira field metadata.
+func FieldSelectorSelectsMetadataField(selector string) (bool, error) {
+	parsed, err := parseFieldSelector(selector)
+	if err != nil {
+		return false, err
+	}
+	return !parsed.excluded && !fieldSelectorBypassesMetadata(parsed.target), nil
+}
+
 type parsedFieldSelector struct {
 	target   string
 	excluded bool
