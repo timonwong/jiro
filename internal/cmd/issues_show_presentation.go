@@ -15,13 +15,18 @@ type issueShowSection struct {
 	value  string
 }
 
-func (a *app) renderIssueShow(issue jira.Issue) error {
+type issueShowOutput struct {
+	jira.Issue
+	FieldSelection []jira.FieldSelection `json:"fieldSelection,omitempty"`
+}
+
+func (a *app) renderIssueShow(issue jira.Issue, fieldSelection []jira.FieldSelection) error {
 	renderer, err := a.renderer()
 	if err != nil {
 		return err
 	}
 	if renderer.Format != output.FormatText {
-		return renderer.Success(issue)
+		return renderer.Success(issueShowOutput{Issue: issue, FieldSelection: fieldSelection})
 	}
 
 	return renderer.Success(issueShowPresentation(issue, renderer.IsTTY()))

@@ -18,22 +18,26 @@ func (a *app) searchCommand() *cobra.Command {
 			if err := validatePagination(offset, limit); err != nil {
 				return err
 			}
-			client, _, err := a.client()
+			client, settings, err := a.client()
+			if err != nil {
+				return err
+			}
+			fieldSelection, resolvedFields, err := a.resolveReadFieldSelectors(command.Context(), client, settings, fields)
 			if err != nil {
 				return err
 			}
 			var result jira.SearchResult
 			if all {
-				result, err = searchAll(command.Context(), client, args[0], offset, limit, fields)
+				result, err = searchAll(command.Context(), client, args[0], offset, limit, resolvedFields)
 			} else {
 				result, err = client.Search(command.Context(), jira.IssueListOptions{
-					JQL: args[0], Page: jira.Page{StartAt: offset, MaxResults: limit}, Fields: fields,
+					JQL: args[0], Page: jira.Page{StartAt: offset, MaxResults: limit}, Fields: resolvedFields,
 				})
 			}
 			if err != nil {
 				return err
 			}
-			return a.render(result, output.Table{
+			return a.render(searchOutput{SearchResult: result, FieldSelection: fieldSelection}, output.Table{
 				Columns: []output.Column{output.Fixed("KEY"), output.Flexible("SUMMARY"), output.Flexible("STATUS"), output.Flexible("ASSIGNEE")},
 				Rows:    issueRows(result.Issues),
 			})
@@ -42,8 +46,13 @@ func (a *app) searchCommand() *cobra.Command {
 	command.Flags().IntVarP(&limit, "limit", "n", 50, "maximum issues per page")
 	command.Flags().IntVar(&offset, "offset", 0, "zero-based result offset")
 	command.Flags().BoolVar(&all, "all", false, "fetch all result pages")
-	command.Flags().StringSliceVar(&fields, "fields", nil, "comma-separated Jira fields to request")
+	command.Flags().StringSliceVar(&fields, "fields", nil, "comma-separated Field Selectors to resolve and request")
 	return command
+}
+
+type searchOutput struct {
+	jira.SearchResult
+	FieldSelection []jira.FieldSelection `json:"fieldSelection,omitempty"`
 }
 
 func (a *app) projectCommand() *cobra.Command {
@@ -132,11 +141,11 @@ func (a *app) fieldsListCommand() *cobra.Command {
 			}
 			var fields []jira.Field
 			if customOnly {
-				metadata, err := a.loadCustomFieldMetadata(command.Context(), client, settings)
+				metadata, err := a.loadFieldMetadata(command.Context(), client, settings)
 				if err != nil {
 					return err
 				}
-				fields = metadata.fields
+				fields = customFieldsOnly(metadata.fields)
 			} else {
 				fields, err = client.ListFields(command.Context())
 				if err != nil {

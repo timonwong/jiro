@@ -41,7 +41,8 @@ Prefer structured filters when they express the search and JQL when they do not:
 
 ```bash
 jiro issue list --project OPS --status "In Progress" --assignee me --output=json
-jiro search 'project = OPS AND updated >= -7d ORDER BY updated DESC' --all --output=json
+jiro search 'project = OPS AND updated >= -7d ORDER BY updated DESC' --all \
+  --fields summary,status,Sprint --output=json
 ```
 
 Confirm every target Issue Key, Jira Instance, current status, assignee, relevant field value, transition, Link Type, and existing comment or link needed to judge the final state. Treat an empty list as valid unless the request requires a match.
@@ -53,7 +54,9 @@ Resolve Jira-owned names and write semantics before mutating:
 - Match a transition by the exact ID, unique name, or unique destination status returned by `issue list-transitions`.
 - Before changing an Issue Type, run `issue list-types ISSUE-KEY`. Resolve an exact ID or case-insensitive unique name only from that Issue's compatible values. Treat a missing target as incompatible even if the Issue Type exists elsewhere in the project or Jira Instance.
 - Resolve a Link Type with `issue link types`; preserve the outward direction from `FROM` to `--to`.
-- Use `customfield_N` directly when known. Use a human alias only after `field list --custom` or `cache refresh` proves it is unique for the current Jira Instance and Principal. Treat `stale_field_cache` as a verification risk: disclose it and verify the written field directly. Direct IDs bypass alias metadata.
+- For read-side `--fields`, use Field Selectors: exact Jira field IDs, direct `customfield_N` IDs, or Jira display names such as `Sprint` and `Story Points`. jiro resolves exact IDs first, then locally normalized display names, and returns the ordered mapping in `.data.fieldSelection`. Duplicate display names require an exact ID. Direct `customfield_N`, `*all`, and `*navigable` selectors bypass metadata; exclusions such as `-Sprint` resolve their inner selector.
+- A read-side miss in a fresh Field Metadata Snapshot is `invalid_input` and does not auto-refresh. Run `cache refresh` only when a newly added field is expected. Cold and expired snapshots retain normal fetch and refresh behavior. Treat `stale_field_cache` as a verification risk and report it.
+- For typed mutations, use `customfield_N` directly when known. Use a Custom Field Alias only after `field list --custom` or `cache refresh` proves it is unique for the current Jira Instance and Principal. Direct IDs bypass alias metadata.
 - Determine whether description or comment input is Jira Markup or Jiro Flavored Markdown (JFM). Jira Markup is the byte-preserving default; request JFM conversion with `--input-format=jfm`.
 - Use a file or `-` for stdin for long descriptions and `issue comment add`, keeping inline and file forms mutually exclusive. `issue move --comment` is inline-only.
 - For `issue move --resolution`, use a resolution name, numeric ID, or `none` to clear. Do not pass system fields such as `resolution` through `--field`.
@@ -61,7 +64,7 @@ Resolve Jira-owned names and write semantics before mutating:
 - Use `board list` and `sprint list` only for read-only discovery. `sprint list --board SELECTOR` treats a positive number as an exact Board ID and other values as case-insensitive Board name substrings; multiple name matches are all queried. Its `--state` is `active` by default and also accepts `closed`, `future`, or `all`.
 - Treat `--component` and `--fix-version` updates as full replacements. Use the single value `none` only for an empty final field.
 
-Refresh custom-field aliases when they are stale, missing, ambiguous, or workflow-sensitive:
+Refresh field metadata when it is stale or when a newly added field is absent from a fresh snapshot:
 
 ```bash
 jiro cache refresh --output=json
@@ -124,7 +127,7 @@ Read every consequential result through jiro after the write:
 - `issue update --type` and `issue bulk update --type` already perform an immediate Issue Type readback. Preserve their `unknown` result when Jira accepted the PUT but the readback failed; do not hide it behind a later retry.
 - Use `issue comment list` for comments and `issue link list` for link changes.
 - Retain the Issue Keys from a bulk dry-run and read back every targeted issue. A list or search read is sufficient only when it proves the same complete key set and final values.
-- Read normalized standard fields such as status and assignee from `.data.status` and `.data.assignee`. Request custom fields with `issue show --fields` and read them from `.data.fields`.
+- Read normalized standard fields such as status and assignee from `.data.status` and `.data.assignee`. Request other fields with `issue show --fields FIELD-SELECTOR,...`; use `.data.fieldSelection` to map each requested selector to its Jira field ID, then read the value from `.data.fields`. Field Selection proves resolution, not that Jira returned a non-empty value.
 
 A zero exit code is not the completion criterion. Treat a missing field or unintended destination status as incomplete work.
 

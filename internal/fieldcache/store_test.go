@@ -80,8 +80,8 @@ func TestRoundTripSortAndFreshness(t *testing.T) {
 	store := New(t.TempDir(), func() time.Time { return now })
 	principal := Principal{AccountID: "1", Username: "alice"}
 	snapshot, err := store.NewSnapshot("https://jira.example.test/jira", principal, []Field{
-		{ID: "customfield_2", Name: "Two", Alias: "two", Type: "number"},
-		{ID: "customfield_1", Name: "One", Alias: "one", Type: "string"},
+		{ID: "customfield_2", Name: "Two", Alias: "two", Custom: true, Type: "number"},
+		{ID: "customfield_1", Name: "One", Alias: "one", Custom: true, Type: "string"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func TestRoundTripSortAndFreshness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(contents), "\n  \"schemaVersion\": 1,") {
+	if !strings.Contains(string(contents), "\n  \"schemaVersion\": 2,") {
 		t.Fatalf("snapshot is not pretty JSON: %s", contents)
 	}
 	got, gotPath, err := store.Read(snapshot.Instance, principal)
@@ -149,6 +149,35 @@ func TestReadMissingInvalidAndIdentityMismatch(t *testing.T) {
 	_, _, err = store.Read(instance, principal)
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("identity mismatch error = %v", err)
+	}
+}
+
+func TestReadRejectsLegacyCustomOnlySnapshot(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	store := New(t.TempDir(), func() time.Time { return now })
+	instance := "https://jira.example.test"
+	principal := Principal{AccountID: "1", Username: "alice"}
+	path, err := store.Path(instance, principal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{
+		"schemaVersion": 1,
+		"instance": "https://jira.example.test",
+		"principal": {"accountId": "1", "username": "alice"},
+		"fetchedAt": "2026-07-30T12:00:00Z",
+		"expiresAt": "2026-07-31T12:00:00Z",
+		"fields": [{"id": "customfield_10001", "name": "Sprint", "alias": "sprint"}]
+	}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Read(instance, principal); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("legacy snapshot error = %v", err)
 	}
 }
 

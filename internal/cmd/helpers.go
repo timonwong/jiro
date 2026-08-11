@@ -128,9 +128,9 @@ func (a *app) resolveFields(ctx context.Context, client *jira.Client, settings c
 			break
 		}
 	}
-	var metadata customFieldMetadata
+	var metadata fieldMetadata
 	if needsMetadata {
-		metadata, err = a.loadCustomFieldMetadata(ctx, client, settings)
+		metadata, err = a.loadFieldMetadata(ctx, client, settings)
 		if err != nil {
 			return nil, err
 		}
@@ -150,7 +150,7 @@ func (a *app) resolveFields(ctx context.Context, client *jira.Client, settings c
 	if resolutionErr == nil || !needsMetadata || metadata.refreshAttempted {
 		return resolved, resolutionErr
 	}
-	refreshed, cacheErr, refreshErr := a.fetchCustomFieldMetadata(ctx, client, settings, metadata.principal)
+	refreshed, cacheErr, refreshErr := a.fetchFieldMetadata(ctx, client, settings, metadata.principal)
 	if refreshErr != nil {
 		return nil, apperr.New(apperr.KindInvalidInput, fmt.Sprintf("%v; live custom field refresh failed: %v", resolutionErr, refreshErr))
 	}
@@ -158,6 +158,42 @@ func (a *app) resolveFields(ctx context.Context, client *jira.Client, settings c
 		a.addFieldCacheWriteWarning(refreshed.path, cacheErr)
 	}
 	return resolve(refreshed.fields)
+}
+
+func (a *app) resolveReadFieldSelectors(
+	ctx context.Context,
+	client *jira.Client,
+	settings config.Settings,
+	selectors []string,
+) ([]jira.FieldSelection, []string, error) {
+	if len(selectors) == 0 {
+		return nil, nil, nil
+	}
+	needsMetadata, err := jira.FieldSelectorsNeedMetadata(selectors)
+	if err != nil {
+		return nil, nil, err
+	}
+	var fields []jira.Field
+	var metadata fieldMetadata
+	if needsMetadata {
+		metadata, err = a.loadFieldMetadata(ctx, client, settings)
+		if err != nil {
+			return nil, nil, err
+		}
+		fields = metadata.fields
+	}
+	selection, err := jira.ResolveFieldSelectors(selectors, fields)
+	if err != nil {
+		if metadata.refreshErr != nil {
+			return nil, nil, metadata.refreshErr
+		}
+		return nil, nil, err
+	}
+	resolved := make([]string, len(selection))
+	for i, item := range selection {
+		resolved[i] = item.Resolved
+	}
+	return selection, resolved, nil
 }
 
 func parseResolutionOption(raw string, changed bool) (*resolutionOption, error) {

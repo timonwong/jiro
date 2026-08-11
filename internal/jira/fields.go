@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -13,6 +14,109 @@ import (
 )
 
 var customFieldID = regexp.MustCompile(`^customfield_[0-9]+$`)
+
+// ResolveFieldSelectors resolves user-facing Field Selectors against Jira
+// field metadata while preserving input order and spelling.
+func ResolveFieldSelectors(selectors []string, fields []Field) ([]FieldSelection, error) {
+	selection := make([]FieldSelection, 0, len(selectors))
+	for _, selector := range selectors {
+		resolved, err := resolveFieldSelector(selector, fields)
+		if err != nil {
+			return nil, err
+		}
+		selection = append(selection, FieldSelection{Selector: selector, Resolved: resolved})
+	}
+	return selection, nil
+}
+
+// FieldSelectorsNeedMetadata reports whether resolving selectors requires a
+// Field Metadata Snapshot. It validates the shared selector grammar before a
+// caller performs any metadata request.
+func FieldSelectorsNeedMetadata(selectors []string) (bool, error) {
+	for _, selector := range selectors {
+		parsed, err := parseFieldSelector(selector)
+		if err != nil {
+			return false, err
+		}
+		if !fieldSelectorBypassesMetadata(parsed.target) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+type parsedFieldSelector struct {
+	target   string
+	excluded bool
+}
+
+func parseFieldSelector(selector string) (parsedFieldSelector, error) {
+	target := strings.TrimSpace(selector)
+	if target == "" {
+		return parsedFieldSelector{}, apperr.New(apperr.KindInvalidInput, "field selector is required")
+	}
+	excluded := strings.HasPrefix(target, "-")
+	if excluded {
+		target = strings.TrimSpace(strings.TrimPrefix(target, "-"))
+		if target == "" {
+			return parsedFieldSelector{}, apperr.New(apperr.KindInvalidInput, fmt.Sprintf("field selector %q is missing its exclusion target", selector))
+		}
+	}
+	return parsedFieldSelector{target: target, excluded: excluded}, nil
+}
+
+func fieldSelectorBypassesMetadata(target string) bool {
+	return customFieldID.MatchString(target) || target == "*all" || target == "*navigable"
+}
+
+func resolveFieldSelector(selector string, fields []Field) (string, error) {
+	parsed, err := parseFieldSelector(selector)
+	if err != nil {
+		return "", err
+	}
+	if fieldSelectorBypassesMetadata(parsed.target) {
+		if parsed.excluded {
+			return "-" + parsed.target, nil
+		}
+		return parsed.target, nil
+	}
+	resolved, err := resolveFieldMetadataSelector(selector, parsed.target, fields)
+	if err != nil {
+		return "", err
+	}
+	if parsed.excluded {
+		return "-" + resolved, nil
+	}
+	return resolved, nil
+}
+
+func resolveFieldMetadataSelector(selector, target string, fields []Field) (string, error) {
+	for _, field := range fields {
+		if field.ID == target {
+			return field.ID, nil
+		}
+	}
+	alias := Slug(target)
+	matches := make([]Field, 0, 1)
+	for _, field := range fields {
+		if Slug(field.Name) == alias {
+			matches = append(matches, field)
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0].ID, nil
+	case 0:
+		return "", apperr.New(apperr.KindInvalidInput, fmt.Sprintf("field selector %q was not found", selector))
+	default:
+		ids := make([]string, len(matches))
+		for i, field := range matches {
+			ids[i] = field.ID
+		}
+		sort.Strings(ids)
+		return "", apperr.New(apperr.KindInvalidInput, fmt.Sprintf("field selector %q is ambiguous: %s", selector, strings.Join(ids, ", ")))
+	}
+}
 
 // ResolveCustomField resolves a jiro custom field alias against this Jira
 // instance. A canonical custom field ID never causes a /field lookup.
