@@ -104,7 +104,7 @@ func validateDirectiveName(name string) string {
 	return ""
 }
 
-func parseDirectiveAttributes(source string, segment text.Segment) ([]directiveAttribute, []conversionDiagnostic, string) {
+func parseDirectiveAttributes(source []byte, segment text.Segment) ([]directiveAttribute, []conversionDiagnostic, string) {
 	if segment.Start == 0 && segment.Stop == 0 {
 		return nil, nil, ""
 	}
@@ -119,7 +119,7 @@ func parseDirectiveAttributes(source string, segment text.Segment) ([]directiveA
 		}
 		nameStart := offset
 		for offset < segment.Stop {
-			character, size := utf8.DecodeRuneInString(source[offset:segment.Stop])
+			character, size := utf8.DecodeRune(source[offset:segment.Stop])
 			if !unicode.IsLetter(character) && !unicode.IsDigit(character) && character != '_' && character != '-' {
 				break
 			}
@@ -128,7 +128,7 @@ func parseDirectiveAttributes(source string, segment text.Segment) ([]directiveA
 		if offset == nameStart || !isASCIINameStart(source[nameStart]) {
 			return attributes, diagnostics, "invalid directive attribute name"
 		}
-		name := source[nameStart:offset]
+		name := string(source[nameStart:offset])
 		for offset < segment.Stop && (source[offset] == ' ' || source[offset] == '\t') {
 			offset++
 		}
@@ -157,7 +157,7 @@ func parseDirectiveAttributes(source string, segment text.Segment) ([]directiveA
 				for offset < segment.Stop && source[offset] != ' ' && source[offset] != '\t' {
 					offset++
 				}
-				attribute.Value = source[valueStart:offset]
+				attribute.Value = string(source[valueStart:offset])
 			}
 		}
 		attribute.Span.End = offset
@@ -170,7 +170,7 @@ func isASCIINameStart(value byte) bool {
 	return value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
 }
 
-func parseDirectiveQuotedValue(source string, start, end int) (string, int, string, bool) {
+func parseDirectiveQuotedValue(source []byte, start, end int) (string, int, string, bool) {
 	var result strings.Builder
 	warning := ""
 	for offset := start + 1; offset < end; {
@@ -178,7 +178,7 @@ func parseDirectiveQuotedValue(source string, start, end int) (string, int, stri
 			return result.String(), offset + 1, warning, true
 		}
 		if source[offset] != '\\' {
-			character, size := utf8.DecodeRuneInString(source[offset:end])
+			character, size := utf8.DecodeRune(source[offset:end])
 			result.WriteRune(character)
 			offset += size
 			continue

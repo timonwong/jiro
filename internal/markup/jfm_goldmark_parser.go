@@ -23,7 +23,8 @@ func parseJFM(ctx context.Context, source string) (semanticDocument, []conversio
 		return semanticDocument{}, nil, err
 	}
 	markdown := newJFMGoldmark()
-	root, err := parseGoldmarkWithContext(ctx, markdown, source)
+	sourceBytes := []byte(source)
+	root, err := parseGoldmarkWithContext(ctx, markdown, sourceBytes)
 	if err != nil {
 		return semanticDocument{}, nil, err
 	}
@@ -37,7 +38,7 @@ func parseJFM(ctx context.Context, source string) (semanticDocument, []conversio
 		}
 		switch typed := node.(type) {
 		case *ast.Heading:
-			inlines, inlineDiagnostics, err := adaptGoldmarkInlines(source, typed)
+			inlines, inlineDiagnostics, err := adaptGoldmarkInlines(sourceBytes, typed)
 			if err != nil {
 				return semanticDocument{}, nil, err
 			}
@@ -48,7 +49,7 @@ func parseJFM(ctx context.Context, source string) (semanticDocument, []conversio
 				Inlines: inlines,
 			})
 		case *ast.Paragraph:
-			inlines, inlineDiagnostics, err := adaptGoldmarkInlines(source, typed)
+			inlines, inlineDiagnostics, err := adaptGoldmarkInlines(sourceBytes, typed)
 			if err != nil {
 				return semanticDocument{}, nil, err
 			}
@@ -57,9 +58,9 @@ func parseJFM(ctx context.Context, source string) (semanticDocument, []conversio
 		case *ast.ThematicBreak:
 			document.Blocks = append(document.Blocks, thematicBreakBlock{Span: goldmarkNodeSpan(typed)})
 		case *ast.Blockquote:
-			quote, quoteDiagnostics, err := adaptGoldmarkBlockquote(source, typed)
+			quote, quoteDiagnostics, err := adaptGoldmarkBlockquote(sourceBytes, typed)
 			if err != nil {
-				block, warning := literalGoldmarkBlock(source, typed, ConstructDirective, "unsupported complex blockquote remains literal")
+				block, warning := literalGoldmarkBlock(sourceBytes, typed, ConstructDirective, "unsupported complex blockquote remains literal")
 				document.Blocks = append(document.Blocks, block)
 				diagnostics = append(diagnostics, warning)
 				continue
@@ -67,9 +68,9 @@ func parseJFM(ctx context.Context, source string) (semanticDocument, []conversio
 			document.Blocks = append(document.Blocks, quote)
 			diagnostics = append(diagnostics, quoteDiagnostics...)
 		case *ast.List:
-			list, listDiagnostics, err := adaptGoldmarkList(source, typed)
+			list, listDiagnostics, err := adaptGoldmarkList(sourceBytes, typed)
 			if err != nil {
-				block, warning := literalGoldmarkBlock(source, typed, ConstructList, "unsupported complex list item remains literal")
+				block, warning := literalGoldmarkBlock(sourceBytes, typed, ConstructList, "unsupported complex list item remains literal")
 				document.Blocks = append(document.Blocks, block)
 				diagnostics = append(diagnostics, warning)
 				continue
@@ -77,9 +78,9 @@ func parseJFM(ctx context.Context, source string) (semanticDocument, []conversio
 			document.Blocks = append(document.Blocks, list)
 			diagnostics = append(diagnostics, listDiagnostics...)
 		case *extensionast.Table:
-			table, tableDiagnostics, err := adaptGoldmarkTable(source, typed)
+			table, tableDiagnostics, err := adaptGoldmarkTable(sourceBytes, typed)
 			if err != nil {
-				block, warning := literalGoldmarkBlock(source, typed, ConstructTable, "unsupported GFM table content remains literal")
+				block, warning := literalGoldmarkBlock(sourceBytes, typed, ConstructTable, "unsupported GFM table content remains literal")
 				document.Blocks = append(document.Blocks, block)
 				diagnostics = append(diagnostics, warning)
 				continue
@@ -87,15 +88,15 @@ func parseJFM(ctx context.Context, source string) (semanticDocument, []conversio
 			document.Blocks = append(document.Blocks, table)
 			diagnostics = append(diagnostics, tableDiagnostics...)
 		case *ast.CodeBlock:
-			document.Blocks = append(document.Blocks, codeBlock{Span: goldmarkNodeSpan(typed), Body: goldmarkBlockText(source, typed.Lines()), NoFormat: true})
+			document.Blocks = append(document.Blocks, codeBlock{Span: goldmarkNodeSpan(typed), Body: goldmarkBlockText(sourceBytes, typed.Lines()), NoFormat: true})
 		case *ast.FencedCodeBlock:
-			block, blockDiagnostics := adaptGoldmarkFencedCodeBlock(source, typed)
+			block, blockDiagnostics := adaptGoldmarkFencedCodeBlock(sourceBytes, typed)
 			document.Blocks = append(document.Blocks, block)
 			diagnostics = append(diagnostics, blockDiagnostics...)
 		case *jfmContainerDirective:
-			block, containerDiagnostics, err := adaptContainerDirective(source, typed)
+			block, containerDiagnostics, err := adaptContainerDirective(sourceBytes, typed)
 			if err != nil {
-				block, warning := literalGoldmarkBlock(source, typed, ConstructDirective, "malformed container directive remains literal")
+				block, warning := literalGoldmarkBlock(sourceBytes, typed, ConstructDirective, "malformed container directive remains literal")
 				document.Blocks = append(document.Blocks, block)
 				diagnostics = append(diagnostics, warning)
 				continue
@@ -118,7 +119,7 @@ func parseJFM(ctx context.Context, source string) (semanticDocument, []conversio
 			document.Blocks = append(document.Blocks, literalBlock{Span: span, Text: text})
 			diagnostics = append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructReferenceDefinition, Reason: reason}})
 		default:
-			block, warning := literalGoldmarkBlock(source, node, ConstructDirective, "unsupported Markdown block remains literal")
+			block, warning := literalGoldmarkBlock(sourceBytes, node, ConstructDirective, "unsupported Markdown block remains literal")
 			document.Blocks = append(document.Blocks, block)
 			diagnostics = append(diagnostics, warning)
 		}
@@ -126,12 +127,12 @@ func parseJFM(ctx context.Context, source string) (semanticDocument, []conversio
 	return document, diagnostics, nil
 }
 
-func literalGoldmarkBlock(source string, node ast.Node, construct, reason string) (literalBlock, conversionDiagnostic) {
+func literalGoldmarkBlock(source []byte, node ast.Node, construct, reason string) (literalBlock, conversionDiagnostic) {
 	span := goldmarkAuthoredBlockSpan(source, node)
-	return literalBlock{Span: span, Text: source[span.Start:span.End]}, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: construct, Reason: reason}}
+	return literalBlock{Span: span, Text: string(source[span.Start:span.End])}, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: construct, Reason: reason}}
 }
 
-func goldmarkAuthoredBlockSpan(source string, node ast.Node) sourceSpan {
+func goldmarkAuthoredBlockSpan(source []byte, node ast.Node) sourceSpan {
 	start, end := len(source), -1
 	var visit func(ast.Node)
 	visit = func(current ast.Node) {
@@ -212,19 +213,21 @@ func analyzeReferenceDefinitions(source string) referenceDefinitionAnalysis {
 		}
 		nonDefinitions.WriteString(line.EOL)
 	}
-	for _, match := range fullReferencePattern.FindAllStringSubmatch(nonDefinitions.String(), -1) {
+	nonDefinitionsText := nonDefinitions.String()
+	for _, match := range fullReferencePattern.FindAllStringSubmatch(nonDefinitionsText, -1) {
 		label := match[2]
 		if label == "" {
 			label = match[1]
 		}
 		analysis.used[normalizeReferenceLabel(label)] = true
 	}
+	lowerNonDefinitions := strings.ToLower(nonDefinitionsText)
 	for label := range analysis.definitions {
 		if analysis.used[label] {
 			continue
 		}
 		needle := "[" + label + "]"
-		if strings.Contains(strings.ToLower(nonDefinitions.String()), needle) {
+		if strings.Contains(lowerNonDefinitions, needle) {
 			analysis.used[label] = true
 		}
 	}
@@ -250,9 +253,9 @@ func referenceDefinitionSource(source string, position int) (sourceSpan, string)
 	return sourceSpan{Start: start, End: end}, source[start:end]
 }
 
-func adaptContainerDirective(source string, node *jfmContainerDirective) (semanticBlock, []conversionDiagnostic, error) {
+func adaptContainerDirective(source []byte, node *jfmContainerDirective) (semanticBlock, []conversionDiagnostic, error) {
 	span := containerDirectiveSpan(node, len(source))
-	raw := source[span.Start:span.End]
+	raw := string(source[span.Start:span.End])
 	diagnostics := make([]conversionDiagnostic, 0)
 	if node.Malformed != "" {
 		return literalBlock{Span: span, Text: raw}, []conversionDiagnostic{{offset: span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: node.Malformed}}}, nil
@@ -304,7 +307,7 @@ func adaptContainerDirective(source string, node *jfmContainerDirective) (semant
 	}
 }
 
-func adaptGoldmarkChildBlock(source string, node ast.Node) (semanticBlock, []conversionDiagnostic, error) {
+func adaptGoldmarkChildBlock(source []byte, node ast.Node) (semanticBlock, []conversionDiagnostic, error) {
 	switch typed := node.(type) {
 	case *ast.Heading:
 		inlines, diagnostics, err := adaptGoldmarkInlines(source, typed)
@@ -340,7 +343,7 @@ func adaptGoldmarkChildBlock(source string, node ast.Node) (semanticBlock, []con
 	}
 }
 
-func literalGoldmarkChildBlock(source string, node ast.Node, construct, reason string) (literalBlock, conversionDiagnostic) {
+func literalGoldmarkChildBlock(source []byte, node ast.Node, construct, reason string) (literalBlock, conversionDiagnostic) {
 	span := goldmarkNodeSpan(node)
 	text := sourceSliceForInline(source, node)
 	if lines := node.Lines(); lines != nil && lines.Len() != 0 {
@@ -359,10 +362,10 @@ func goldmarkBlockquoteDepth(node *ast.Blockquote) int {
 	return depth
 }
 
-func adaptGoldmarkFencedCodeBlock(source string, node *ast.FencedCodeBlock) (codeBlock, []conversionDiagnostic) {
+func adaptGoldmarkFencedCodeBlock(source []byte, node *ast.FencedCodeBlock) (codeBlock, []conversionDiagnostic) {
 	info := ""
 	if node.Info != nil {
-		info = string(node.Info.Segment.Value([]byte(source)))
+		info = string(node.Info.Segment.Value(source))
 	}
 	fields := strings.Fields(info)
 	language := ""
@@ -394,11 +397,11 @@ func containerDirectiveSpan(node *jfmContainerDirective, sourceLength int) sourc
 	return sourceSpan{Start: node.Opening.Start, End: end}
 }
 
-func containerRawBody(source string, node *jfmContainerDirective) string {
+func containerRawBody(source []byte, node *jfmContainerDirective) string {
 	var result strings.Builder
 	for index := 0; index < node.Lines().Len(); index++ {
 		segment := node.Lines().At(index)
-		result.Write(segment.Value([]byte(source)))
+		result.Write(segment.Value(source))
 	}
 	return result.String()
 }
@@ -452,7 +455,7 @@ func panelAttributeOrder() []string {
 	return []string{"title", "borderStyle", "borderColor", "borderWidth", "bgColor", "titleBGColor", "titleColor"}
 }
 
-func nextPhysicalLineStart(source string, offset int) int {
+func nextPhysicalLineStart(source []byte, offset int) int {
 	for offset < len(source) {
 		if source[offset] == '\r' {
 			offset++
@@ -469,7 +472,7 @@ func nextPhysicalLineStart(source string, offset int) int {
 	return len(source)
 }
 
-func adaptGoldmarkBlockquote(source string, node *ast.Blockquote) (quoteBlock, []conversionDiagnostic, error) {
+func adaptGoldmarkBlockquote(source []byte, node *ast.Blockquote) (quoteBlock, []conversionDiagnostic, error) {
 	quote := quoteBlock{Span: goldmarkNodeSpan(node)}
 	diagnostics := make([]conversionDiagnostic, 0)
 	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
@@ -483,7 +486,7 @@ func adaptGoldmarkBlockquote(source string, node *ast.Blockquote) (quoteBlock, [
 	return quote, diagnostics, nil
 }
 
-func adaptGoldmarkList(source string, node *ast.List) (listBlock, []conversionDiagnostic, error) {
+func adaptGoldmarkList(source []byte, node *ast.List) (listBlock, []conversionDiagnostic, error) {
 	list := listBlock{Span: goldmarkNodeSpan(node), Ordered: node.IsOrdered()}
 	diagnostics := make([]conversionDiagnostic, 0)
 	if node.IsOrdered() && node.Start != 1 {
@@ -590,7 +593,7 @@ func splitListItemHardBreaks(inlines []semanticInline, span sourceSpan, blocks [
 	return chunks[0], blocks, true
 }
 
-func adaptGoldmarkTable(source string, node *extensionast.Table) (tableBlock, []conversionDiagnostic, error) {
+func adaptGoldmarkTable(source []byte, node *extensionast.Table) (tableBlock, []conversionDiagnostic, error) {
 	table := tableBlock{Span: goldmarkNodeSpan(node)}
 	diagnostics := make([]conversionDiagnostic, 0)
 	for _, alignment := range node.Alignments {
@@ -627,21 +630,22 @@ func adaptGoldmarkTable(source string, node *extensionast.Table) (tableBlock, []
 	return table, diagnostics, nil
 }
 
-func goldmarkBlockText(source string, lines *text.Segments) string {
+func goldmarkBlockText(source []byte, lines *text.Segments) string {
 	var result strings.Builder
 	for index := 0; index < lines.Len(); index++ {
 		segment := lines.At(index)
-		value := segment.Value([]byte(source))
-		if segment.ForceNewline && !bytes.HasSuffix([]byte(source[segment.Start:segment.Stop]), []byte("\n")) {
-			value = bytes.TrimSuffix(value, []byte("\n"))
-			value = append(value, '\n')
+		value := segment.Value(source)
+		if segment.ForceNewline && !bytes.HasSuffix(source[segment.Start:segment.Stop], []byte("\n")) {
+			result.Write(bytes.TrimSuffix(value, []byte("\n")))
+			result.WriteByte('\n')
+			continue
 		}
 		result.Write(value)
 	}
 	return result.String()
 }
 
-func goldmarkFencedBlockSource(source string, node *ast.FencedCodeBlock) (sourceSpan, string) {
+func goldmarkFencedBlockSource(source []byte, node *ast.FencedCodeBlock) (sourceSpan, string) {
 	position := node.Pos()
 	if position < 0 && node.Info != nil {
 		position = node.Info.Segment.Start
@@ -663,7 +667,7 @@ func goldmarkFencedBlockSource(source string, node *ast.FencedCodeBlock) (source
 	}
 	if markerStart >= lineEnd || source[markerStart] != '`' && source[markerStart] != '~' {
 		span := goldmarkAuthoredBlockSpan(source, node)
-		return span, source[span.Start:span.End]
+		return span, string(source[span.Start:span.End])
 	}
 	marker := source[markerStart]
 	markerEnd := markerStart
@@ -685,14 +689,14 @@ func goldmarkFencedBlockSource(source string, node *ast.FencedCodeBlock) (source
 		for closingEnd < end && source[closingEnd] == marker {
 			closingEnd++
 		}
-		if closingEnd-contentStart >= minimum && strings.TrimSpace(source[closingEnd:end]) == "" {
+		if closingEnd-contentStart >= minimum && len(bytes.TrimSpace(source[closingEnd:end])) == 0 {
 			span := sourceSpan{Start: start, End: end}
-			return span, source[span.Start:span.End]
+			return span, string(source[span.Start:span.End])
 		}
 		scan = nextPhysicalLineStart(source, end)
 	}
 	span := sourceSpan{Start: start, End: len(source)}
-	return span, source[span.Start:span.End]
+	return span, string(source[span.Start:span.End])
 }
 
 func newJFMGoldmark() goldmark.Markdown {
@@ -705,13 +709,13 @@ func newJFMGoldmark() goldmark.Markdown {
 	)
 }
 
-func adaptGoldmarkInlines(source string, parent ast.Node) ([]semanticInline, []conversionDiagnostic, error) {
+func adaptGoldmarkInlines(source []byte, parent ast.Node) ([]semanticInline, []conversionDiagnostic, error) {
 	inlines := make([]semanticInline, 0, parent.ChildCount())
 	diagnostics := make([]conversionDiagnostic, 0)
 	for child := parent.FirstChild(); child != nil; {
 		if textNode, ok := child.(*ast.Text); ok && textNode.HardLineBreak() {
 			span := sourceSpan{Start: textNode.Segment.Start, End: textNode.Segment.Stop}
-			value := decodedMarkdownText(textNode.Segment.Value([]byte(source)), textNode.IsRaw())
+			value := decodedMarkdownText(textNode.Segment.Value(source), textNode.IsRaw())
 			if len(value) != 0 {
 				inlines = append(inlines, textInline{Span: span, Text: string(value)})
 			}
@@ -732,19 +736,20 @@ func adaptGoldmarkInlines(source string, parent ast.Node) ([]semanticInline, []c
 	return mergeAdjacentTextInlines(inlines), diagnostics, nil
 }
 
-func adaptGoldmarkInline(source string, node ast.Node) (semanticInline, []conversionDiagnostic, ast.Node, error) {
+func adaptGoldmarkInline(source []byte, node ast.Node) (semanticInline, []conversionDiagnostic, ast.Node, error) {
 	next := node.NextSibling()
 	switch typed := node.(type) {
 	case *ast.Text:
-		value := decodedMarkdownText(typed.Segment.Value([]byte(source)), typed.IsRaw())
+		value := decodedMarkdownText(typed.Segment.Value(source), typed.IsRaw())
 		spanEnd := typed.Segment.Stop
 		if typed.HardLineBreak() {
 			return hardBreakInline{Span: sourceSpan{Start: typed.Segment.Start, End: spanEnd}}, nil, next, nil
 		}
+		text := string(value)
 		if typed.SoftLineBreak() {
-			value = append(value, ' ')
+			text += " "
 		}
-		return textInline{Span: sourceSpan{Start: typed.Segment.Start, End: spanEnd}, Text: string(value)}, nil, next, nil
+		return textInline{Span: sourceSpan{Start: typed.Segment.Start, End: spanEnd}, Text: text}, nil, next, nil
 	case *ast.String:
 		value := decodedMarkdownText(typed.Value, typed.IsRaw() || typed.IsCode())
 		return textInline{Span: sourceSpan{Start: typed.Pos(), End: typed.Pos() + len(typed.Value)}, Text: string(value)}, nil, next, nil
@@ -787,8 +792,8 @@ func adaptGoldmarkInline(source string, node ast.Node) (semanticInline, []conver
 		}
 		return linkInline{Span: inlineNodeSpan(typed), Label: label, Target: target, Dangerous: dangerous, Directive: dangerous}, diagnostics, next, nil
 	case *ast.AutoLink:
-		label := string(typed.Label([]byte(source)))
-		target := string(typed.URL([]byte(source)))
+		label := string(typed.Label(source))
+		target := string(typed.URL(source))
 		if typed.AutoLinkType == ast.AutoLinkEmail && !strings.HasPrefix(strings.ToLower(target), "mailto:") {
 			target = "mailto:" + target
 		}
@@ -877,7 +882,7 @@ func inlineNodeSpan(node ast.Node) sourceSpan {
 	return sourceSpan{Start: start, End: end}
 }
 
-func goldmarkInlineConstructStart(source string, node ast.Node, marker byte) int {
+func goldmarkInlineConstructStart(source []byte, node ast.Node, marker byte) int {
 	start := inlineNodeSpan(node).Start
 	lineStart := start
 	for lineStart > 0 && source[lineStart-1] != '\n' && source[lineStart-1] != '\r' {
@@ -891,14 +896,14 @@ func goldmarkInlineConstructStart(source string, node ast.Node, marker byte) int
 	return start
 }
 
-func goldmarkCodeSpanText(source string, code *ast.CodeSpan) string {
+func goldmarkCodeSpanText(source []byte, code *ast.CodeSpan) string {
 	var result strings.Builder
 	for child := code.FirstChild(); child != nil; child = child.NextSibling() {
 		textNode, ok := child.(*ast.Text)
 		if !ok {
 			continue
 		}
-		value := textNode.Segment.Value([]byte(source))
+		value := textNode.Segment.Value(source)
 		if bytes.HasSuffix(value, []byte("\n")) {
 			result.Write(value[:len(value)-1])
 			result.WriteByte(' ')
@@ -909,14 +914,14 @@ func goldmarkCodeSpanText(source string, code *ast.CodeSpan) string {
 	return result.String()
 }
 
-func goldmarkImageAlt(source string, image *ast.Image) string {
+func goldmarkImageAlt(source []byte, image *ast.Image) string {
 	var result strings.Builder
 	var appendText func(ast.Node)
 	appendText = func(parent ast.Node) {
 		for child := parent.FirstChild(); child != nil; child = child.NextSibling() {
 			switch typed := child.(type) {
 			case *ast.Text:
-				result.Write(decodedMarkdownText(typed.Segment.Value([]byte(source)), typed.IsRaw()))
+				result.Write(decodedMarkdownText(typed.Segment.Value(source), typed.IsRaw()))
 			case *ast.String:
 				result.Write(decodedMarkdownText(typed.Value, typed.IsRaw() || typed.IsCode()))
 			case *ast.CodeSpan:
@@ -930,12 +935,12 @@ func goldmarkImageAlt(source string, image *ast.Image) string {
 	return result.String()
 }
 
-func sourceSliceForInline(source string, node ast.Node) string {
+func sourceSliceForInline(source []byte, node ast.Node) string {
 	span := inlineNodeSpan(node)
 	if span.Start < 0 || span.End < span.Start || span.End > len(source) {
-		return string(node.Text([]byte(source)))
+		return string(node.Text(source))
 	}
-	return source[span.Start:span.End]
+	return string(source[span.Start:span.End])
 }
 
 func unicodeSpaceOrControl(character rune) bool {
@@ -946,16 +951,16 @@ var controlledTagPattern = regexp.MustCompile(`(?i)^<\s*(ins|sup|sub)\s*>$`)
 var controlledFontPattern = regexp.MustCompile(`(?i)^<\s*font\s+color\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>` + "`" + `]+))\s*>$`)
 var genericOpeningTagPattern = regexp.MustCompile(`(?i)^<\s*([A-Za-z][A-Za-z0-9-]*)(?:\s[^>]*)?>$`)
 
-func adaptControlledHTML(source string, opening *ast.RawHTML) (semanticInline, []conversionDiagnostic, ast.Node, error) {
-	raw := string(opening.Segments.Value([]byte(source)))
+func adaptControlledHTML(source []byte, opening *ast.RawHTML) (semanticInline, []conversionDiagnostic, ast.Node, error) {
+	raw := string(opening.Segments.Value(source))
 	tag, color, ok := parseControlledOpeningTag(raw)
 	if !ok {
 		span := rawHTMLSpan(opening)
 		if match := genericOpeningTagPattern.FindStringSubmatch(raw); match != nil {
 			for sibling := opening.NextSibling(); sibling != nil; sibling = sibling.NextSibling() {
-				if closing, isHTML := sibling.(*ast.RawHTML); isHTML && isControlledClosingTag(string(closing.Segments.Value([]byte(source))), strings.ToLower(match[1])) {
+				if closing, isHTML := sibling.(*ast.RawHTML); isHTML && isControlledClosingTag(string(closing.Segments.Value(source)), strings.ToLower(match[1])) {
 					complete := sourceSpan{Start: span.Start, End: rawHTMLSpan(closing).End}
-					return literalInline{Span: complete, Text: source[complete.Start:complete.End]}, []conversionDiagnostic{{offset: span.Start, warning: ConversionWarning{Construct: ConstructHTML, Reason: "unsupported or malformed inline HTML remains literal"}}}, closing.NextSibling(), nil
+					return literalInline{Span: complete, Text: string(source[complete.Start:complete.End])}, []conversionDiagnostic{{offset: span.Start, warning: ConversionWarning{Construct: ConstructHTML, Reason: "unsupported or malformed inline HTML remains literal"}}}, closing.NextSibling(), nil
 				}
 			}
 		}
@@ -964,7 +969,7 @@ func adaptControlledHTML(source string, opening *ast.RawHTML) (semanticInline, [
 	children := make([]semanticInline, 0)
 	diagnostics := make([]conversionDiagnostic, 0)
 	for sibling := opening.NextSibling(); sibling != nil; sibling = sibling.NextSibling() {
-		if closing, isHTML := sibling.(*ast.RawHTML); isHTML && isControlledClosingTag(string(closing.Segments.Value([]byte(source))), tag) {
+		if closing, isHTML := sibling.(*ast.RawHTML); isHTML && isControlledClosingTag(string(closing.Segments.Value(source)), tag) {
 			span := sourceSpan{Start: rawHTMLSpan(opening).Start, End: rawHTMLSpan(closing).End}
 			return styledInline{Span: span, Style: controlledStyle(tag), Value: color, Children: children}, diagnostics, closing.NextSibling(), nil
 		}
@@ -1024,8 +1029,8 @@ func rawHTMLSpan(node *ast.RawHTML) sourceSpan {
 	return sourceSpan{Start: node.Segments.At(0).Start, End: node.Segments.At(node.Segments.Len() - 1).Stop}
 }
 
-func adaptInlineDirective(source string, node *jfmInlineDirective, next ast.Node) (semanticInline, []conversionDiagnostic, ast.Node, error) {
-	raw := string(node.Raw.Value([]byte(source)))
+func adaptInlineDirective(source []byte, node *jfmInlineDirective, next ast.Node) (semanticInline, []conversionDiagnostic, ast.Node, error) {
+	raw := string(node.Raw.Value(source))
 	span := sourceSpan{Start: node.Raw.Start, End: node.Raw.Stop}
 	diagnostics := make([]conversionDiagnostic, 0)
 	if node.Malformed != "" {
@@ -1053,7 +1058,7 @@ func adaptInlineDirective(source string, node *jfmInlineDirective, next ast.Node
 		if !found {
 			return literalInline{Span: span, Text: raw}, append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "link directive is missing required target attribute"}}), next, nil
 		}
-		content := decodeInlineDirectiveContent(string(node.Content.Value([]byte(source))))
+		content := decodeInlineDirectiveContent(string(node.Content.Value(source)))
 		label, contentDiagnostics, contentErr := parseJFMInlineFragment(content, node.Content.Start)
 		if contentErr != nil {
 			return literalInline{Span: span, Text: raw}, append(diagnostics, conversionDiagnostic{offset: node.Content.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "link directive content is not supported inline JFM"}}), next, nil
@@ -1101,17 +1106,24 @@ func adaptInlineDirective(source string, node *jfmInlineDirective, next ast.Node
 		if dangerous {
 			diagnostics = append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructImage, Reason: "dangerous destination scheme remains reversible through the image directive"}})
 		}
-		return imageInline{Span: span, Alt: decodeInlineDirectiveContent(string(node.Content.Value([]byte(source)))), Source: sourceValue, Attributes: canonical, Directive: true, Dangerous: dangerous}, diagnostics, next, nil
+		return imageInline{Span: span, Alt: decodeInlineDirectiveContent(string(node.Content.Value(source))), Source: sourceValue, Attributes: canonical, Directive: true, Dangerous: dangerous}, diagnostics, next, nil
 	default:
 		return literalInline{Span: span, Text: raw}, []conversionDiagnostic{{offset: span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "unknown JFM directive remains literal"}}}, next, nil
 	}
 }
 
+// jfmFragmentGoldmark parses the small inline-directive fragments handled by
+// parseJFMInlineFragment. The custom block/inline parsers registered by
+// newJFMGoldmark are stateless, so a single pipeline can be shared across
+// every fragment parse instead of building one per inline directive.
+var jfmFragmentGoldmark = newJFMGoldmark()
+
 func parseJFMInlineFragment(fragment string, base int) ([]semanticInline, []conversionDiagnostic, error) {
 	if fragment == "" {
 		return []semanticInline{}, nil, nil
 	}
-	root := newJFMGoldmark().Parser().Parse(text.NewReader([]byte(fragment)))
+	fragmentBytes := []byte(fragment)
+	root := jfmFragmentGoldmark.Parser().Parse(text.NewReader(fragmentBytes))
 	if root.ChildCount() != 1 {
 		return nil, nil, fmt.Errorf("inline fragment produced %d blocks", root.ChildCount())
 	}
@@ -1119,7 +1131,7 @@ func parseJFMInlineFragment(fragment string, base int) ([]semanticInline, []conv
 	if !ok {
 		return nil, nil, fmt.Errorf("inline fragment produced %s", root.FirstChild().Kind().String())
 	}
-	inlines, diagnostics, err := adaptGoldmarkInlines(fragment, paragraph)
+	inlines, diagnostics, err := adaptGoldmarkInlines(fragmentBytes, paragraph)
 	if err != nil {
 		return nil, nil, err
 	}
