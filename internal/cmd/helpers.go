@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -56,7 +56,7 @@ type IssueListJQLOptions struct {
 	Filters IssueListJQLFilters
 }
 
-func readText(reader io.Reader, inline string, inlineSet bool, file string) (*string, error) {
+func readText(ctx context.Context, reader io.Reader, inline string, inlineSet bool, file string) (*string, error) {
 	if inlineSet && file != "" {
 		return nil, apperr.New(apperr.KindInvalidInput, "inline text and file input are mutually exclusive")
 	}
@@ -70,11 +70,15 @@ func readText(reader io.Reader, inline string, inlineSet bool, file string) (*st
 	var data []byte
 	var err error
 	if file == "-" {
-		data, err = io.ReadAll(reader)
+		closer, _ := reader.(io.Closer)
+		data, err = readAllWithContext(ctx, reader, closer)
 	} else {
-		data, err = os.ReadFile(file)
+		data, err = readFileWithContext(ctx, file)
 	}
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil, err
+		}
 		return nil, apperr.Wrap(apperr.KindInvalidInput, err, "read text input")
 	}
 	value := string(data)

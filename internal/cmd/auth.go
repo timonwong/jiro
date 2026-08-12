@@ -307,12 +307,23 @@ func (a *app) stdinLoginCandidate(candidate config.Settings, passwordStdin bool)
 	if err := normalizeLoginFields(&candidate); err != nil {
 		return config.Settings{}, err
 	}
-	secret, err := readLoginCredential(a.stdin)
+	secret, err := a.readStdinCredential()
 	if err != nil {
 		return config.Settings{}, err
 	}
 	setLoginSecret(&candidate, secret)
 	return candidate, nil
+}
+
+// readStdinCredential restores the default signal disposition around the read,
+// because a credential read that blocks on a terminal cannot observe
+// cancellation any more than an interactive prompt can.
+func (a *app) readStdinCredential() (string, error) {
+	if a.signals != nil {
+		resume := a.signals.suspend()
+		defer resume()
+	}
+	return readLoginCredential(a.stdin)
 }
 
 func readLoginCredential(input io.Reader) (string, error) {

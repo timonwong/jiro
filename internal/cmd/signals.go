@@ -4,88 +4,133 @@ import (
 	"context"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/spf13/cobra"
 )
 
-func executionSignalContext() (context.Context, func(), func() int) {
+// executionNotifier owns the process-wide signal handling installed by Execute.
+// Commands observe an interrupt as context cancellation, and a repeated signal
+// escapes work that cannot observe it.
+type executionNotifier struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	native chan os.Signal
+	done   chan struct{}
+	code   atomic.Int32
+
+	mutex       sync.Mutex
+	stopped     bool
+	suspended   bool
+	restorePipe func()
+}
+
+func installExecutionSignals() *executionNotifier {
 	ctx, cancel := context.WithCancel(context.Background())
-	registered := executionSignals()
-	restoreBrokenPipe := ignoreBrokenPipeSignal()
-	native := make(chan os.Signal, 1)
-	done := make(chan struct{})
-	signal.Notify(native, registered...)
-	var code atomic.Int32
-	go func() {
-		select {
-		case value := <-native:
-			code.Store(int32(executionSignalExitCode(value)))
-			cancel()
-		case <-done:
-		}
-	}()
-	var once sync.Once
-	stop := func() {
-		once.Do(func() {
-			signal.Stop(native)
-			restoreBrokenPipe()
-			close(done)
-			cancel()
-		})
+	notifier := &executionNotifier{
+		ctx:    ctx,
+		cancel: cancel,
+		native: make(chan os.Signal, 1),
+		done:   make(chan struct{}),
 	}
-	return ctx, stop, func() int { return int(code.Load()) }
+	signal.Notify(notifier.native, executionSignals()...)
+	go notifier.watch()
+	return notifier
 }
 
-func isAPIInvocation(args []string) bool {
-	return isCommandInvocation(args, "api")
+func (n *executionNotifier) watch() {
+	select {
+	case value := <-n.native:
+		n.code.Store(int32(executionSignalExitCode(value)))
+		n.cancel()
+	case <-n.done:
+		return
+	}
+	// A repeated signal ends work that cannot observe cancellation, such as a
+	// blocking terminal read, keeping the exit code the contract defines.
+	select {
+	case value := <-n.native:
+		os.Exit(executionSignalExitCode(value))
+	case <-n.done:
+	}
 }
 
-func isCommandInvocation(args []string, name string) bool {
-	valueFlags := map[string]struct{}{
-		"--config": {}, "-c": {}, "--profile": {}, "--output": {}, "-o": {},
+func (n *executionNotifier) exitCode() int { return int(n.code.Load()) }
+
+func (n *executionNotifier) stop() {
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+	if n.stopped {
+		return
 	}
-	for index := 0; index < len(args); index++ {
-		argument := args[index]
-		if argument == "--" {
-			return index+1 < len(args) && args[index+1] == name
-		}
-		if _, takesValue := valueFlags[argument]; takesValue {
-			index++
-			continue
-		}
-		if strings.HasPrefix(argument, "--config=") || strings.HasPrefix(argument, "--profile=") ||
-			strings.HasPrefix(argument, "--output=") ||
-			(strings.HasPrefix(argument, "-c") && argument != "-c") || (strings.HasPrefix(argument, "-o") && argument != "-o") {
-			continue
-		}
-		if strings.HasPrefix(argument, "-") {
-			continue
-		}
-		return argument == name
+	n.stopped = true
+	signal.Stop(n.native)
+	if n.restorePipe != nil {
+		n.restorePipe()
 	}
-	return false
+	close(n.done)
+	n.cancel()
 }
 
-func hasExplicitOutputFlag(args []string) bool {
-	valueFlags := map[string]struct{}{
-		"--config": {}, "-c": {}, "--profile": {},
-		"--method": {}, "-X": {}, "--input": {}, "--string-field": {}, "-f": {}, "--field": {}, "-F": {},
-		"--form": {}, "--header": {}, "-H": {}, "--timeout": {},
+// suspend restores the default disposition of the execution signals until the
+// returned function resumes delivery. A blocking terminal read never observes
+// cancellation, so an interactive prompt must let a signal end the process.
+func (n *executionNotifier) suspend() func() {
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+	if n.stopped || n.suspended {
+		return func() {}
 	}
-	for index := 0; index < len(args); index++ {
-		argument := args[index]
-		if argument == "--" {
-			return false
-		}
-		if argument == "--output" || argument == "-o" || strings.HasPrefix(argument, "--output=") ||
-			(strings.HasPrefix(argument, "-o") && argument != "-o") {
-			return true
-		}
-		if _, takesValue := valueFlags[argument]; takesValue {
-			index++
-			continue
-		}
+	n.suspended = true
+	signal.Stop(n.native)
+	return n.resume
+}
+
+func (n *executionNotifier) resume() {
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+	if n.stopped || !n.suspended {
+		return
 	}
-	return false
+	n.suspended = false
+	signal.Notify(n.native, executionSignals()...)
+}
+
+func (n *executionNotifier) ignoreBrokenPipe() {
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+	if n.stopped || n.restorePipe != nil {
+		return
+	}
+	n.restorePipe = ignoreBrokenPipeSignal()
+}
+
+// handlesBrokenPipe reports whether the command treats a closed output pipe as
+// a normal end of output. Every other command keeps the default death by
+// SIGPIPE.
+func handlesBrokenPipe(command *cobra.Command) bool {
+	return isRawHTTPCommand(command) || isJFMConversionCommand(command)
+}
+
+// signalSuspendingTerminal restores the default signal disposition around an
+// interactive prompt, so Ctrl-C ends the process instead of queueing a
+// cancellation the blocked prompt cannot act on.
+type signalSuspendingTerminal struct {
+	terminal loginTerminal
+	notifier *executionNotifier
+}
+
+func (t signalSuspendingTerminal) IsTerminal() bool { return t.terminal.IsTerminal() }
+
+func (t signalSuspendingTerminal) Prompt(label, defaultValue string) (string, error) {
+	resume := t.notifier.suspend()
+	defer resume()
+	return t.terminal.Prompt(label, defaultValue)
+}
+
+func (t signalSuspendingTerminal) PromptSecret(label string) (string, error) {
+	resume := t.notifier.suspend()
+	defer resume()
+	return t.terminal.PromptSecret(label)
 }

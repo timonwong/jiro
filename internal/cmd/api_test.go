@@ -83,24 +83,6 @@ func TestAPICommandHelpDocumentsRawAndInsecureContract(t *testing.T) {
 	}
 }
 
-func TestAPIInvocationDetectionSkipsGlobalFlagValues(t *testing.T) {
-	tests := []struct {
-		args []string
-		want bool
-	}{
-		{[]string{"api", "rest/api/2/myself"}, true},
-		{[]string{"--config", "config.toml", "--quiet", "api", "rest/api/2/myself"}, true},
-		{[]string{"--config=config.toml", "-ojson", "api", "rest/api/2/myself"}, true},
-		{[]string{"--profile", "api", "auth", "status"}, false},
-		{[]string{"issue", "list", "--project", "api"}, false},
-	}
-	for _, test := range tests {
-		if got := isAPIInvocation(test.args); got != test.want {
-			t.Fatalf("isAPIInvocation(%v) = %t, want %t", test.args, got, test.want)
-		}
-	}
-}
-
 func TestAPICommandWritesHTTPFailuresOnlyToStderr(t *testing.T) {
 	clearCommandEnv(t)
 
@@ -146,17 +128,24 @@ func TestAPICommandRejectsExplicitGlobalOutputBeforeNetwork(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
 	defer server.Close()
 
-	for _, output := range [][]string{{"-o", "text"}, {"--output=json"}, {"-o", "text", "api", "--help"}} {
+	for _, output := range [][]string{{"-o", "text"}, {"--output=json"}, {"-ojson"}} {
 		args := []string{"--config", writeCLIConfig(t, server.URL, false)}
 		args = append(args, output...)
-		if output[len(output)-1] != "--help" {
-			args = append(args, "api", "rest/api/2/myself")
-		}
+		args = append(args, "api", "rest/api/2/myself")
 		stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 		code := Execute(args, strings.NewReader(""), stdout, stderr)
-		if code != 2 || stdout.Len() != 0 || calls.Load() != 0 || strings.Contains(stderr.String(), `"schemaVersion"`) {
+		if code != 2 || stdout.Len() != 0 || calls.Load() != 0 || stderr.String() != "--output is not supported for api\n" {
 			t.Fatalf("args=%v code=%d calls=%d stdout=%q stderr=%q", args, code, calls.Load(), stdout.String(), stderr.String())
 		}
+	}
+}
+
+func TestAPICommandHelpWinsOverTheGlobalOutputBan(t *testing.T) {
+	clearCommandEnv(t)
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	code := Execute([]string{"-o", "text", "api", "--help"}, strings.NewReader(""), stdout, stderr)
+	if code != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), "--output is not supported") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }
 

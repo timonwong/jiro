@@ -39,24 +39,6 @@ func TestJFMFromJiraReadsStdinAndWritesExactText(t *testing.T) {
 	}
 }
 
-func TestJFMInvocationDetectionSkipsGlobalFlagValues(t *testing.T) {
-	tests := []struct {
-		args []string
-		want bool
-	}{
-		{[]string{"jfm", "to-jira"}, true},
-		{[]string{"--config", "config.toml", "--quiet", "jfm", "from-jira"}, true},
-		{[]string{"--config=config.toml", "-ojson", "jfm", "to-jira"}, true},
-		{[]string{"--profile", "jfm", "auth", "status"}, false},
-		{[]string{"issue", "add", "--summary", "jfm"}, false},
-	}
-	for _, test := range tests {
-		if got := isJFMInvocation(test.args); got != test.want {
-			t.Fatalf("isJFMInvocation(%v) = %t, want %t", test.args, got, test.want)
-		}
-	}
-}
-
 func TestJFMCommandsAcceptAFileOrStdinMarker(t *testing.T) {
 	clearCommandEnv(t)
 	path := filepath.Join(t.TempDir(), "input.jfm")

@@ -99,7 +99,7 @@ func (a *app) readJFMInput(ctx context.Context, path string) ([]byte, error) {
 	closer, _ := a.stdin.(io.Closer)
 	var file *os.File
 	if path != "-" {
-		opened, err := openJFMFileWithContext(ctx, path)
+		opened, err := openFileWithContext(ctx, path)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil, err
@@ -117,7 +117,7 @@ func (a *app) readJFMInput(ctx context.Context, path string) ([]byte, error) {
 		}
 		reader, closer = file, file
 	}
-	data, err := readJFMInputWithContext(ctx, reader, closer)
+	data, err := readAllWithContext(ctx, reader, closer)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return nil, err
@@ -125,53 +125,6 @@ func (a *app) readJFMInput(ctx context.Context, path string) ([]byte, error) {
 		return nil, apperr.Wrap(apperr.KindInvalidInput, err, "read JFM input")
 	}
 	return data, nil
-}
-
-type jfmOpenResult struct {
-	file *os.File
-	err  error
-}
-
-func openJFMFileWithContext(ctx context.Context, path string) (*os.File, error) {
-	result := make(chan jfmOpenResult, 1)
-	go func() {
-		file, err := os.Open(path)
-		result <- jfmOpenResult{file: file, err: err}
-	}()
-	select {
-	case completed := <-result:
-		return completed.file, completed.err
-	case <-ctx.Done():
-		go func() {
-			completed := <-result
-			if completed.file != nil {
-				_ = completed.file.Close()
-			}
-		}()
-		return nil, ctx.Err()
-	}
-}
-
-type jfmReadResult struct {
-	data []byte
-	err  error
-}
-
-func readJFMInputWithContext(ctx context.Context, reader io.Reader, closer io.Closer) ([]byte, error) {
-	result := make(chan jfmReadResult, 1)
-	go func() {
-		data, err := io.ReadAll(reader)
-		result <- jfmReadResult{data: data, err: err}
-	}()
-	select {
-	case completed := <-result:
-		return completed.data, completed.err
-	case <-ctx.Done():
-		if closer != nil {
-			_ = closer.Close()
-		}
-		return nil, ctx.Err()
-	}
 }
 
 func (a *app) renderJFMConversion(
@@ -197,8 +150,4 @@ func (a *app) renderJFMConversion(
 
 func isJFMConversionCommand(command *cobra.Command) bool {
 	return command != nil && command.Annotations[jfmConversionCommandAnnotation] == "true"
-}
-
-func isJFMInvocation(args []string) bool {
-	return isCommandInvocation(args, "jfm")
 }
