@@ -364,13 +364,7 @@ func normalizeLoginFields(candidate *config.Settings) error {
 }
 
 func verifyLogin(ctx context.Context, candidate config.Settings) (jira.User, error) {
-	clientConfig := jira.Config{BaseURL: candidate.Host, Username: candidate.Username, UserAgent: candidate.UserAgent}
-	if candidate.AuthType == config.AuthPAT {
-		clientConfig.PAT = candidate.Token
-	} else {
-		clientConfig.Password = candidate.Password
-	}
-	client, err := jira.NewClient(clientConfig)
+	client, err := clientFromSettings(candidate)
 	if err != nil {
 		return jira.User{}, err
 	}

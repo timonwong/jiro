@@ -140,18 +140,26 @@ func (c *Client) RawRequest(ctx context.Context, method, path string, query url.
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		httpErr := &HTTPError{StatusCode: resp.StatusCode, Body: raw, Message: jiraErrorMessage(raw)}
-		kind := apperr.KindAPI
-		switch resp.StatusCode {
-		case http.StatusUnauthorized, http.StatusForbidden:
-			kind = apperr.KindAuth
-		case http.StatusNotFound:
-			kind = apperr.KindNotFound
-		case http.StatusTooManyRequests:
-			kind = apperr.KindRateLimit
-		}
+		kind := ClassifyStatus(resp.StatusCode)
 		return nil, &apperr.Error{Kind: kind, Message: httpErr.Error(), StatusCode: resp.StatusCode, Cause: httpErr}
 	}
 	return raw, nil
+}
+
+// ClassifyStatus maps an HTTP response status code to the apperr.Kind used
+// for both typed operations and the api command's raw streaming path, so the
+// two error paths always agree on exit codes for identical Jira failures.
+func ClassifyStatus(statusCode int) apperr.Kind {
+	switch statusCode {
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return apperr.KindAuth
+	case http.StatusNotFound:
+		return apperr.KindNotFound
+	case http.StatusTooManyRequests:
+		return apperr.KindRateLimit
+	default:
+		return apperr.KindAPI
+	}
 }
 
 func jiraErrorMessage(raw []byte) string {
