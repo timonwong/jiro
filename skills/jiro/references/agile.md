@@ -21,4 +21,6 @@ Complete discovery only when the requested Board scope has been queried and ever
 
 Resolve Sprint input as a numeric ID, `active`, or a case-insensitive name substring. Confirm that the first match in Jira Board/page order is the intended Sprint before mutating.
 
+When the target Board is known, pass `--sprint-board SELECTOR` on `issue add`/`issue update` to scope `--sprint` resolution to that Board. The selector uses the same forms as `sprint list --board` and requires `--sprint`.
+
 After the mutation, read the Issue back. When typed Sprint Memberships are required, also follow [Fields and Sprint Memberships](fields.md).

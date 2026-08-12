@@ -462,6 +462,92 @@ func TestIssueUpdateSprintPreflightsThenPreservesPartialResult(t *testing.T) {
 	})
 }
 
+func TestIssueCreateSprintBoardHintScopesResolutionWithoutEnumeration(t *testing.T) {
+	clearCommandEnv(t)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/rest/api/2/issue":
+			_, _ = io.WriteString(writer, `{"id":"9","key":"OPS-9"}`)
+		case "/rest/agile/1.0/board/7":
+			_, _ = io.WriteString(writer, `{"id":7,"name":"Platform","type":"scrum"}`)
+		case "/rest/agile/1.0/board/7/sprint":
+			_, _ = io.WriteString(writer, `{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":90,"name":"Sprint 9","state":"future","originBoardId":7}]}`)
+		case "/rest/agile/1.0/sprint/90/issue":
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	code := Execute([]string{
+		"--config", writeCLIConfig(t, server.URL, false), "-ojson", "issue", "add",
+		"--project", "OPS", "--type", "Task", "--summary", "Scheduled", "--sprint", "sprint 9", "--sprint-board", "7",
+	}, strings.NewReader(""), stdout, stderr)
+	if code != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"sprintMoved":true`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestIssueUpdateSprintActiveWithBoardHintFiltersStateServerSide(t *testing.T) {
+	clearCommandEnv(t)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/rest/agile/1.0/board/7":
+			_, _ = io.WriteString(writer, `{"id":7,"name":"Platform","type":"scrum"}`)
+		case "/rest/agile/1.0/board/7/sprint":
+			if got := request.URL.Query().Get("state"); got != "active" {
+				t.Fatalf("state = %q, want active", got)
+			}
+			_, _ = io.WriteString(writer, `{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":42,"name":"Sprint 14","state":"active","originBoardId":7}]}`)
+		case "/rest/agile/1.0/sprint/42/issue":
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	code := Execute([]string{
+		"--config", writeCLIConfig(t, server.URL, false), "-ojson", "issue", "update", "OPS-11",
+		"--sprint", "active", "--sprint-board", "7",
+	}, strings.NewReader(""), stdout, stderr)
+	if code != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"sprintMoved":true`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestIssueSprintBoardFlagIsValidatedBeforeNetwork(t *testing.T) {
+	clearCommandEnv(t)
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))
+	defer server.Close()
+	configPath := writeCLIConfig(t, server.URL, false)
+
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"issue", "add", "--project", "OPS", "--type", "Task", "--summary", "S", "--sprint-board", "7"}, "--sprint-board requires --sprint"},
+		{[]string{"issue", "update", "OPS-1", "--summary", "S", "--sprint-board", "7"}, "--sprint-board requires --sprint"},
+		{[]string{"issue", "add", "--project", "OPS", "--type", "Task", "--summary", "S", "--sprint", "x", "--sprint-board", "  "}, "board selector must not be empty"},
+		{[]string{"issue", "update", "OPS-1", "--sprint", "x", "--sprint-board", "0"}, "board ID must be positive"},
+	}
+	for _, test := range tests {
+		stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+		fullArgs := append([]string{"--config", configPath, "-ojson"}, test.args...)
+		code := Execute(fullArgs, strings.NewReader(""), stdout, stderr)
+		if code != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), test.want) {
+			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", test.args, code, stdout.String(), stderr.String())
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("network calls = %d, want 0", calls)
+	}
+}
+
 func TestIssuesListWiresExtendedFilters(t *testing.T) {
 	clearCommandEnv(t)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

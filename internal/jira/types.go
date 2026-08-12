@@ -143,9 +143,11 @@ type SprintPage struct {
 	Sprints    []Sprint `json:"sprints"`
 }
 
-// MoveIssueToSprintInput selects the target Sprint.
+// MoveIssueToSprintInput selects the target Sprint. Board optionally scopes
+// name and active Sprint resolution to one Board selector.
 type MoveIssueToSprintInput struct {
 	Sprint string `json:"sprint"`
+	Board  string `json:"board,omitempty"`
 }
 
 // Issue is a normalized issue. Fields holds Jira field values keyed by their

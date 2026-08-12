@@ -169,8 +169,8 @@ func TestSchemaDocument(t *testing.T) {
 		flags    []string
 	}{
 		{"issue list", false, []string{"resolution", "reporter", "label", "component", "fix-version", "sprint", "parent", "created", "updated"}},
-		{"issue add", true, []string{"parent", "component", "fix-version", "sprint"}},
-		{"issue update", true, []string{"type", "component", "fix-version", "sprint"}},
+		{"issue add", true, []string{"parent", "component", "fix-version", "sprint", "sprint-board"}},
+		{"issue update", true, []string{"type", "component", "fix-version", "sprint", "sprint-board"}},
 		{"issue list-types", false, nil},
 		{"issue move", true, []string{"to", "comment", "input-format", "resolution", "field"}},
 		{"issue assign", true, []string{"assignee"}},

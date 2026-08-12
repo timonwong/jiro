@@ -36,6 +36,10 @@ failure.
 
 Write-time Sprint specs accept a numeric ID, `active`, or a case-insensitive
 name substring. jiro uses the first match in Jira board and page order.
+`--sprint-board` scopes that resolution to one Board selector: a positive
+number selects that exact Board ID, other values select every Board whose
+name contains the selector case-insensitively, in Jira order. It requires
+`--sprint`; numeric Sprint IDs never trigger resolution.
 
 ### Transition comments and resolution
 

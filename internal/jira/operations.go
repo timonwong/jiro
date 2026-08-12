@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -277,6 +278,84 @@ func (c *Client) ListAllBoards(ctx context.Context) ([]Board, error) {
 	}
 }
 
+// ShowBoard returns one Jira Software board by its exact ID.
+func (c *Client) ShowBoard(ctx context.Context, boardID int) (Board, error) {
+	if boardID <= 0 {
+		return Board{}, apperr.New(apperr.KindInvalidInput, "board ID is required")
+	}
+	var wire wireBoard
+	if err := c.do(ctx, http.MethodGet, "rest/agile/1.0/board/"+strconv.Itoa(boardID), nil, nil, &wire); err != nil {
+		return Board{}, err
+	}
+	if wire.ID != boardID {
+		return Board{}, apperr.New(apperr.KindAPI, fmt.Sprintf("Jira Board response ID %d does not match requested Board %d", wire.ID, boardID))
+	}
+	return Board{ID: wire.ID, Name: wire.Name, Type: wire.Type}, nil
+}
+
+var numericBoardSelector = regexp.MustCompile(`^[+-]?[0-9]+$`)
+
+// parseBoardSelector validates a Board selector and returns its exact Board
+// ID, or 0 for a name-substring selector.
+func parseBoardSelector(selector string) (int, error) {
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return 0, apperr.New(apperr.KindInvalidInput, "board selector must not be empty")
+	}
+	if !numericBoardSelector.MatchString(selector) {
+		return 0, nil
+	}
+	id, err := strconv.ParseInt(selector, 10, 0)
+	if err != nil || id <= 0 {
+		return 0, apperr.New(apperr.KindInvalidInput, "board ID must be positive")
+	}
+	return int(id), nil
+}
+
+// ValidateBoardSelector reports whether a Board selector is well-formed
+// without touching the network.
+func ValidateBoardSelector(selector string) error {
+	_, err := parseBoardSelector(selector)
+	return err
+}
+
+// ResolveBoardSelector resolves one Board selector. A positive numeric
+// selector fetches that exact Board ID directly; other selectors match a
+// case-insensitive Board name substring across every accessible Board in
+// Jira's board order.
+func (c *Client) ResolveBoardSelector(ctx context.Context, selector string) ([]Board, error) {
+	selector = strings.TrimSpace(selector)
+	id, err := parseBoardSelector(selector)
+	if err != nil {
+		return nil, err
+	}
+	if id > 0 {
+		board, err := c.ShowBoard(ctx, id)
+		if err != nil {
+			if apperr.As(err).Kind == apperr.KindNotFound {
+				return nil, apperr.New(apperr.KindNotFound, fmt.Sprintf("board %q was not found", selector))
+			}
+			return nil, err
+		}
+		return []Board{board}, nil
+	}
+	boards, err := c.ListAllBoards(ctx)
+	if err != nil {
+		return nil, err
+	}
+	needle := strings.ToLower(selector)
+	selected := make([]Board, 0)
+	for _, board := range boards {
+		if strings.Contains(strings.ToLower(board.Name), needle) {
+			selected = append(selected, board)
+		}
+	}
+	if len(selected) == 0 {
+		return nil, apperr.New(apperr.KindNotFound, fmt.Sprintf("board %q was not found", selector))
+	}
+	return selected, nil
+}
+
 // ListSprints returns a page of a board's Jira Software sprints in Jira's
 // source order.
 func (c *Client) ListSprints(ctx context.Context, boardID int, page Page) (SprintPage, error) {
@@ -352,8 +431,9 @@ func (c *Client) ListAllSprints(ctx context.Context, boardID int, state SprintSt
 
 // ResolveSprint resolves a numeric ID, active, or case-insensitive name
 // substring. Name and active matches preserve Jira's board and page order.
-func (c *Client) ResolveSprint(ctx context.Context, spec string) (Sprint, error) {
-	return c.resolveSprint(ctx, spec)
+// A non-empty board selector scopes resolution to the Boards it matches.
+func (c *Client) ResolveSprint(ctx context.Context, spec, board string) (Sprint, error) {
+	return c.resolveSprint(ctx, spec, board)
 }
 
 // MoveIssueToSprint moves an issue to the Sprint selected by input.
@@ -361,7 +441,7 @@ func (c *Client) MoveIssueToSprint(ctx context.Context, key string, input MoveIs
 	if strings.TrimSpace(key) == "" || strings.TrimSpace(input.Sprint) == "" {
 		return apperr.New(apperr.KindInvalidInput, "issue key and sprint are required")
 	}
-	sprint, err := c.resolveSprint(ctx, input.Sprint)
+	sprint, err := c.resolveSprint(ctx, input.Sprint, input.Board)
 	if err != nil {
 		return err
 	}
@@ -383,7 +463,7 @@ func (c *Client) AddIssuesToSprint(ctx context.Context, sprintID int, keys []str
 	return c.do(ctx, http.MethodPost, "rest/agile/1.0/sprint/"+strconv.Itoa(sprintID)+"/issue", nil, map[string][]string{"issues": issues}, nil)
 }
 
-func (c *Client) resolveSprint(ctx context.Context, spec string) (Sprint, error) {
+func (c *Client) resolveSprint(ctx context.Context, spec, board string) (Sprint, error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {
 		return Sprint{}, apperr.New(apperr.KindInvalidInput, "sprint is required")
@@ -395,27 +475,41 @@ func (c *Client) resolveSprint(ctx context.Context, spec string) (Sprint, error)
 		return Sprint{ID: id}, nil
 	}
 	active := strings.EqualFold(spec, "active")
+	// An active spec filters server-side, so each board returns at most one
+	// page of candidates instead of its full sprint history.
+	state := SprintStateAll
+	if active {
+		state = SprintStateActive
+	}
 	needle := strings.ToLower(spec)
+	if strings.TrimSpace(board) != "" {
+		boards, err := c.ResolveBoardSelector(ctx, board)
+		if err != nil {
+			return Sprint{}, err
+		}
+		for _, board := range boards {
+			sprint, found, err := c.findSprintOnBoard(ctx, board.ID, state, active, needle)
+			if err != nil {
+				return Sprint{}, err
+			}
+			if found {
+				return sprint, nil
+			}
+		}
+		return Sprint{}, apperr.New(apperr.KindInvalidInput, fmt.Sprintf("sprint %q was not found", spec))
+	}
 	for boardPage := (Page{MaxResults: agileDiscoveryPageSize}); ; {
 		boards, err := c.ListBoards(ctx, boardPage)
 		if err != nil {
 			return Sprint{}, err
 		}
 		for _, board := range boards.Boards {
-			for sprintPage := (Page{MaxResults: agileDiscoveryPageSize}); ; {
-				sprints, err := c.ListSprints(ctx, board.ID, sprintPage)
-				if err != nil {
-					return Sprint{}, err
-				}
-				for _, sprint := range sprints.Sprints {
-					if (active && strings.EqualFold(sprint.State, "active")) || (!active && strings.Contains(strings.ToLower(sprint.Name), needle)) {
-						return sprint, nil
-					}
-				}
-				if !hasNextPage(sprints.StartAt, len(sprints.Sprints), sprints.Total, sprints.IsLast) {
-					break
-				}
-				sprintPage.StartAt = sprints.StartAt + len(sprints.Sprints)
+			sprint, found, err := c.findSprintOnBoard(ctx, board.ID, state, active, needle)
+			if err != nil {
+				return Sprint{}, err
+			}
+			if found {
+				return sprint, nil
 			}
 		}
 		if !hasNextPage(boards.StartAt, len(boards.Boards), boards.Total, boards.IsLast) {
@@ -424,6 +518,26 @@ func (c *Client) resolveSprint(ctx context.Context, spec string) (Sprint, error)
 		boardPage.StartAt = boards.StartAt + len(boards.Boards)
 	}
 	return Sprint{}, apperr.New(apperr.KindInvalidInput, fmt.Sprintf("sprint %q was not found", spec))
+}
+
+// findSprintOnBoard returns one board's first Sprint matching the resolution
+// spec, in Jira's page order.
+func (c *Client) findSprintOnBoard(ctx context.Context, boardID int, state SprintState, active bool, needle string) (Sprint, bool, error) {
+	for sprintPage := (Page{MaxResults: agileDiscoveryPageSize}); ; {
+		sprints, err := c.listSprints(ctx, boardID, sprintPage, state)
+		if err != nil {
+			return Sprint{}, false, err
+		}
+		for _, sprint := range sprints.Sprints {
+			if (active && strings.EqualFold(sprint.State, "active")) || (!active && strings.Contains(strings.ToLower(sprint.Name), needle)) {
+				return sprint, true, nil
+			}
+		}
+		if !hasNextPage(sprints.StartAt, len(sprints.Sprints), sprints.Total, sprints.IsLast) {
+			return Sprint{}, false, nil
+		}
+		sprintPage.StartAt = sprints.StartAt + len(sprints.Sprints)
+	}
 }
 
 func hasNextPage(startAt, count, total int, isLast bool) bool {

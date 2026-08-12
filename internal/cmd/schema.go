@@ -108,12 +108,14 @@ func schemaDocument() cliSchema {
 				requiredFlag("project", "p", "string"), requiredFlag("type", "t", "string"), requiredFlag("summary", "s", "string"),
 				flag("description", "", "string"), flag("description-file", "", "path-or-stdin"), flagDefault("input-format", "", "enum:jira|jfm|markdown", "jira"),
 				flag("priority", "", "string"), flag("assignee", "", "string"), repeatableFlag("label", "", "string"), flag("parent", "", "issue-key"),
-				repeatableFlag("component", "", "string"), repeatableFlag("fix-version", "", "string"), flag("sprint", "", "string"), repeatableFlag("field", "", "custom-field-alias-or-id=value"),
+				repeatableFlag("component", "", "string"), repeatableFlag("fix-version", "", "string"), flag("sprint", "", "string"),
+				flag("sprint-board", "", "string"), repeatableFlag("field", "", "custom-field-alias-or-id=value"),
 			}, object("id", "key", "sprint", "sprintMoved")),
 			commandWithFlags("issue update", nil, true, "ISSUE-KEY", []flagSchema{
 				flag("summary", "s", "string"), conflictingFlag("type", "t", "string", issueTypeUpdateConflictingFlags...), flag("description", "", "string"), flag("description-file", "", "path-or-stdin"),
 				flagDefault("input-format", "", "enum:jira|jfm|markdown", "jira"), flag("priority", "", "string"), flag("assignee", "", "string"),
-				repeatableFlag("label", "", "string"), repeatableFlag("component", "", "string"), repeatableFlag("fix-version", "", "string"), flag("sprint", "", "string"), repeatableFlag("field", "", "custom-field-alias-or-id=value"),
+				repeatableFlag("label", "", "string"), repeatableFlag("component", "", "string"), repeatableFlag("fix-version", "", "string"), flag("sprint", "", "string"),
+				flag("sprint-board", "", "string"), repeatableFlag("field", "", "custom-field-alias-or-id=value"),
 			}, object("key", "updated", "unchanged", "unknown", "issueType", "sprint", "sprintMoved")),
 			command("issue list-types", false, "ISSUE-KEY", object("issueKey", "currentIssueType", "issueTypes")),
 			commandWithFlags("issue comment list", nil, false, "ISSUE-KEY", []flagSchema{

@@ -48,7 +48,7 @@ func TestResolveSprintAcceptsActive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sprint, err := client.ResolveSprint(context.Background(), "ACTIVE")
+	sprint, err := client.ResolveSprint(context.Background(), "ACTIVE", "")
 	if err != nil || sprint.ID != 23 || sprint.Name != "Current" {
 		t.Fatalf("ResolveSprint() = %#v, %v", sprint, err)
 	}
@@ -65,7 +65,7 @@ func TestResolveSprintRejectsEmptyAndNonPositiveIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, spec := range []string{"", "0", "-1"} {
-		if _, err := client.ResolveSprint(context.Background(), spec); err == nil {
+		if _, err := client.ResolveSprint(context.Background(), spec, ""); err == nil {
 			t.Fatalf("ResolveSprint(%q) error = nil", spec)
 		}
 	}
