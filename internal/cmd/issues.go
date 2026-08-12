@@ -154,7 +154,7 @@ func (a *app) issueCreateCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			descriptionValue, err := readText(a.stdin, description, command.Flags().Changed("description"), descriptionFile)
+			descriptionValue, err := readText(command.Context(), a.stdin, description, command.Flags().Changed("description"), descriptionFile)
 			if err != nil {
 				return err
 			}
@@ -244,7 +244,7 @@ func (a *app) issueUpdateCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			descriptionValue, err := readText(a.stdin, description, command.Flags().Changed("description"), descriptionFile)
+			descriptionValue, err := readText(command.Context(), a.stdin, description, command.Flags().Changed("description"), descriptionFile)
 			if err != nil {
 				return err
 			}
@@ -367,7 +367,7 @@ func (a *app) issueCommentCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			bodyValue, err := readText(a.stdin, body, command.Flags().Changed("body"), bodyFile)
+			bodyValue, err := readText(command.Context(), a.stdin, body, command.Flags().Changed("body"), bodyFile)
 			if err != nil {
 				return err
 			}

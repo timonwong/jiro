@@ -27,6 +27,7 @@ type app struct {
 	outputTTY   outputTerminalDetector
 	secretStore config.SecretStore
 	fieldStore  fieldcache.Store
+	signals     *executionNotifier
 	warnings    []output.Warning
 
 	configPath string
@@ -38,12 +39,11 @@ type app struct {
 // Execute runs jiro and returns a stable process exit code.
 func Execute(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	a := &app{stdin: stdin, stdout: stdout, stderr: stderr}
-	if isAPIInvocation(args) || isJFMInvocation(args) {
-		ctx, stop, signalCode := executionSignalContext()
-		defer stop()
-		return a.executeContext(ctx, args, signalCode)
-	}
-	return a.execute(args)
+	notifier := installExecutionSignals()
+	defer notifier.stop()
+	a.signals = notifier
+	a.terminal = signalSuspendingTerminal{terminal: newLoginTerminal(stdin, stderr), notifier: notifier}
+	return a.executeContext(notifier.ctx, args, notifier.exitCode)
 }
 
 func (a *app) execute(args []string) int {
@@ -61,23 +61,13 @@ func (a *app) executeWithRoot(ctx context.Context, root *cobra.Command, args []s
 	}
 	root.SetContext(ctx)
 	root.SetArgs(args)
-	if isAPIInvocation(args) && hasExplicitOutputFlag(args) {
-		_, _ = fmt.Fprintln(a.stderr, "--output is not supported for api")
-		return 2
-	}
 	executed, err := root.ExecuteC()
 	if err != nil {
-		if isJFMConversionCommand(executed) {
-			if code := signalCode(); code != 0 && errors.Is(ctx.Err(), context.Canceled) {
-				_, _ = fmt.Fprintln(a.stderr, "conversion canceled")
-				return code
-			}
+		if code := signalCode(); code != 0 && errors.Is(ctx.Err(), context.Canceled) {
+			_, _ = fmt.Fprintln(a.stderr, cancellationMessage(executed))
+			return code
 		}
 		if isRawHTTPCommand(executed) {
-			if code := signalCode(); code != 0 && errors.Is(ctx.Err(), context.Canceled) {
-				_, _ = fmt.Fprintln(a.stderr, "request canceled")
-				return code
-			}
 			var rendered *apiRenderedError
 			if !errors.As(err, &rendered) {
 				_, _ = fmt.Fprintln(a.stderr, err)
@@ -95,6 +85,19 @@ func (a *app) executeWithRoot(ctx context.Context, root *cobra.Command, args []s
 	return 0
 }
 
+// cancellationMessage names the work an interrupt ended, keeping the wording
+// each command family already documents.
+func cancellationMessage(command *cobra.Command) string {
+	switch {
+	case isJFMConversionCommand(command):
+		return "conversion canceled"
+	case isRawHTTPCommand(command):
+		return "request canceled"
+	default:
+		return "canceled"
+	}
+}
+
 func (a *app) rootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "jiro",
@@ -103,6 +106,9 @@ func (a *app) rootCommand() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(command *cobra.Command, _ []string) error {
+			if a.signals != nil && handlesBrokenPipe(command) {
+				a.signals.ignoreBrokenPipe()
+			}
 			if command.Name() == "schema" {
 				_, err := output.ParseFormat(a.output)
 				return err
