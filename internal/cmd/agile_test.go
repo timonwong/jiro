@@ -3,12 +3,16 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/timonwong/jiro/internal/jira"
 )
@@ -86,9 +90,12 @@ func TestBoardListTextColumnsAndEmptyOutput(t *testing.T) {
 
 func TestSprintListDefaultsActiveAndPreservesBoardRelationships(t *testing.T) {
 	clearCommandEnv(t)
+	var mu sync.Mutex
 	requests := make([]string, 0, 3)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		requests = append(requests, r.URL.String())
+		mu.Unlock()
 		switch r.URL.Path {
 		case "/rest/agile/1.0/board":
 			_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":12,"name":"Platform","type":"scrum"},{"id":18,"name":"Delivery","type":"scrum"}]}`)
@@ -135,6 +142,9 @@ func TestSprintListDefaultsActiveAndPreservesBoardRelationships(t *testing.T) {
 		envelope.Data.Sprints[1].ID != 42 || envelope.Data.Sprints[1].BoardID != 18 || envelope.Data.Sprints[1].BoardName != "Delivery" || envelope.Data.Sprints[1].Goal != "ship" {
 		t.Fatalf("data = %+v", envelope.Data)
 	}
+	// Boards are always listed before any sprint request; per-Board sprint
+	// requests run concurrently, so their arrival order is not asserted.
+	sort.Strings(requests[1:])
 	wantRequests := []string{
 		"/rest/agile/1.0/board?maxResults=50",
 		"/rest/agile/1.0/board/12/sprint?maxResults=50&state=active",
@@ -181,13 +191,16 @@ func TestSprintListStateIsNormalizedLocally(t *testing.T) {
 
 func TestSprintListBoardNameSelectorFansOutAcrossEverySubstringMatch(t *testing.T) {
 	clearCommandEnv(t)
+	var mu sync.Mutex
 	requestedBoards := make([]string, 0, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/rest/agile/1.0/board":
 			_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":12,"name":"Platform","type":"scrum"},{"id":18,"name":"Operations","type":"scrum"},{"id":21,"name":"Data PLATFORM","type":"scrum"}]}`)
 		case "/rest/agile/1.0/board/12/sprint", "/rest/agile/1.0/board/21/sprint":
+			mu.Lock()
 			requestedBoards = append(requestedBoards, r.URL.Path)
+			mu.Unlock()
 			_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[]}`)
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
@@ -200,6 +213,7 @@ func TestSprintListBoardNameSelectorFansOutAcrossEverySubstringMatch(t *testing.
 	if code != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"total":0`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
+	sort.Strings(requestedBoards)
 	if got := strings.Join(requestedBoards, ","); got != "/rest/agile/1.0/board/12/sprint,/rest/agile/1.0/board/21/sprint" {
 		t.Fatalf("requested boards = %q", got)
 	}
@@ -250,16 +264,16 @@ func TestSprintListRejectsEmptyAndNonPositiveBoardSelectorsBeforeNetwork(t *test
 	}
 }
 
-func TestSprintListBoardIDSelectorIsExact(t *testing.T) {
+func TestSprintListBoardIDSelectorFetchesOneBoardWithoutEnumeration(t *testing.T) {
 	clearCommandEnv(t)
-	requestedSprintPath := ""
+	requested := make([]string, 0, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = append(requested, r.URL.Path)
 		switch r.URL.Path {
-		case "/rest/agile/1.0/board":
-			_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":12,"name":"Board 18","type":"scrum"},{"id":18,"name":"Platform","type":"scrum"}]}`)
+		case "/rest/agile/1.0/board/18":
+			_, _ = io.WriteString(w, `{"id":18,"name":"Platform","type":"scrum"}`)
 		case "/rest/agile/1.0/board/18/sprint":
-			requestedSprintPath = r.URL.Path
-			_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[]}`)
+			_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":42,"name":"Sprint 14","state":"active","originBoardId":7}]}`)
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
 		}
@@ -268,18 +282,26 @@ func TestSprintListBoardIDSelectorIsExact(t *testing.T) {
 
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	code := Execute([]string{"--config", writeCLIConfig(t, server.URL, true), "--output=json", "sprint", "list", "--board", "18"}, strings.NewReader(""), stdout, stderr)
-	if code != 0 || stderr.Len() != 0 || requestedSprintPath != "/rest/agile/1.0/board/18/sprint" {
-		t.Fatalf("code=%d path=%q stdout=%s stderr=%s", code, requestedSprintPath, stdout.String(), stderr.String())
+	if code != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"boardName":"Platform"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if got := strings.Join(requested, ","); got != "/rest/agile/1.0/board/18,/rest/agile/1.0/board/18/sprint" {
+		t.Fatalf("requested = %q", got)
 	}
 }
 
 func TestSprintListDistinguishesEmptyBoardSetFromSelectorNotFound(t *testing.T) {
 	clearCommandEnv(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/rest/agile/1.0/board" {
+		switch r.URL.Path {
+		case "/rest/agile/1.0/board":
+			_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[]}`)
+		case "/rest/agile/1.0/board/12":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"errorMessages":["Board does not exist"]}`)
+		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
 		}
-		_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[]}`)
 	}))
 	defer server.Close()
 	configPath := writeCLIConfig(t, server.URL, true)
@@ -294,7 +316,8 @@ func TestSprintListDistinguishesEmptyBoardSetFromSelectorNotFound(t *testing.T) 
 		stdout.Reset()
 		stderr.Reset()
 		code = Execute([]string{"--config", configPath, "--output=json", "sprint", "list", "--board", selector}, strings.NewReader(""), stdout, stderr)
-		if code != 4 || stdout.Len() != 0 || !strings.Contains(stderr.String(), `"kind":"not_found"`) {
+		if code != 4 || stdout.Len() != 0 || !strings.Contains(stderr.String(), `"kind":"not_found"`) ||
+			!strings.Contains(stderr.String(), fmt.Sprintf(`board \"%s\" was not found`, selector)) {
 			t.Fatalf("selector=%q code=%d stdout=%s stderr=%s", selector, code, stdout.String(), stderr.String())
 		}
 	}
@@ -344,9 +367,12 @@ func TestSprintListTextColumnsAndEmptyOutput(t *testing.T) {
 
 func TestSprintListContinuesAndPreservesPartialResults(t *testing.T) {
 	clearCommandEnv(t)
+	var mu sync.Mutex
 	requested := make([]string, 0, 4)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		requested = append(requested, r.URL.Path)
+		mu.Unlock()
 		switch r.URL.Path {
 		case "/rest/agile/1.0/board":
 			_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":12,"name":"Platform","type":"scrum"},{"id":18,"name":"Delivery","type":"scrum"},{"id":21,"name":"Operations","type":"scrum"}]}`)
@@ -387,6 +413,9 @@ func TestSprintListContinuesAndPreservesPartialResults(t *testing.T) {
 		!strings.Contains(envelope.Data.FailedBoards[0].Error, "agile service unavailable") {
 		t.Fatalf("data = %+v", envelope.Data)
 	}
+	// Sprint requests fan out concurrently after the board listing, so only
+	// the request set is asserted, not the arrival order.
+	sort.Strings(requested[1:])
 	wantRequested := "/rest/agile/1.0/board,/rest/agile/1.0/board/12/sprint,/rest/agile/1.0/board/18/sprint,/rest/agile/1.0/board/21/sprint"
 	if strings.Join(requested, ",") != wantRequested {
 		t.Fatalf("requested = %v", requested)
@@ -448,8 +477,8 @@ func TestSprintListTotalFailureReturnsOrdinaryAPIError(t *testing.T) {
 	t.Run("single selected Board", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
-			case "/rest/agile/1.0/board":
-				_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":12,"name":"Platform","type":"scrum"},{"id":18,"name":"Delivery","type":"scrum"}]}`)
+			case "/rest/agile/1.0/board/12":
+				_, _ = io.WriteString(w, `{"id":12,"name":"Platform","type":"scrum"}`)
 			case "/rest/agile/1.0/board/12/sprint":
 				w.WriteHeader(http.StatusInternalServerError)
 				_, _ = io.WriteString(w, `{"errorMessages":["single failure"]}`)
@@ -510,5 +539,98 @@ func TestSprintListPartialTextPreservesRowsInQuietMode(t *testing.T) {
 	code := Execute([]string{"--config", writeCLIConfig(t, server.URL, true), "--quiet", "sprint", "list"}, strings.NewReader(""), stdout, stderr)
 	if code != 7 || stdout.String() != "42\tSprint 14\tactive\t18\tDelivery\t\t\t\n" || !strings.Contains(stderr.String(), "failed Board") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestSprintListWorkerPoolEmitsBoardOrderDespiteCompletionOrder(t *testing.T) {
+	clearCommandEnv(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/agile/1.0/board":
+			_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[`+
+				`{"id":1,"name":"One","type":"scrum"},{"id":2,"name":"Two","type":"scrum"},{"id":3,"name":"Three","type":"scrum"},`+
+				`{"id":4,"name":"Four","type":"scrum"},{"id":5,"name":"Five","type":"scrum"},{"id":6,"name":"Six","type":"scrum"}]}`)
+		case "/rest/agile/1.0/board/1/sprint":
+			time.Sleep(60 * time.Millisecond)
+			_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":101,"name":"Sprint 101","state":"active","originBoardId":1}]}`)
+		case "/rest/agile/1.0/board/2/sprint":
+			time.Sleep(40 * time.Millisecond)
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"errorMessages":["board two unavailable"]}`)
+		case "/rest/agile/1.0/board/3/sprint":
+			_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":103,"name":"Sprint 103","state":"active","originBoardId":3}]}`)
+		case "/rest/agile/1.0/board/4/sprint":
+			time.Sleep(20 * time.Millisecond)
+			_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":104,"name":"Sprint 104","state":"active","originBoardId":4}]}`)
+		case "/rest/agile/1.0/board/5/sprint":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"errorMessages":["board five unavailable"]}`)
+		case "/rest/agile/1.0/board/6/sprint":
+			_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":106,"name":"Sprint 106","state":"active","originBoardId":6}]}`)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	code := Execute([]string{"--config", writeCLIConfig(t, server.URL, true), "--output=json", "sprint", "list"}, strings.NewReader(""), stdout, stderr)
+	if code != 7 || !strings.Contains(stderr.String(), `"kind":"partial_failure"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var envelope struct {
+		Data struct {
+			Total        int           `json:"total"`
+			Sprints      []jira.Sprint `json:"sprints"`
+			FailedBoards []struct {
+				BoardID   int    `json:"boardId"`
+				BoardName string `json:"boardName"`
+				Error     string `json:"error"`
+			} `json:"failedBoards"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	gotBoards := make([]int, 0, len(envelope.Data.Sprints))
+	for _, sprint := range envelope.Data.Sprints {
+		gotBoards = append(gotBoards, sprint.BoardID)
+	}
+	if envelope.Data.Total != 4 || fmt.Sprint(gotBoards) != "[1 3 4 6]" {
+		t.Fatalf("sprint board order = %v, data = %+v", gotBoards, envelope.Data)
+	}
+	if len(envelope.Data.FailedBoards) != 2 ||
+		envelope.Data.FailedBoards[0].BoardID != 2 || !strings.Contains(envelope.Data.FailedBoards[0].Error, "board two unavailable") ||
+		envelope.Data.FailedBoards[1].BoardID != 5 || !strings.Contains(envelope.Data.FailedBoards[1].Error, "board five unavailable") {
+		t.Fatalf("failedBoards = %+v", envelope.Data.FailedBoards)
+	}
+}
+
+func TestSprintListWorkerPoolKeepsFirstBoardOrderErrorWhenAllFail(t *testing.T) {
+	clearCommandEnv(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/agile/1.0/board":
+			_, _ = io.WriteString(w, `{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":1,"name":"One","type":"scrum"},{"id":2,"name":"Two","type":"scrum"},{"id":3,"name":"Three","type":"scrum"}]}`)
+		case "/rest/agile/1.0/board/1/sprint":
+			// The first Board in Jira order finishes last; its error must
+			// still be the one reported when every Board fails.
+			time.Sleep(80 * time.Millisecond)
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"errorMessages":["first board failure"]}`)
+		case "/rest/agile/1.0/board/2/sprint", "/rest/agile/1.0/board/3/sprint":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"errorMessages":["later board failure"]}`)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	code := Execute([]string{"--config", writeCLIConfig(t, server.URL, true), "--output=json", "sprint", "list"}, strings.NewReader(""), stdout, stderr)
+	if code != 5 || stdout.Len() != 0 || !strings.Contains(stderr.String(), `"kind":"api_error"`) ||
+		!strings.Contains(stderr.String(), "first board failure") || strings.Contains(stderr.String(), "partial_failure") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 }

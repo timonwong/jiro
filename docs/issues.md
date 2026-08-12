@@ -60,8 +60,10 @@ Boards and Sprints are read-only discovery resources.
 omits the state filter. State values are case-insensitive and validated before
 the Agile API is called.
 
-Without `--board`, jiro queries every accessible Board serially. A positive
-numeric selector matches only that Board ID. Other selectors perform a
+Without `--board`, jiro queries every accessible Board; per-Board Sprint
+requests run with bounded concurrency, and results always keep Jira Board
+order. A positive numeric selector matches only that Board ID and is fetched
+directly without listing every Board. Other selectors perform a
 case-insensitive Board name substring match and query every match in Jira
 order. Empty, zero, and negative selectors are invalid; an unmatched selector
 returns `not_found`.
