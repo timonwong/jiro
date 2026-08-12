@@ -86,7 +86,7 @@ func NewClient(cfg Config) (*Client, error) {
 
 func (c *Client) endpoint(path string, query url.Values) string {
 	u := *c.baseURL
-	u.Path = strings.TrimRight(c.baseURL.Path, "/") + "/" + strings.TrimLeft(path, "/")
+	u.Path = c.baseURL.Path + "/" + strings.TrimLeft(path, "/")
 	u.RawQuery = query.Encode()
 	return u.String()
 }
