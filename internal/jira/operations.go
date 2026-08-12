@@ -324,9 +324,6 @@ func ParseSprintState(value string) (SprintState, error) {
 
 // ListAllSprints returns every Sprint for one Board in Jira's page order.
 func (c *Client) ListAllSprints(ctx context.Context, boardID int, state SprintState) ([]Sprint, error) {
-	if _, err := ParseSprintState(string(state)); err != nil {
-		return nil, err
-	}
 	sprints := make([]Sprint, 0)
 	seen := make(map[int]struct{})
 	for page := (Page{MaxResults: agileDiscoveryPageSize}); ; {
