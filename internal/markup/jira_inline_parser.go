@@ -19,6 +19,40 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 		result = append(result, textInline{Span: sourceSpan{Start: textStart, End: stop}, Text: value})
 	}
 
+	// Failed closer scans are memoized per delimiter: every scan below shares
+	// the same end and starts directly after an opener byte that is never a
+	// backslash, so escapedness of any candidate closer is identical for every
+	// scan start and a scan that found no closer cannot succeed from a later
+	// start. Do not reuse these helpers for scans over other strings or ranges.
+	var failedCloserScans map[string]int
+	findCloser := func(from int, delimiter string) (int, error) {
+		if failedFrom, ok := failedCloserScans[delimiter]; ok && from >= failedFrom {
+			return -1, nil
+		}
+		close, err := findUnescaped(ctx, source, from, end, delimiter)
+		if err == nil && close < 0 {
+			if failedCloserScans == nil {
+				failedCloserScans = make(map[string]int)
+			}
+			failedCloserScans[delimiter] = from
+		}
+		return close, err
+	}
+	var failedStyleScans map[byte]int
+	findStyleCloser := func(from int, delimiter byte) (int, error) {
+		if failedFrom, ok := failedStyleScans[delimiter]; ok && from >= failedFrom {
+			return -1, nil
+		}
+		close, err := findJiraStyleClose(ctx, source, from, end, delimiter)
+		if err == nil && close < 0 {
+			if failedStyleScans == nil {
+				failedStyleScans = make(map[byte]int)
+			}
+			failedStyleScans[delimiter] = from
+		}
+		return close, err
+	}
+
 	for offset := start; offset < end; {
 		if (offset-start)&255 == 0 {
 			if err := ctx.Err(); err != nil {
@@ -53,7 +87,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 		}
 
 		if strings.HasPrefix(source[offset:end], "{{") {
-			close, err := findUnescaped(ctx, source, offset+2, end, "}}")
+			close, err := findCloser(offset+2, "}}")
 			if err != nil {
 				return nil, nil, err
 			}
@@ -74,7 +108,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 		}
 
 		if source[offset] == '[' {
-			close, err := findUnescaped(ctx, source, offset+1, end, "]")
+			close, err := findCloser(offset+1, "]")
 			if err != nil {
 				return nil, nil, err
 			}
@@ -123,7 +157,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 		}
 
 		if source[offset] == '!' {
-			close, err := findUnescaped(ctx, source, offset+1, end, "!")
+			close, err := findCloser(offset+1, "!")
 			if err != nil {
 				return nil, nil, err
 			}
@@ -160,50 +194,41 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 		}
 
 		if strings.HasPrefix(source[offset:end], "{color:") {
-			openEnd, err := findUnescaped(ctx, source, offset+7, end, "}")
+			openEnd, err := findCloser(offset+7, "}")
 			if err != nil {
 				return nil, nil, err
 			}
+			close := -1
 			if openEnd >= 0 {
-				close, err := findUnescaped(ctx, source, openEnd+1, end, "{color}")
+				close, err = findCloser(openEnd+1, "{color}")
 				if err != nil {
 					return nil, nil, err
 				}
-				if close >= 0 {
-					value, err := decodeJiraDelimitedText(ctx, source[offset+7:openEnd])
+			}
+			if close >= 0 {
+				value, err := decodeJiraDelimitedText(ctx, source[offset+7:openEnd])
+				if err != nil {
+					return nil, nil, err
+				}
+				if value != "" {
+					flushText(offset)
+					children, nestedDiagnostics, err := parseJiraInlines(ctx, source, openEnd+1, close)
 					if err != nil {
 						return nil, nil, err
 					}
-					if value != "" {
-						flushText(offset)
-						children, nestedDiagnostics, err := parseJiraInlines(ctx, source, openEnd+1, close)
-						if err != nil {
-							return nil, nil, err
-						}
-						diagnostics = append(diagnostics, nestedDiagnostics...)
-						result = append(result, styledInline{
-							Span:     sourceSpan{Start: offset, End: close + len("{color}")},
-							Style:    styleColor,
-							Value:    value,
-							Children: children,
-						})
-						offset, textStart = close+len("{color}"), close+len("{color}")
-						continue
-					}
+					diagnostics = append(diagnostics, nestedDiagnostics...)
+					result = append(result, styledInline{
+						Span:     sourceSpan{Start: offset, End: close + len("{color}")},
+						Style:    styleColor,
+						Value:    value,
+						Children: children,
+					})
+					offset, textStart = close+len("{color}"), close+len("{color}")
+					continue
 				}
-			}
-		}
-		if strings.HasPrefix(source[offset:end], "{color:") {
-			openEnd, err := findUnescaped(ctx, source, offset+7, end, "}")
-			if err != nil {
-				return nil, nil, err
 			}
 			fallbackEnd := end
 			if openEnd >= 0 {
-				close, err := findUnescaped(ctx, source, openEnd+1, end, "{color}")
-				if err != nil {
-					return nil, nil, err
-				}
 				if close >= 0 {
 					fallbackEnd = close + len("{color}")
 				} else {
@@ -218,7 +243,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 		}
 
 		if style, ok := jiraInlineStyle(source[offset]); ok && jiraDelimiterCanOpen(source, offset, end) {
-			close, err := findJiraStyleClose(ctx, source, offset+1, end, source[offset])
+			close, err := findStyleCloser(offset+1, source[offset])
 			if err != nil {
 				return nil, nil, err
 			}
