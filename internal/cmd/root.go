@@ -196,17 +196,25 @@ func (a *app) client() (*jira.Client, config.Settings, error) {
 	if err != nil {
 		return nil, config.Settings{}, err
 	}
+	client, err := clientFromSettings(settings)
+	if err != nil {
+		return nil, config.Settings{}, err
+	}
+	return client, settings, nil
+}
+
+// clientFromSettings builds a jira.Client from already-resolved settings. It
+// is shared by a.client, the api command, and login verification, the last
+// of which validates candidate settings before they are persisted and so
+// cannot go through a.client itself.
+func clientFromSettings(settings config.Settings) (*jira.Client, error) {
 	clientConfig := jira.Config{BaseURL: settings.Host, Username: settings.Username, UserAgent: settings.UserAgent}
 	if settings.AuthType == config.AuthPAT {
 		clientConfig.PAT = settings.Token
 	} else {
 		clientConfig.Password = settings.Password
 	}
-	client, err := jira.NewClient(clientConfig)
-	if err != nil {
-		return nil, config.Settings{}, err
-	}
-	return client, settings, nil
+	return jira.NewClient(clientConfig)
 }
 
 func defaultUserAgent() string {
@@ -218,17 +226,28 @@ func defaultUserAgent() string {
 }
 
 func (a *app) writableClient() (*jira.Client, config.Settings, error) {
-	preview, err := config.LoadForDisplay(a.configOptions())
+	preview, err := a.previewSettings()
 	if err != nil {
 		return nil, config.Settings{}, err
-	}
-	if preview.APIVersion != 2 {
-		return nil, config.Settings{}, apperr.New(apperr.KindConfig, "jiro v1 supports Jira REST API version 2 only")
 	}
 	if err := a.requireWritable(preview); err != nil {
 		return nil, config.Settings{}, err
 	}
 	return a.client()
+}
+
+// previewSettings resolves non-secret settings for validation that must
+// complete before credential resolution (and any OS keyring access), shared
+// by writableClient and the api command.
+func (a *app) previewSettings() (config.Settings, error) {
+	preview, err := config.LoadForDisplay(a.configOptions())
+	if err != nil {
+		return config.Settings{}, err
+	}
+	if preview.APIVersion != 2 {
+		return config.Settings{}, apperr.New(apperr.KindConfig, "jiro v1 supports Jira REST API version 2 only")
+	}
+	return preview, nil
 }
 
 func (a *app) requireWritable(settings config.Settings) error {

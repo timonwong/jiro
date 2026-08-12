@@ -20,7 +20,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/timonwong/jiro/internal/apperr"
-	"github.com/timonwong/jiro/internal/config"
 	"github.com/timonwong/jiro/internal/jira"
 )
 
@@ -111,12 +110,9 @@ func (a *app) apiCommand() *cobra.Command {
 			}
 			defer prepared.close()
 
-			preview, err := config.LoadForDisplay(a.configOptions())
+			preview, err := a.previewSettings()
 			if err != nil {
 				return err
-			}
-			if preview.APIVersion != 2 {
-				return apperr.New(apperr.KindConfig, "jiro v1 supports Jira REST API version 2 only")
 			}
 			if preview.ReadOnly {
 				if _, ok := apiReadOnlyMethods[prepared.method]; !ok {
@@ -128,15 +124,7 @@ func (a *app) apiCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			clientConfig := jira.Config{
-				BaseURL: settings.Host, Username: settings.Username, UserAgent: settings.UserAgent,
-			}
-			if settings.AuthType == config.AuthPAT {
-				clientConfig.PAT = settings.Token
-			} else {
-				clientConfig.Password = settings.Password
-			}
-			client, err := jira.NewClient(clientConfig)
+			client, err := clientFromSettings(settings)
 			if err != nil {
 				return err
 			}
@@ -751,15 +739,7 @@ func (a *app) renderAPIResponse(response *http.Response, include bool) error {
 			return err
 		}
 	}
-	kind := apperr.KindAPI
-	switch response.StatusCode {
-	case http.StatusUnauthorized, http.StatusForbidden:
-		kind = apperr.KindAuth
-	case http.StatusNotFound:
-		kind = apperr.KindNotFound
-	case http.StatusTooManyRequests:
-		kind = apperr.KindRateLimit
-	}
+	kind := jira.ClassifyStatus(response.StatusCode)
 	err := &apperr.Error{Kind: kind, Message: "Jira API returned HTTP " + response.Status, StatusCode: response.StatusCode}
 	return &apiRenderedError{error: err}
 }
