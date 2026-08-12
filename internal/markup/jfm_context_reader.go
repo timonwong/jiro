@@ -84,7 +84,7 @@ func (reader *contextCheckingReader) FindClosure(opener, closer byte, options te
 	return reader.Reader.FindClosure(opener, closer, options)
 }
 
-func parseGoldmarkWithContext(ctx context.Context, markdown goldmark.Markdown, source string) (document ast.Node, err error) {
+func parseGoldmarkWithContext(ctx context.Context, markdown goldmark.Markdown, source []byte) (document ast.Node, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			if aborted, ok := recovered.(conversionContextAbort); ok {
@@ -94,7 +94,7 @@ func parseGoldmarkWithContext(ctx context.Context, markdown goldmark.Markdown, s
 			panic(recovered)
 		}
 	}()
-	reader := &contextCheckingReader{Reader: text.NewReader([]byte(source)), ctx: ctx}
+	reader := &contextCheckingReader{Reader: text.NewReader(source), ctx: ctx}
 	document = markdown.Parser().Parse(reader)
 	if contextErr := ctx.Err(); contextErr != nil {
 		return nil, contextErr
