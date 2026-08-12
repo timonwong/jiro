@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/timonwong/jiro/internal/apperr"
 )
 
 func TestListAllBoardsFollowsEveryPageInJiraOrder(t *testing.T) {
@@ -413,8 +415,179 @@ func TestResolveSprintFollowsIsLastWhenTotalIsOmitted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sprint, err := client.ResolveSprint(context.Background(), "release")
+	sprint, err := client.ResolveSprint(context.Background(), "release", "")
 	if err != nil || sprint.ID != 21 {
 		t.Fatalf("ResolveSprint() = %#v, %v", sprint, err)
+	}
+}
+
+func TestResolveSprintActiveFiltersStateServerSide(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/agile/1.0/board":
+			_, _ = w.Write([]byte(`{"startAt":0,"maxResults":50,"total":2,"values":[{"id":1,"name":"Team A","type":"scrum"},{"id":2,"name":"Team B","type":"scrum"}]}`))
+		case "/rest/agile/1.0/board/1/sprint":
+			if got := r.URL.Query().Get("state"); got != "active" {
+				t.Fatalf("state = %q, want active", got)
+			}
+			_, _ = w.Write([]byte(`{"startAt":0,"maxResults":50,"isLast":true,"values":[]}`))
+		case "/rest/agile/1.0/board/2/sprint":
+			if got := r.URL.Query().Get("state"); got != "active" {
+				t.Fatalf("state = %q, want active", got)
+			}
+			_, _ = w.Write([]byte(`{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":23,"name":"Current","state":"active","originBoardId":2}]}`))
+		default:
+			t.Fatalf("unexpected request = %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sprint, err := client.ResolveSprint(context.Background(), "active", "")
+	if err != nil || sprint.ID != 23 {
+		t.Fatalf("ResolveSprint() = %#v, %v", sprint, err)
+	}
+}
+
+func TestResolveSprintNumericBoardHintSkipsBoardEnumeration(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/agile/1.0/board/2":
+			_, _ = w.Write([]byte(`{"id":2,"name":"Team B","type":"scrum"}`))
+		case "/rest/agile/1.0/board/2/sprint":
+			_, _ = w.Write([]byte(`{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":21,"name":"Release Train","state":"future","originBoardId":2}]}`))
+		case "/rest/agile/1.0/sprint/21/issue":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request = %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.MoveIssueToSprint(context.Background(), "DEMO-1", MoveIssueToSprintInput{Sprint: "release", Board: "2"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestResolveSprintBoardNameHintScopesResolutionToMatchingBoards(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/agile/1.0/board":
+			_, _ = w.Write([]byte(`{"startAt":0,"maxResults":50,"total":3,"values":[{"id":1,"name":"Team A","type":"scrum"},{"id":2,"name":"Operations","type":"scrum"},{"id":3,"name":"Team B","type":"scrum"}]}`))
+		case "/rest/agile/1.0/board/1/sprint":
+			_, _ = w.Write([]byte(`{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":10,"name":"Planning","state":"future","originBoardId":1}]}`))
+		case "/rest/agile/1.0/board/3/sprint":
+			_, _ = w.Write([]byte(`{"startAt":0,"maxResults":50,"isLast":true,"values":[{"id":30,"name":"Release Train","state":"future","originBoardId":3}]}`))
+		default:
+			t.Fatalf("unexpected request = %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sprint, err := client.ResolveSprint(context.Background(), "release", "team")
+	if err != nil || sprint.ID != 30 || sprint.BoardID != 3 {
+		t.Fatalf("ResolveSprint() = %#v, %v", sprint, err)
+	}
+}
+
+func TestResolveSprintBoardHintNotFound(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/agile/1.0/board/9":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"errorMessages":["Board does not exist"]}`))
+		case "/rest/agile/1.0/board":
+			_, _ = w.Write([]byte(`{"startAt":0,"maxResults":50,"total":1,"values":[{"id":1,"name":"Team A","type":"scrum"}]}`))
+		default:
+			t.Fatalf("unexpected request = %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hint := range []string{"9", "missing"} {
+		_, err := client.ResolveSprint(context.Background(), "release", hint)
+		if got := apperr.As(err); err == nil || got.Kind != apperr.KindNotFound || got.Message != `board "`+hint+`" was not found` {
+			t.Fatalf("ResolveSprint(hint=%q) error = %v", hint, err)
+		}
+	}
+	if _, err := client.ResolveSprint(context.Background(), "release", "0"); apperr.As(err).Kind != apperr.KindInvalidInput {
+		t.Fatalf("ResolveSprint(hint=0) error = %v", err)
+	}
+}
+
+func TestResolveSprintNotFoundScansEveryBoardAndPageBeforeErroring(t *testing.T) {
+	t.Parallel()
+	var sprintPages atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/agile/1.0/board":
+			_, _ = w.Write([]byte(`{"startAt":0,"maxResults":50,"total":2,"values":[{"id":1,"name":"Team A","type":"scrum"},{"id":2,"name":"Team B","type":"scrum"}]}`))
+		case "/rest/agile/1.0/board/1/sprint", "/rest/agile/1.0/board/2/sprint":
+			sprintPages.Add(1)
+			switch r.URL.Query().Get("startAt") {
+			case "":
+				_, _ = w.Write([]byte(`{"startAt":0,"maxResults":1,"total":2,"values":[{"id":10,"name":"Planning","state":"future","originBoardId":1}]}`))
+			case "1":
+				_, _ = w.Write([]byte(`{"startAt":1,"maxResults":1,"total":2,"values":[{"id":11,"name":"Hardening","state":"future","originBoardId":1}]}`))
+			default:
+				t.Fatalf("unexpected sprint page = %s", r.URL.String())
+			}
+		default:
+			t.Fatalf("unexpected request = %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.ResolveSprint(context.Background(), "missing", "")
+	if got := apperr.As(err); err == nil || got.Kind != apperr.KindInvalidInput || !strings.Contains(err.Error(), `sprint "missing" was not found`) {
+		t.Fatalf("ResolveSprint() error = %v", err)
+	}
+	if sprintPages.Load() != 4 {
+		t.Fatalf("sprint pages fetched = %d, want 4", sprintPages.Load())
+	}
+}
+
+func TestShowBoardValidatesInputAndResponse(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/agile/1.0/board/7" {
+			t.Fatalf("unexpected request = %s %s", r.Method, r.URL.String())
+		}
+		_, _ = w.Write([]byte(`{"id":8,"name":"Platform","type":"scrum"}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ShowBoard(context.Background(), 0); apperr.As(err).Kind != apperr.KindInvalidInput {
+		t.Fatalf("ShowBoard(0) error = %v", err)
+	}
+	if _, err := client.ShowBoard(context.Background(), 7); apperr.As(err).Kind != apperr.KindAPI {
+		t.Fatalf("ShowBoard(7) mismatched ID error = %v", err)
 	}
 }

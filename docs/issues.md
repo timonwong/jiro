@@ -36,6 +36,10 @@ failure.
 
 Write-time Sprint specs accept a numeric ID, `active`, or a case-insensitive
 name substring. jiro uses the first match in Jira board and page order.
+`--sprint-board` scopes that resolution to one Board selector: a positive
+number selects that exact Board ID, other values select every Board whose
+name contains the selector case-insensitively, in Jira order. It requires
+`--sprint`; numeric Sprint IDs never trigger resolution.
 
 ### Transition comments and resolution
 
@@ -56,8 +60,10 @@ Boards and Sprints are read-only discovery resources.
 omits the state filter. State values are case-insensitive and validated before
 the Agile API is called.
 
-Without `--board`, jiro queries every accessible Board serially. A positive
-numeric selector matches only that Board ID. Other selectors perform a
+Without `--board`, jiro queries every accessible Board; per-Board Sprint
+requests run with bounded concurrency, and results always keep Jira Board
+order. A positive numeric selector matches only that Board ID and is fetched
+directly without listing every Board. Other selectors perform a
 case-insensitive Board name substring match and query every match in Jira
 order. Empty, zero, and negative selectors are invalid; an unmatched selector
 returns `not_found`.

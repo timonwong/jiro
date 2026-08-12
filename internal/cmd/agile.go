@@ -1,10 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 	"github.com/timonwong/jiro/internal/apperr"
@@ -12,12 +13,13 @@ import (
 	"github.com/timonwong/jiro/internal/output"
 )
 
-var numericBoardSelector = regexp.MustCompile(`^[+-]?[0-9]+$`)
+// sprintListWorkers bounds the concurrent per-Board sprint requests issued by
+// sprint list, keeping the fan-out polite to the Jira Instance.
+const sprintListWorkers = 4
 
 type boardSelection struct {
 	explicit bool
 	value    string
-	id       int
 }
 
 type boardListResult struct {
@@ -94,23 +96,17 @@ func (a *app) sprintListCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			boards, err := client.ListAllBoards(command.Context())
+			boards, err := selection.resolveBoards(command.Context(), client)
 			if err != nil {
 				return err
 			}
-			boards, err = selection.selectBoards(boards)
-			if err != nil {
-				return err
-			}
+			results := fetchBoardSprints(command.Context(), client, boards, state)
 			sprints := make([]jira.Sprint, 0)
 			failures := make([]sprintBoardFailure, 0)
 			successfulBoards := 0
 			var firstErr error
-			for _, board := range boards {
-				listed, err := client.ListAllSprints(command.Context(), board.ID, state)
-				for i := range listed {
-					listed[i].BoardName = board.Name
-				}
+			for i, board := range boards {
+				listed, err := results[i].sprints, results[i].err
 				sprints = append(sprints, listed...)
 				if err != nil {
 					if command.Context().Err() != nil {
@@ -150,42 +146,56 @@ func parseBoardSelection(selector string, explicit bool) (boardSelection, error)
 		return boardSelection{}, nil
 	}
 	selector = strings.TrimSpace(selector)
-	if selector == "" {
-		return boardSelection{}, apperr.New(apperr.KindInvalidInput, "board selector must not be empty")
+	if err := jira.ValidateBoardSelector(selector); err != nil {
+		return boardSelection{}, err
 	}
-	if !numericBoardSelector.MatchString(selector) {
-		return boardSelection{explicit: true, value: selector}, nil
-	}
-	id, err := strconv.ParseInt(selector, 10, 0)
-	if err != nil || id <= 0 {
-		return boardSelection{}, apperr.New(apperr.KindInvalidInput, "board ID must be positive")
-	}
-	return boardSelection{explicit: true, value: selector, id: int(id)}, nil
+	return boardSelection{explicit: true, value: selector}, nil
 }
 
-func (s boardSelection) selectBoards(boards []jira.Board) ([]jira.Board, error) {
+func (s boardSelection) resolveBoards(ctx context.Context, client *jira.Client) ([]jira.Board, error) {
 	if !s.explicit {
-		return boards, nil
+		return client.ListAllBoards(ctx)
 	}
-	if s.id > 0 {
-		for _, board := range boards {
-			if board.ID == s.id {
-				return []jira.Board{board}, nil
+	return client.ResolveBoardSelector(ctx, s.value)
+}
+
+type sprintFetchResult struct {
+	sprints []jira.Sprint
+	err     error
+}
+
+// fetchBoardSprints lists every Board's Sprints through a bounded worker
+// pool. Results are indexed by Board so the caller emits them strictly in
+// Jira board order regardless of completion order, and the first failure in
+// board order stays the first failure the caller sees (ADR-0005, ADR-0013).
+// Workers write only their own index; app state stays with the caller.
+func fetchBoardSprints(ctx context.Context, client *jira.Client, boards []jira.Board, state jira.SprintState) []sprintFetchResult {
+	results := make([]sprintFetchResult, len(boards))
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for range min(sprintListWorkers, len(boards)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				if ctx.Err() != nil {
+					results[i] = sprintFetchResult{err: ctx.Err()}
+					continue
+				}
+				listed, err := client.ListAllSprints(ctx, boards[i].ID, state)
+				for j := range listed {
+					listed[j].BoardName = boards[i].Name
+				}
+				results[i] = sprintFetchResult{sprints: listed, err: err}
 			}
-		}
-		return nil, apperr.New(apperr.KindNotFound, fmt.Sprintf("board %q was not found", s.value))
+		}()
 	}
-	needle := strings.ToLower(s.value)
-	selected := make([]jira.Board, 0)
-	for _, board := range boards {
-		if strings.Contains(strings.ToLower(board.Name), needle) {
-			selected = append(selected, board)
-		}
+	for i := range boards {
+		jobs <- i
 	}
-	if len(selected) == 0 {
-		return nil, apperr.New(apperr.KindNotFound, fmt.Sprintf("board %q was not found", s.value))
-	}
-	return selected, nil
+	close(jobs)
+	wg.Wait()
+	return results
 }
 
 func sprintTable(sprints []jira.Sprint) output.Table {

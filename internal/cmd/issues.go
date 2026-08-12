@@ -135,7 +135,7 @@ func (a *app) issueShowCommand() *cobra.Command {
 }
 
 func (a *app) issueCreateCommand() *cobra.Command {
-	var project, issueType, summary, description, descriptionFile, inputFormat, parent, sprint string
+	var project, issueType, summary, description, descriptionFile, inputFormat, parent, sprint, sprintBoard string
 	var priority, assignee string
 	var labels, components, fixVersions, fields []string
 	command := &cobra.Command{
@@ -145,6 +145,9 @@ func (a *app) issueCreateCommand() *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error {
 			if strings.TrimSpace(project) == "" || strings.TrimSpace(issueType) == "" || strings.TrimSpace(summary) == "" {
 				return apperr.New(apperr.KindInvalidInput, "project, type, and summary are required")
+			}
+			if err := validateSprintBoardFlag(command, sprint, sprintBoard); err != nil {
+				return err
 			}
 			client, settings, err := a.writableClient()
 			if err != nil {
@@ -183,7 +186,7 @@ func (a *app) issueCreateCommand() *cobra.Command {
 			result := map[string]any{"id": issue.ID, "key": issue.Key}
 			if strings.TrimSpace(sprint) != "" {
 				result["sprint"] = sprint
-				if err := client.MoveIssueToSprint(command.Context(), issue.Key, jira.MoveIssueToSprintInput{Sprint: sprint}); err != nil {
+				if err := client.MoveIssueToSprint(command.Context(), issue.Key, jira.MoveIssueToSprintInput{Sprint: sprint, Board: sprintBoard}); err != nil {
 					result["sprintMoved"] = false
 					if renderErr := a.renderPartial(result, "Created "+issue.Key); renderErr != nil {
 						return renderErr
@@ -209,13 +212,14 @@ func (a *app) issueCreateCommand() *cobra.Command {
 	flags.StringSliceVar(&components, "component", nil, "component name; repeatable")
 	flags.StringSliceVar(&fixVersions, "fix-version", nil, "fix version name; repeatable")
 	flags.StringVar(&sprint, "sprint", "", "sprint ID, name substring, or active")
+	flags.StringVar(&sprintBoard, "sprint-board", "", "Board ID or case-insensitive name substring scoping --sprint resolution")
 	flags.StringArrayVar(&fields, "field", nil, "custom field as alias=value or customfield_N=value; repeatable")
 	return command
 }
 
 func (a *app) issueUpdateCommand() *cobra.Command {
 	var summary, description, descriptionFile, inputFormat, issueType string
-	var priority, assignee, sprint string
+	var priority, assignee, sprint, sprintBoard string
 	var labels, components, fixVersions, fields []string
 	command := &cobra.Command{
 		Use:   "update ISSUE-KEY",
@@ -236,6 +240,9 @@ func (a *app) issueUpdateCommand() *cobra.Command {
 				}
 				return a.runIssueTypeUpdate(command.Context(), client, args[0], issueType)
 			}
+			if err := validateSprintBoardFlag(command, sprint, sprintBoard); err != nil {
+				return err
+			}
 			client, settings, err := a.writableClient()
 			if err != nil {
 				return err
@@ -254,7 +261,7 @@ func (a *app) issueUpdateCommand() *cobra.Command {
 			}
 			var resolvedSprint *jira.Sprint
 			if strings.TrimSpace(sprint) != "" {
-				value, err := client.ResolveSprint(command.Context(), sprint)
+				value, err := client.ResolveSprint(command.Context(), sprint, sprintBoard)
 				if err != nil {
 					return err
 				}
@@ -310,6 +317,7 @@ func (a *app) issueUpdateCommand() *cobra.Command {
 	flags.StringSliceVar(&components, "component", nil, "replacement component names; use a single none to clear")
 	flags.StringSliceVar(&fixVersions, "fix-version", nil, "replacement fix version names; use a single none to clear")
 	flags.StringVar(&sprint, "sprint", "", "sprint ID, name substring, or active")
+	flags.StringVar(&sprintBoard, "sprint-board", "", "Board ID or case-insensitive name substring scoping --sprint resolution")
 	flags.StringArrayVar(&fields, "field", nil, "custom field as alias=value or customfield_N=value; repeatable")
 	return command
 }
@@ -495,6 +503,18 @@ func (a *app) issueTransitionCommand() *cobra.Command {
 	flags.StringVar(&resolution, "resolution", "", "resolution name or numeric ID; use none to clear")
 	flags.StringArrayVar(&fields, "field", nil, "custom field as alias=value or customfield_N=value; repeatable")
 	return command
+}
+
+// validateSprintBoardFlag rejects a malformed --sprint-board before any
+// network request is made.
+func validateSprintBoardFlag(command *cobra.Command, sprint, sprintBoard string) error {
+	if !command.Flags().Changed("sprint-board") {
+		return nil
+	}
+	if strings.TrimSpace(sprint) == "" {
+		return apperr.New(apperr.KindInvalidInput, "--sprint-board requires --sprint")
+	}
+	return jira.ValidateBoardSelector(sprintBoard)
 }
 
 func applyStandardFields(fields map[string]any, priority, assignee string, labels []string, labelsSet bool) {

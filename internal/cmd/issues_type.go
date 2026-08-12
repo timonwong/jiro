@@ -28,7 +28,7 @@ type issueTypeUpdateResult struct {
 
 var issueTypeUpdateConflictingFlags = []string{
 	"summary", "description", "description-file", "input-format", "priority", "assignee",
-	"label", "component", "fix-version", "sprint", "field",
+	"label", "component", "fix-version", "sprint", "sprint-board", "field",
 }
 
 func (a *app) issueTypesCommand() *cobra.Command {
