@@ -122,3 +122,56 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check stable release tag
+        id: release
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "stable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "stable=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure tap deploy key
+        if: steps.release.outputs.stable == 'true'
+        shell: bash
+        env:
+          HOMEBREW_TAP_PRIVATE_KEY: ${{ secrets.HOMEBREW_TAP_PRIVATE_KEY }}
+        run: |
+          install -m 700 -d "$RUNNER_TEMP/ssh"
+          printf '%s\n' "$HOMEBREW_TAP_PRIVATE_KEY" > "$RUNNER_TEMP/ssh/homebrew-tap"
+          chmod 600 "$RUNNER_TEMP/ssh/homebrew-tap"
+          printf '%s\n' \
+            'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+            > "$RUNNER_TEMP/ssh/known_hosts"
+
+      - name: Update Homebrew tap
+        if: steps.release.outputs.stable == 'true'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIT_SSH_COMMAND: >-
+            ssh -i ${{ runner.temp }}/ssh/homebrew-tap
+            -o IdentitiesOnly=yes
+            -o UserKnownHostsFile=${{ runner.temp }}/ssh/known_hosts
+            -o StrictHostKeyChecking=yes
+        run: |
+          git clone git@github.com:timonwong/homebrew-tap.git tap
+          cd tap
+          ./scripts/update-jiro "$GITHUB_REF_NAME"
+          if git diff --quiet -- Formula/jiro.rb; then
+            echo "Formula is already current."
+            exit 0
+          fi
+          git config user.name "goreleaserbot"
+          git config user.email "bot@goreleaser.com"
+          git add Formula/jiro.rb
+          git commit -m "jiro ${GITHUB_REF_NAME#v}"
+          git push
