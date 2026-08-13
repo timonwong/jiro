@@ -27,13 +27,17 @@ jiro is under initial development. The v1 compatibility target is Jira Data
 Center and Server REST API v2. Jira Cloud REST API v3 and ADF are not part of
 the compatibility contract.
 
-## Install
+## Installation
 
-With Homebrew on macOS or Linux:
+### Homebrew
+
+On macOS or Linux:
 
 ```sh
 brew install timonwong/tap/jiro
 ```
+
+### GitHub Release
 
 Download a pre-built binary from
 [GitHub Releases](https://github.com/timonwong/jiro/releases) (Linux, macOS,
@@ -47,6 +51,28 @@ jiro --version
 
 Replace `v0.1.0` and `darwin_arm64` with your release version and platform.
 Each release includes a SHA-256 checksum file for verification.
+
+### Docker
+
+Run the latest container image from GitHub Container Registry:
+
+```sh
+docker run -it --rm ghcr.io/timonwong/jiro:latest
+```
+
+For Jira credentials, use environment variables or mount a configuration with
+keyring storage disabled. See [Authentication and Profiles](docs/authentication.md).
+
+### Manual
+
+Install the latest version from source with Go 1.26 or later:
+
+```sh
+go install github.com/timonwong/jiro/cmd/jiro@latest
+```
+
+Source installations report the development version rather than a stamped
+release version.
 
 ## Quick start
 
