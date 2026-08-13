@@ -135,43 +135,35 @@ jobs:
         run: |
           if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "stable=true" >> "$GITHUB_OUTPUT"
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
             echo "stable=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Configure tap deploy key
+      - name: Checkout Homebrew tap
         if: steps.release.outputs.stable == 'true'
-        shell: bash
-        env:
-          HOMEBREW_TAP_PRIVATE_KEY: ${{ secrets.HOMEBREW_TAP_PRIVATE_KEY }}
-        run: |
-          install -m 700 -d "$RUNNER_TEMP/ssh"
-          printf '%s\n' "$HOMEBREW_TAP_PRIVATE_KEY" > "$RUNNER_TEMP/ssh/homebrew-tap"
-          chmod 600 "$RUNNER_TEMP/ssh/homebrew-tap"
-          printf '%s\n' \
-            'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
-            > "$RUNNER_TEMP/ssh/known_hosts"
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: timonwong/homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_PRIVATE_KEY }}
+          path: tap
 
       - name: Update Homebrew tap
         if: steps.release.outputs.stable == 'true'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GIT_SSH_COMMAND: >-
-            ssh -i ${{ runner.temp }}/ssh/homebrew-tap
-            -o IdentitiesOnly=yes
-            -o UserKnownHostsFile=${{ runner.temp }}/ssh/known_hosts
-            -o StrictHostKeyChecking=yes
         run: |
-          git clone git@github.com:timonwong/homebrew-tap.git tap
           cd tap
           ./scripts/update-jiro "$GITHUB_REF_NAME"
-          if git diff --quiet -- Formula/jiro.rb; then
-            echo "Formula is already current."
-            exit 0
-          fi
-          git config user.name "goreleaserbot"
-          git config user.email "bot@goreleaser.com"
-          git add Formula/jiro.rb
-          git commit -m "jiro ${GITHUB_REF_NAME#v}"
-          git push
+
+      - name: Commit Homebrew tap update
+        if: steps.release.outputs.stable == 'true'
+        uses: stefanzweifel/git-auto-commit-action@4a55954c782fc1ea30b9056cd3e7a2b40ca8887d # v7.2.0
+        with:
+          repository: tap
+          file_pattern: Formula/jiro.rb
+          commit_message: jiro ${{ steps.release.outputs.version }}
+          commit_user_name: goreleaserbot
+          commit_user_email: bot@goreleaser.com
+          commit_author: goreleaserbot <bot@goreleaser.com>
