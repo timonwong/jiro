@@ -10,6 +10,12 @@ on amd64 and arm64. It does not publish operating-system packages or archives.
 Every release also includes one SHA-256 checksum file covering all six
 binaries.
 
+After GoReleaser OSS publishes the GitHub Release, a separate job updates
+`timonwong/homebrew-tap` with the new stable Formula. Cross-repository writes use
+an SSH deploy key scoped to the tap repository; its private key is stored in the
+`HOMEBREW_TAP_PRIVATE_KEY` Actions secret. The tap commit uses `goreleaserbot`
+as its author. Prereleases do not match the updater's stable SemVer contract.
+
 ## Local verification
 
 Before pushing a release tag, run:

@@ -29,6 +29,12 @@ the compatibility contract.
 
 ## Install
 
+With Homebrew on macOS or Linux:
+
+```sh
+brew install timonwong/tap/jiro
+```
+
 Download a pre-built binary from
 [GitHub Releases](https://github.com/timonwong/jiro/releases) (Linux, macOS,
 Windows; amd64 and arm64). On Linux and macOS:
