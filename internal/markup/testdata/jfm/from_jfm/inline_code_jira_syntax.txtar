@@ -1,0 +1,6 @@
+-- input.md --
+`-strike- +insert+ ^super^ ~sub~ !image! [x] a}}b`
+-- want.jira --
+{{&#45;strike&#45; &#43;insert&#43; &#94;super&#94; &#126;sub&#126; &#33;image&#33; &#91;x&#93; a&#125;&#125;b}}
+-- warnings.json --
+[]

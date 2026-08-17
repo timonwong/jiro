@@ -2,6 +2,7 @@ package markup
 
 import (
 	"context"
+	"html"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -97,7 +98,8 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 				if err != nil {
 					return nil, nil, err
 				}
-				body, err = removeCanonicalCodeSafetyRunes(ctx, body)
+				body = decodeJiraEntities(body)
+				body, err = removeLegacyCodeSafetyRunes(ctx, body)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -362,7 +364,11 @@ func decodeJiraDelimitedText(ctx context.Context, value string) (string, error) 
 	return result.String(), nil
 }
 
-func removeCanonicalCodeSafetyRunes(ctx context.Context, value string) (string, error) {
+func decodeJiraEntities(value string) string {
+	return html.UnescapeString(value)
+}
+
+func removeLegacyCodeSafetyRunes(ctx context.Context, value string) (string, error) {
 	characters := []rune(value)
 	var result strings.Builder
 	for index, character := range characters {
@@ -372,7 +378,7 @@ func removeCanonicalCodeSafetyRunes(ctx context.Context, value string) (string, 
 			}
 		}
 		if character == '\u200b' && index > 0 && characters[index-1] == '\\' &&
-			(index == len(characters)-1 || strings.ContainsRune(codeSpanEscapedDelimiters, characters[index+1])) {
+			(index == len(characters)-1 || strings.ContainsRune(legacyCodeSpanEscapedDelimiters, characters[index+1])) {
 			continue
 		}
 		result.WriteRune(character)

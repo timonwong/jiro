@@ -182,7 +182,23 @@ Formatting nesting follows source nesting order. Controlled HTML tags are case-i
 
 JFM accepts `*` or `_` for emphasis and `**` or `__` for strong emphasis. Canonical output uses the spellings in the table above. A single span carrying both bold and italic uses `***...***`; distinct nested spans remain distinct and are not merged merely because delimiters touch. Jira effect delimiters must form a complete span, so ordinary hyphenated text such as `release-note` remains text.
 
-Inline code uses a delimiter one backtick longer than the longest backtick run in its body, with a minimum length of one. Only CommonMark-required padding spaces may be added. Literal body content is otherwise preserved. Jira delimiter-protection U+200B characters are removed only when they match the canonical inline-code safety patterns; unrelated U+200B characters remain content.
+Inline code uses a delimiter one backtick longer than the longest backtick run in its body, with a minimum length of one. Only CommonMark-required padding spaces may be added. Literal body content is otherwise preserved. Canonical Jira Markup encodes the Jira-active characters `&<>\{}[]|!*?_-+^~:` in an inline-code body as decimal character references. This prevents Jira from applying formatting, character references, automatic links, embedded objects, or a premature `}}` close while leaving unrelated punctuation readable. Jira-to-JFM conversion resolves character references once. Legacy Jira backslash escapes remain accepted, and delimiter-protection U+200B characters are removed only when they match the legacy inline-code safety patterns; unrelated U+200B characters remain content.
+
+<!-- jfm-spec-example: inline-code-literal-punctuation; direction: jfm-to-jira -->
+Input:
+~~~jfm
+`https://registry-mirror.alauda.io:60070/v2/ -literal-`
+~~~
+
+Output:
+~~~jira
+{{https&#58;//registry&#45;mirror.alauda.io&#58;60070/v2/ &#45;literal&#45;}}
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
 
 <!-- jfm-spec-example: inline-formatting; direction: jfm-to-jira -->
 Input:

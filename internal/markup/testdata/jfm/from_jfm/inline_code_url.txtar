@@ -1,0 +1,6 @@
+-- input.md --
+`https://registry-mirror.alauda.io:60070/v2/`
+-- want.jira --
+{{https&#58;//registry&#45;mirror.alauda.io&#58;60070/v2/}}
+-- warnings.json --
+[]
