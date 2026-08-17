@@ -3,6 +3,7 @@ package markup
 import (
 	"bytes"
 	"context"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -20,7 +21,8 @@ var codeLanguageAliases = map[string]string{
 	"zsh":        "bash",
 }
 
-const codeSpanEscapedDelimiters = `{}[]|-*_`
+const legacyCodeSpanEscapedDelimiters = `{}[]|-*_`
+const jiraCodeSpanEntityEscapedCharacters = `&<>\{}[]|!*?_-+^~:`
 
 func decodedMarkdownText(value []byte, raw bool) []byte {
 	if raw {
@@ -64,27 +66,17 @@ func jiraLineControlPrefixLength(value string) int {
 }
 
 func escapeCodeSpan(value string) string {
-	var separated strings.Builder
-	for index := 0; index < len(value); index++ {
-		if value[index] == '\\' && index+1 < len(value) && strings.ContainsRune(codeSpanEscapedDelimiters, rune(value[index+1])) {
-			separated.WriteByte('\\')
-			separated.WriteRune('\u200b')
+	var result strings.Builder
+	for _, character := range value {
+		if strings.ContainsRune(jiraCodeSpanEntityEscapedCharacters, character) {
+			result.WriteString("&#")
+			result.WriteString(strconv.FormatInt(int64(character), 10))
+			result.WriteByte(';')
 			continue
 		}
-		separated.WriteByte(value[index])
+		result.WriteRune(character)
 	}
-
-	var escaped strings.Builder
-	for _, character := range separated.String() {
-		if strings.ContainsRune(codeSpanEscapedDelimiters, character) {
-			escaped.WriteByte('\\')
-		}
-		escaped.WriteRune(character)
-	}
-	if strings.HasSuffix(escaped.String(), `\`) {
-		escaped.WriteRune('\u200b')
-	}
-	return escaped.String()
+	return result.String()
 }
 
 func combinedBoldItalic(inline styledInline) ([]semanticInline, bool) {
