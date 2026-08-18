@@ -1,0 +1,6 @@
+-- input.md --
+&#45;before [link](https://example.com) after-
+-- want.jira --
+\-before [link|https://example.com] after\-
+-- warnings.json --
+[]

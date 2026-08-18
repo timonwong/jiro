@@ -1,0 +1,14 @@
+-- input.md --
+prefixhttps://example.com
+
+ftp://example.com
+
+mailto:user@localhost
+-- want.jira --
+prefixhttps://example.com
+
+ftp://example.com
+
+mailto:user@localhost
+-- warnings.json --
+[]

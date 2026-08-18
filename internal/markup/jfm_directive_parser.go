@@ -33,7 +33,7 @@ func (jfmInlineDirectiveParser) Trigger() []byte { return []byte{':'} }
 
 func (jfmInlineDirectiveParser) Parse(_ ast.Node, reader text.Reader, _ parser.Context) ast.Node {
 	line, segment := reader.PeekLine()
-	if len(line) < 3 || line[0] != ':' {
+	if len(line) < 3 || line[0] != ':' || !isASCIINameStart(line[1]) {
 		return nil
 	}
 	nameEnd := 1

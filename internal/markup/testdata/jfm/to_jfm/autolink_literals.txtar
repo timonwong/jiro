@@ -1,0 +1,14 @@
+-- input.jira --
+MR: [https://gitlab-ce.alauda.cn/ait/cluster-cert-rotator/-/merge_requests/11]
+
+Site: [www.example.com/docs|http://www.example.com/docs].
+
+Email: [mailto:user@example.com]
+-- want.md --
+MR: <https://gitlab-ce.alauda.cn/ait/cluster-cert-rotator/-/merge_requests/11>
+
+Site: [www.example.com/docs](http://www.example.com/docs).
+
+Email: <user@example.com>
+-- warnings.json --
+[]

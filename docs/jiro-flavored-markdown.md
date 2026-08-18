@@ -10,7 +10,7 @@ The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** ar
 
 A conforming converter MUST implement both conversion directions. Supporting only one direction is not JFM conformance.
 
-JFM uses [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/) as its Markdown foundation and adds tables, strikethrough, controlled inline HTML, and the directives defined here. Where this specification does not override CommonMark, CommonMark rules apply.
+JFM uses [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/) as its Markdown foundation and adopts the GitHub Flavored Markdown table, strikethrough, and [autolink-literal](https://github.github.com/gfm/#autolinks-extension-) extensions. JFM additionally recognizes bare `mailto:` URIs and adds controlled inline HTML and the directives defined here. Where this specification does not override CommonMark or an adopted extension, those rules apply.
 
 JFM is jiro's complete Markdown-based format for bidirectional conversion with Jira Markup. Conversion preserves target-representable semantics but is not required to preserve source spelling or produce byte-for-byte identical text.
 
@@ -21,7 +21,7 @@ JFM is distinct from unrelated Jira-oriented Markdown dialects. A JFM document h
 The following CommonMark-looking forms have explicit JFM boundaries:
 
 - Task-list markers have no checkbox semantics and remain ordinary list text.
-- Bare URLs and email addresses have no autolink semantics. Only explicit links and angle-bracket autolinks are links.
+- Bare URLs, `www.` addresses, and email addresses use GFM autolink-literal semantics. Bare `mailto:` URIs are also autolinks.
 - Reference-style links and images are accepted as input, but canonical JFM uses inline syntax or directives and does not emit reference definitions.
 - Raw Jira Markup embedded in JFM has no special meaning.
 - Malformed Markdown is not repaired before conversion.
@@ -101,7 +101,7 @@ Escaping is interpreted in the source notation before target escaping is applied
 - An escape that truncates or prevents closure of a recognized construct produces a warning; an otherwise unnecessary escape does not.
 - Valid CommonMark named and numeric character references decode to their Unicode characters.
 - Invalid character references remain visible text without a warning.
-- Plain-text characters that would start Jira formatting or a Jira line control sequence are escaped in Jira output.
+- Plain-text Jira effect delimiters (`*`, `_`, `-`, `+`, `^`, and `~`) are escaped in Jira output only when they participate in a complete formatting span. Unmatched effect delimiters and word-internal punctuation that Jira cannot tokenize as formatting remain unescaped. Jira structural delimiters and line controls retain their safety escaping.
 - Plain-text characters that would start unintended Markdown formatting are escaped in JFM output.
 - Directive attribute escapes are interpreted only inside directive attributes. Unknown escape sequences remain visible and produce warnings.
 
@@ -180,7 +180,39 @@ The canonical mappings are:
 
 Formatting nesting follows source nesting order. Controlled HTML tags are case-insensitive on input and lowercase in canonical JFM. `<ins>`, `<sup>`, and `<sub>` accept no attributes. `<font>` accepts exactly one `color` attribute; the value is passed through to Jira as-is, so any color format Jira accepts (named colors, hex such as `#ff0000`) is valid. Malformed, unclosed, mismatched, or attribute-bearing controlled HTML uses literal fallback.
 
-JFM accepts `*` or `_` for emphasis and `**` or `__` for strong emphasis. Canonical output uses the spellings in the table above. A single span carrying both bold and italic uses `***...***`; distinct nested spans remain distinct and are not merged merely because delimiters touch. Jira effect delimiters must form a complete span, so ordinary hyphenated text such as `release-note` remains text.
+JFM accepts `*` or `_` for emphasis and `**` or `__` for strong emphasis. Canonical output uses the spellings in the table above. A single span carrying both bold and italic uses `***...***`; distinct nested spans remain distinct and are not merged merely because delimiters touch. Jira effect delimiters must form a complete span. A hyphen cannot open a Jira strikethrough span between two ASCII alphanumeric characters, and a closing hyphen followed by an ASCII alphanumeric character does not close one. Ordinary hyphenated text such as `release-note` therefore remains text. JFM-to-Jira conversion escapes only those plain-text delimiters that would otherwise form a complete Jira effect span.
+
+<!-- jfm-spec-example: jira-effect-token-boundaries; direction: jfm-to-jira -->
+Input:
+~~~jfm
+-deleted-
+
+this is not-deleted-
+
+this is also:-deleted-
+
+this is also&-deleted-
+
+this is also$-deleted-
+~~~
+
+Output:
+~~~jira
+\-deleted\-
+
+this is not-deleted-
+
+this is also:\-deleted\-
+
+this is also&\-deleted\-
+
+this is also$\-deleted\-
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
 
 Inline code uses a delimiter one backtick longer than the longest backtick run in its body, with a minimum length of one. Only CommonMark-required padding spaces may be added. Literal body content is otherwise preserved. Canonical Jira Markup encodes the Jira-active characters `&<>\{}[]|!*?_-+^~:` in an inline-code body as decimal character references. This prevents Jira from applying formatting, character references, automatic links, embedded objects, or a premature `}}` close while leaving unrelated punctuation readable. Jira-to-JFM conversion resolves character references once. Legacy Jira backslash escapes remain accepted, and delimiter-protection U+200B characters are removed only when they match the legacy inline-code safety patterns; unrelated U+200B characters remain content.
 
@@ -333,6 +365,10 @@ Warnings:
 
 Ordinary Markdown links map to Jira `[label|target]`. An unnamed absolute URL uses `<https://example.com>` in canonical JFM; an unnamed `mailto:` target uses an email autolink. An unnamed document anchor uses `[#section](#section)`.
 
+Bare URLs, `www.` addresses, and email addresses follow the GFM autolink-literal grammar, including its opening boundaries, trailing-punctuation removal, and balanced-parenthesis handling. JFM additionally recognizes a bare `mailto:` URI when the remainder is a valid GFM email address. Autolink recognition does not occur inside code spans or code blocks.
+
+Bare `http://` and `https://` URLs map to unnamed Jira links `[target]`. A `www.` autolink keeps its authored label and uses the GFM-supplied `http://` target, producing `[label|target]`. Bare email addresses and bare `mailto:` URIs map to `[mailto:address]`. Canonical JFM uses an angle-bracket URI or email autolink for unnamed Jira links; a labeled `www.` link becomes an ordinary inline Markdown link.
+
 Jira-only targets such as issue keys, attachments, and users use `:link[content]{target="..."}` when ordinary Markdown cannot represent the target safely. The `:link` directive requires exactly one quoted `target` attribute and accepts supported inline JFM in its content. It has no location for extra Jira parameters, so unknown or duplicate attributes make the complete directive malformed and invoke literal fallback.
 
 Jira Markup has no link-title semantic. A Markdown link title is therefore discarded, while the label, target, and label formatting are converted normally. This is a lossy conversion and produces a warning.
@@ -355,7 +391,7 @@ Input:
 
 Output:
 ~~~jira
-[OPS\-42|OPS-42]
+[OPS-42|OPS-42]
 ~~~
 
 Warnings:
@@ -388,6 +424,34 @@ Input:
 Output:
 ~~~jira
 [https://example.com]
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: autolink-literals; direction: jfm-to-jira -->
+Input:
+~~~jfm
+MR: https://gitlab-ce.alauda.cn/ait/cluster-cert-rotator/-/merge_requests/11
+
+Site: www.example.com/docs.
+
+Email: user@example.com
+
+Mail: mailto:user@example.com
+~~~
+
+Output:
+~~~jira
+MR: [https://gitlab-ce.alauda.cn/ait/cluster-cert-rotator/-/merge_requests/11]
+
+Site: [www.example.com/docs|http://www.example.com/docs].
+
+Email: [mailto:user@example.com]
+
+Mail: [mailto:user@example.com]
 ~~~
 
 Warnings:
