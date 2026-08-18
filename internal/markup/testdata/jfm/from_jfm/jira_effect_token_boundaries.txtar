@@ -1,0 +1,22 @@
+-- input.md --
+-deleted-
+
+this is not-deleted-
+
+this is also:-deleted-
+
+this is also&-deleted-
+
+this is also$-deleted-
+-- want.jira --
+\-deleted\-
+
+this is not-deleted-
+
+this is also:\-deleted\-
+
+this is also&\-deleted\-
+
+this is also$\-deleted\-
+-- warnings.json --
+[]

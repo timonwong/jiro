@@ -18,6 +18,11 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
+var jfmAutolinkURLRegexp = regexp.MustCompile(
+	`^(?:(?:http|https)://[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-z]+(?::\d+)?(?:[/#?][-a-zA-Z0-9@:%_+.~#$!?&/=\(\);,'">\^{}\[\]` + "`" + `]*)?|` +
+		`mailto:[a-zA-Z0-9.!#$%&'*+/=?^_` + "`" + `{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+)`,
+)
+
 func parseJFM(ctx context.Context, source string) (semanticDocument, []conversionDiagnostic, error) {
 	if err := ctx.Err(); err != nil {
 		return semanticDocument{}, nil, err
@@ -701,7 +706,14 @@ func goldmarkFencedBlockSource(source []byte, node *ast.FencedCodeBlock) (source
 
 func newJFMGoldmark() goldmark.Markdown {
 	return goldmark.New(
-		goldmark.WithExtensions(extension.Table, extension.Strikethrough),
+		goldmark.WithExtensions(
+			extension.Table,
+			extension.Strikethrough,
+			extension.NewLinkify(
+				extension.WithLinkifyAllowedProtocols([]string{"http:", "https:", "mailto:"}),
+				extension.WithLinkifyURLRegexp(jfmAutolinkURLRegexp),
+			),
+		),
 		goldmark.WithParserOptions(
 			parser.WithBlockParsers(util.Prioritized(jfmContainerDirectiveParser{}, 650)),
 			parser.WithInlineParsers(util.Prioritized(jfmInlineDirectiveParser{}, 50)),
@@ -797,7 +809,8 @@ func adaptGoldmarkInline(source []byte, node ast.Node) (semanticInline, []conver
 		if typed.AutoLinkType == ast.AutoLinkEmail && !strings.HasPrefix(strings.ToLower(target), "mailto:") {
 			target = "mailto:" + target
 		}
-		return linkInline{Span: inlineNodeSpan(typed), Label: []semanticInline{textInline{Span: inlineNodeSpan(typed), Text: label}}, Target: target, Unnamed: true}, nil, next, nil
+		unnamed := label == target || strings.EqualFold(target, "mailto:"+label)
+		return linkInline{Span: inlineNodeSpan(typed), Label: []semanticInline{textInline{Span: inlineNodeSpan(typed), Text: label}}, Target: target, Unnamed: unnamed}, nil, next, nil
 	case *ast.Image:
 		constructStart := goldmarkInlineConstructStart(source, typed, '!')
 		alt := goldmarkImageAlt(source, typed)

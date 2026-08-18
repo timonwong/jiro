@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 func renderJiraMarkup(ctx context.Context, document semanticDocument) (string, error) {
@@ -98,15 +99,20 @@ func renderJiraMarkup(ctx context.Context, document semanticDocument) (string, e
 
 func renderJiraInlines(ctx context.Context, inlines []semanticInline, atLineStart bool) (string, error) {
 	var result strings.Builder
+	plainEffectOffsets := make([]int, 0)
 	for _, inline := range inlines {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
 		switch typed := inline.(type) {
 		case textInline:
-			content, err := escapeTextForJira(ctx, typed.Text, atLineStart)
+			content, offsets, err := escapeTextForJiraText(ctx, typed.Text, atLineStart)
 			if err != nil {
 				return "", err
+			}
+			base := result.Len()
+			for _, offset := range offsets {
+				plainEffectOffsets = append(plainEffectOffsets, base+offset)
 			}
 			result.WriteString(content)
 		case codeInline:
@@ -191,9 +197,13 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, atLineStar
 			}
 			result.WriteString(markup + "!")
 		case literalInline:
-			content, err := escapeTextForJira(ctx, typed.Text, atLineStart)
+			content, offsets, err := escapeTextForJiraText(ctx, typed.Text, atLineStart)
 			if err != nil {
 				return "", err
+			}
+			base := result.Len()
+			for _, offset := range offsets {
+				plainEffectOffsets = append(plainEffectOffsets, base+offset)
 			}
 			result.WriteString(content)
 		default:
@@ -201,15 +211,24 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, atLineStar
 		}
 		atLineStart = inlineEndsAtLineStart(inline)
 	}
-	return result.String(), nil
+	return escapePlainJiraEffects(ctx, result.String(), plainEffectOffsets)
 }
 
 func escapeTextForJira(ctx context.Context, value string, atLineStart bool) (string, error) {
+	content, plainEffectOffsets, err := escapeTextForJiraText(ctx, value, atLineStart)
+	if err != nil {
+		return "", err
+	}
+	return escapePlainJiraEffects(ctx, content, plainEffectOffsets)
+}
+
+func escapeTextForJiraText(ctx context.Context, value string, atLineStart bool) (string, []int, error) {
 	var result strings.Builder
+	plainEffectOffsets := make([]int, 0)
 	for offset := 0; offset < len(value); {
 		if offset&255 == 0 {
 			if err := ctx.Err(); err != nil {
-				return "", err
+				return "", nil, err
 			}
 		}
 		remaining := value[offset:]
@@ -223,17 +242,113 @@ func escapeTextForJira(ctx context.Context, value string, atLineStart bool) (str
 			}
 		}
 		character, size := utf8DecodeRune(remaining)
-		if strings.ContainsRune(`\{}[]!*?_-+^~|#`, character) {
+		if strings.ContainsRune(`\{}[]!?|#`, character) {
 			result.WriteByte('\\')
+		}
+		if strings.ContainsRune(`*_-+^~`, character) {
+			plainEffectOffsets = append(plainEffectOffsets, result.Len())
 		}
 		result.WriteRune(character)
 		offset += size
 		atLineStart = character == '\n'
 	}
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return result.String(), nil
+	return result.String(), plainEffectOffsets, nil
+}
+
+func escapePlainJiraEffects(ctx context.Context, value string, plainEffectOffsets []int) (string, error) {
+	if len(plainEffectOffsets) == 0 {
+		return value, ctx.Err()
+	}
+	plain := make([]bool, len(value))
+	for _, offset := range plainEffectOffsets {
+		plain[offset] = true
+	}
+	escaped := make([]bool, len(value))
+	for {
+		changed, err := markPlainJiraEffectEscapes(ctx, value, plain, escaped)
+		if err != nil {
+			return "", err
+		}
+		if !changed {
+			break
+		}
+	}
+	var result strings.Builder
+	result.Grow(len(value) + len(plainEffectOffsets))
+	for offset, character := range value {
+		if escaped[offset] {
+			result.WriteByte('\\')
+		}
+		result.WriteRune(character)
+	}
+	return result.String(), ctx.Err()
+}
+
+func markPlainJiraEffectEscapes(ctx context.Context, value string, plain, escaped []bool) (bool, error) {
+	changed := false
+	ranges := []sourceSpan{{Start: 0, End: len(value)}}
+	for len(ranges) != 0 {
+		last := len(ranges) - 1
+		span := ranges[last]
+		ranges = ranges[:last]
+		for offset := span.Start; offset < span.End; {
+			if offset&255 == 0 {
+				if err := ctx.Err(); err != nil {
+					return false, err
+				}
+			}
+			delimiter := value[offset]
+			if !escaped[offset] {
+				if _, ok := jiraInlineStyle(delimiter); ok && jiraDelimiterCanOpen(value, offset, span.End) {
+					close, err := findJiraStyleCloseIgnoring(ctx, value, offset+1, span.End, delimiter, escaped)
+					if err != nil {
+						return false, err
+					}
+					if close >= 0 {
+						if plain[offset] && !escaped[offset] {
+							escaped[offset], changed = true, true
+						}
+						if plain[close] && !escaped[close] {
+							escaped[close], changed = true, true
+						}
+						if offset+1 < close {
+							ranges = append(ranges, sourceSpan{Start: offset + 1, End: close})
+						}
+						offset = close + 1
+						continue
+					}
+				}
+			}
+			_, size := utf8DecodeRune(value[offset:span.End])
+			offset += size
+		}
+	}
+	return changed, ctx.Err()
+}
+
+func findJiraStyleCloseIgnoring(ctx context.Context, source string, start, end int, delimiter byte, ignored []bool) (int, error) {
+	for index := start; index < end; index++ {
+		if (index-start)&255 == 0 {
+			if err := ctx.Err(); err != nil {
+				return -1, err
+			}
+		}
+		if source[index] == '\\' {
+			index++
+			continue
+		}
+		if ignored[index] {
+			continue
+		}
+		if source[index] == delimiter && index > start && !unicode.IsSpace(rune(source[index-1])) &&
+			(delimiter != '-' || index+1 >= end || !isWordByte(source[index+1])) {
+			return index, nil
+		}
+	}
+	return -1, ctx.Err()
 }
 
 func escapeJiraDelimitedValueWithContext(ctx context.Context, value, delimiters string) (string, error) {

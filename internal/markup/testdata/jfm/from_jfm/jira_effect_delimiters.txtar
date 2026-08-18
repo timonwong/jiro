@@ -1,0 +1,30 @@
+-- input.md --
+&#42;literal*
+
+&#95;literal_
+
+&#45;literal-
+
+&#43;literal+
+
+&#94;literal^
+
+&#126;literal~
+
+alpha*beta alpha_beta release-note alpha+beta alpha^beta alpha~beta
+-- want.jira --
+\*literal\*
+
+\_literal\_
+
+\-literal\-
+
+\+literal\+
+
+\^literal\^
+
+\~literal\~
+
+alpha*beta alpha_beta release-note alpha+beta alpha^beta alpha~beta
+-- warnings.json --
+[]
