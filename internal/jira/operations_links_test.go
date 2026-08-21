@@ -91,6 +91,26 @@ func TestCreateIssueLinkUsesResolvedNumericTypeWithoutLookup(t *testing.T) {
 	}
 }
 
+func TestCreateIssueLinkRejectsInvalidTypeIDBeforeRequest(t *testing.T) {
+	t.Parallel()
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests++
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.CreateIssueLink(context.Background(), IssueLinkInput{From: "DEMO-1", To: "DEMO-2", TypeID: "invalid"}); err == nil {
+		t.Fatal("CreateIssueLink() error = nil, want invalid link type ID")
+	}
+	if requests != 0 {
+		t.Fatalf("requests = %d, want 0", requests)
+	}
+}
+
 func TestDeleteIssueLinkRejectsNonNumericID(t *testing.T) {
 	t.Parallel()
 	client, err := NewClient(Config{BaseURL: "https://jira.example.com"})

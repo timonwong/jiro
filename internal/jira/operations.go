@@ -231,16 +231,24 @@ func (c *Client) CreateIssueLink(ctx context.Context, input IssueLinkInput) erro
 	if strings.TrimSpace(input.From) == "" || strings.TrimSpace(input.To) == "" || strings.TrimSpace(input.TypeID) == "" {
 		return apperr.New(apperr.KindInvalidInput, "from issue, to issue, and link type are required")
 	}
-	typeID := strings.TrimSpace(input.TypeID)
-	if id, err := strconv.ParseInt(typeID, 10, 64); err != nil || id <= 0 {
-		return apperr.New(apperr.KindInvalidInput, "link type ID must be positive")
+	if err := ValidateIssueLinkTypeID(input.TypeID); err != nil {
+		return err
 	}
+	typeID := strings.TrimSpace(input.TypeID)
 	payload := map[string]any{
 		"type":         map[string]string{"id": typeID},
 		"outwardIssue": map[string]string{"key": input.From},
 		"inwardIssue":  map[string]string{"key": input.To},
 	}
 	return c.do(ctx, http.MethodPost, "rest/api/2/issueLink", nil, payload, nil)
+}
+
+// ValidateIssueLinkTypeID rejects values Jira cannot accept as link type IDs.
+func ValidateIssueLinkTypeID(value string) error {
+	if id, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64); err != nil || id <= 0 {
+		return apperr.New(apperr.KindInvalidInput, "link type ID must be positive")
+	}
+	return nil
 }
 
 // DeleteIssueLink deletes one issue link by Jira link ID.
