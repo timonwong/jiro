@@ -28,6 +28,10 @@ _Avoid_: Token revocation, session expiry
 The human-readable Jira identifier for an issue, such as `PROJ-123`.
 _Avoid_: Ticket ID, issue ID
 
+**Issue Clone**:
+A newly created Issue derived from one source Issue through `issue clone`. An Issue Clone is independent from its source, keeps the source Project and Issue Type, and may retain a directional `Cloners` Issue Link and one active Sprint Membership.
+_Avoid_: Copy, duplicate ticket
+
 **Custom Field ID**:
 The Jira-owned, instance-specific identifier for a custom field, such as `customfield_10006`.
 _Avoid_: Custom field key

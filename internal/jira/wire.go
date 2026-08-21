@@ -2,6 +2,8 @@ package jira
 
 import (
 	"encoding/json"
+	"sort"
+	"strings"
 
 	"github.com/timonwong/jiro/internal/apperr"
 )
@@ -38,6 +40,20 @@ type wireEditMeta struct {
 
 type wireEditMetaField struct {
 	AllowedValues []wireIssueType `json:"allowedValues"`
+}
+
+type wireCreateMeta struct {
+	Fields map[string]wireCreateMetaField `json:"fields"`
+}
+
+type wireCreateMetaField struct {
+	Name     string `json:"name"`
+	Required bool   `json:"required"`
+	Schema   struct {
+		Type   string `json:"type"`
+		Custom string `json:"custom"`
+	} `json:"schema"`
+	Operations []string `json:"operations"`
 }
 
 type wireStatus struct {
@@ -228,6 +244,23 @@ func normalizeComment(w wireComment) Comment {
 
 func normalizeField(w wireField) Field {
 	return Field{ID: w.ID, Name: w.Name, Custom: w.Custom, Type: w.Schema.Type, SchemaCustom: w.Schema.Custom}
+}
+
+func normalizeCreateFields(w wireCreateMeta) []CreateField {
+	fields := make([]CreateField, 0, len(w.Fields))
+	for id, field := range w.Fields {
+		operations := []string(nil)
+		if field.Operations != nil {
+			operations = append([]string{}, field.Operations...)
+		}
+		fields = append(fields, CreateField{
+			ID: id, Name: field.Name, Custom: strings.HasPrefix(id, "customfield_"),
+			Required: field.Required, Type: field.Schema.Type, SchemaCustom: field.Schema.Custom,
+			Operations: operations,
+		})
+	}
+	sort.Slice(fields, func(i, j int) bool { return fields[i].ID < fields[j].ID })
+	return fields
 }
 
 func normalizeTransition(w wireTransition) Transition {

@@ -32,3 +32,10 @@ Direct IDs, special selectors, exclusions, and implicit fields remain raw-only. 
 For readback, use `.data.fieldSelection` to map each requested selector to its Jira field ID, then read the value from `.data.fields`. For a semantically selected Sprint field, read typed membership from `.data.sprints` and retain `.data.fields[resolved]` as the raw compatibility path.
 
 Complete this branch only when every requested Field Selector is resolved and every required value is present, explicitly empty, or reported as unavailable with its warning or error.
+
+For `issue clone`, Create-screen metadata determines which non-empty Custom
+Fields can be copied. A non-creatable value is omitted from the Create Issue
+payload and reported as `issue_clone_custom_field_skipped`; explicit
+`--field` values still win after copied values are resolved. Sprint fields are
+handled through the typed membership path described above and are not replayed
+through Create Issue.

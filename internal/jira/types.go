@@ -192,6 +192,7 @@ type SearchResult struct {
 type CreateIssueInput struct {
 	ProjectKey  string         `json:"projectKey"`
 	IssueType   string         `json:"issueType"`
+	IssueTypeID string         `json:"issueTypeId,omitempty"`
 	Summary     string         `json:"summary"`
 	Description *string        `json:"description,omitempty"`
 	Fields      map[string]any `json:"fields,omitempty"`
@@ -243,6 +244,19 @@ type Field struct {
 	Custom       bool   `json:"custom"`
 	Type         string `json:"type,omitempty"`
 	SchemaCustom string `json:"-"`
+}
+
+// CreateField describes one field Jira exposes on a target Create screen.
+// Unlike the instance-wide Field metadata, this is scoped to one Project and
+// Issue Type and is the boundary for copying source Custom Fields.
+type CreateField struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Custom       bool     `json:"custom"`
+	Required     bool     `json:"required"`
+	Type         string   `json:"type,omitempty"`
+	SchemaCustom string   `json:"-"`
+	Operations   []string `json:"operations,omitempty"`
 }
 
 // FieldSelection records one requested Field Selector and the exact Jira

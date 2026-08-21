@@ -68,12 +68,16 @@ func (c *Client) ShowIssue(ctx context.Context, key string, fields []string) (Is
 
 // CreateIssue creates and returns an issue.
 func (c *Client) CreateIssue(ctx context.Context, input CreateIssueInput) (Issue, error) {
-	if strings.TrimSpace(input.ProjectKey) == "" || strings.TrimSpace(input.IssueType) == "" || strings.TrimSpace(input.Summary) == "" {
+	if strings.TrimSpace(input.ProjectKey) == "" || (strings.TrimSpace(input.IssueType) == "" && strings.TrimSpace(input.IssueTypeID) == "") || strings.TrimSpace(input.Summary) == "" {
 		return Issue{}, apperr.New(apperr.KindInvalidInput, "project key, issue type, and summary are required")
 	}
 	fields := cloneFields(input.Fields)
 	fields["project"] = map[string]string{"key": input.ProjectKey}
-	fields["issuetype"] = map[string]string{"name": input.IssueType}
+	if strings.TrimSpace(input.IssueTypeID) != "" {
+		fields["issuetype"] = map[string]string{"id": input.IssueTypeID}
+	} else {
+		fields["issuetype"] = map[string]string{"name": input.IssueType}
+	}
 	fields["summary"] = input.Summary
 	if input.Description != nil {
 		fields["description"] = *input.Description
@@ -126,6 +130,26 @@ func (c *Client) ListIssueTypesForIssue(ctx context.Context, key string) ([]Issu
 		}
 	}
 	return result, nil
+}
+
+// ListCreateFields returns the fields Jira exposes on the Create screen for a
+// Project and Issue Type. The endpoint is intentionally scoped to the target
+// pair because instance-wide field metadata includes read-only fields.
+func (c *Client) ListCreateFields(ctx context.Context, projectKey, issueTypeID string) ([]CreateField, error) {
+	projectKey = strings.TrimSpace(projectKey)
+	issueTypeID = strings.TrimSpace(issueTypeID)
+	if projectKey == "" || issueTypeID == "" {
+		return nil, apperr.New(apperr.KindInvalidInput, "project key and issue type ID are required")
+	}
+	var wire wireCreateMeta
+	path := "rest/api/2/issue/createmeta/" + url.PathEscape(projectKey) + "/issuetypes/" + url.PathEscape(issueTypeID)
+	if err := c.do(ctx, http.MethodGet, path, nil, nil, &wire); err != nil {
+		return nil, err
+	}
+	if wire.Fields == nil {
+		return nil, apperr.New(apperr.KindAPI, "Jira Create metadata response is missing fields")
+	}
+	return normalizeCreateFields(wire), nil
 }
 
 // UpdateIssueType changes one Issue's type through Jira's generic Edit Issue

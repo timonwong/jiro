@@ -24,6 +24,7 @@ Load each conditional branch before using it:
 - For authentication, Profile management, or uncertainty about the effective Jira Instance or Credential, read [Authentication and profiles](references/authentication.md).
 - For explicit read fields, Custom Field Aliases, Field Metadata Snapshots, or Sprint Memberships, read [Fields and Sprint Memberships](references/fields.md).
 - For a single or bulk Issue Type change, read [Issue Type changes](references/issue-types.md).
+- For `issue clone SOURCE`, read [Issue Clone workflow](references/issue-clone.md) before mutation.
 - For Board or Sprint discovery, or any `--sprint` selector, read [Boards and Sprints](references/agile.md).
 - For JFM authoring, conversion, mutation input, or `jfm_conversion` warnings, read [JFM workflows](references/jfm.md). Standalone `jiro jfm` conversion is offline and skips the Jira mutation loop.
 - For any `issue bulk` operation, read [Bulk workflows](references/bulk.md) before dry-run.
