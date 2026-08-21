@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -151,8 +150,7 @@ func (a *app) runIssueClone(command *cobra.Command, client *jira.Client, setting
 		if err != nil {
 			return err
 		}
-		linkID, parseErr := strconv.ParseInt(strings.TrimSpace(linkType.ID), 10, 64)
-		if parseErr != nil || linkID <= 0 {
+		if err := jira.ValidateIssueLinkTypeID(linkType.ID); err != nil {
 			return apperr.New(apperr.KindAPI, "Jira Cloners Link Type has an invalid ID")
 		}
 		if !strings.EqualFold(strings.TrimSpace(linkType.Outward), "clones") || !strings.EqualFold(strings.TrimSpace(linkType.Inward), "is cloned by") {
@@ -248,24 +246,20 @@ func cloneSummary(source string, options cloneOptions) string {
 }
 
 func applyCloneStandardOverrides(fields map[string]any, options cloneOptions) {
-	if options.PrioritySet && options.Priority != "" {
-		fields["priority"] = map[string]string{"name": options.Priority}
+	priority := ""
+	if options.PrioritySet {
+		priority = options.Priority
 	}
-	if options.AssigneeSet && options.Assignee != "" {
-		if strings.EqualFold(options.Assignee, "none") {
-			fields["assignee"] = nil
-		} else {
-			fields["assignee"] = map[string]string{"name": options.Assignee}
-		}
+	assignee := ""
+	if options.AssigneeSet {
+		assignee = options.Assignee
 	}
-	if options.LabelsSet {
-		fields["labels"] = options.Labels
-	}
+	applyStandardFields(fields, priority, assignee, options.Labels, options.LabelsSet)
 	applyNamedIssueField(fields, "components", options.Components, options.ComponentsSet, true)
 	applyNamedIssueField(fields, "fixVersions", options.FixVersions, options.FixVersionsSet, true)
 }
 
-func cloneCopiedFields(source jira.Issue, createFields []jira.CreateField, sprintFieldIDs map[string]struct{}, app *app) map[string]any {
+func cloneCopiedFields(source jira.Issue, createFields []jira.CreateField, sprintFieldIDs map[string]struct{}, a *app) map[string]any {
 	fields := make(map[string]any)
 	if source.Description != "" {
 		fields["description"] = source.Description
@@ -288,10 +282,14 @@ func cloneCopiedFields(source jira.Issue, createFields []jira.CreateField, sprin
 		fields["labels"] = append([]string(nil), source.Labels...)
 	}
 	if source.Components != nil {
-		fields["components"] = cloneNamedValues(source.Components)
+		fields["components"] = cloneNamedValues(source.Components, func(value jira.Component) (string, string) {
+			return value.ID, value.Name
+		})
 	}
 	if source.FixVersions != nil {
-		fields["fixVersions"] = cloneVersionValues(source.FixVersions)
+		fields["fixVersions"] = cloneNamedValues(source.FixVersions, func(value jira.Version) (string, string) {
+			return value.ID, value.Name
+		})
 	}
 	if source.Parent != nil && source.Parent.Key != "" {
 		fields["parent"] = map[string]string{"key": source.Parent.Key}
@@ -323,7 +321,7 @@ func cloneCopiedFields(source jira.Issue, createFields []jira.CreateField, sprin
 			continue
 		}
 		if !cloneValueEmpty(field) {
-			app.addWarning(cloneSkippedFieldWarning(id))
+			a.addWarning(cloneSkippedFieldWarning(id))
 		}
 	}
 	return fields
@@ -340,18 +338,11 @@ func namedOrID(id, name string) map[string]string {
 	return map[string]string{"name": name}
 }
 
-func cloneNamedValues(values []jira.Component) []map[string]string {
+func cloneNamedValues[T any](values []T, idAndName func(T) (string, string)) []map[string]string {
 	result := make([]map[string]string, 0, len(values))
 	for _, value := range values {
-		result = append(result, namedOrID(value.ID, value.Name))
-	}
-	return result
-}
-
-func cloneVersionValues(values []jira.Version) []map[string]string {
-	result := make([]map[string]string, 0, len(values))
-	for _, value := range values {
-		result = append(result, namedOrID(value.ID, value.Name))
+		id, name := idAndName(value)
+		result = append(result, namedOrID(id, name))
 	}
 	return result
 }

@@ -251,6 +251,7 @@ func TestIssueCloneClassifiesPreflightAndSourceErrors(t *testing.T) {
 		{name: "missing parent", firstBody: subtaskWithoutParent, secondBody: subtaskWithoutParent, wantCode: 5, wantMessage: "has no Parent", noLink: true, wantCreates: 0},
 		{name: "missing Cloners link type", firstBody: validIssue, secondBody: validIssue, linkTypes: `{"issueLinkTypes":[]}`, wantCode: 2, wantMessage: "was not found", wantCreates: 0},
 		{name: "ambiguous Cloners link type", firstBody: validIssue, secondBody: validIssue, linkTypes: `{"issueLinkTypes":[{"id":"10000","name":"Cloners"},{"id":"10001","name":"Cloners"}]}`, wantCode: 2, wantMessage: "is ambiguous", wantCreates: 0},
+		{name: "invalid Cloners link type ID", firstBody: validIssue, secondBody: validIssue, linkTypes: `{"issueLinkTypes":[{"id":"invalid","name":"Cloners","inward":"is cloned by","outward":"clones"}]}`, wantCode: 5, wantMessage: "has an invalid ID", wantCreates: 0},
 	}
 
 	for _, test := range tests {
