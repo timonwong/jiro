@@ -22,6 +22,7 @@ func (a *app) issueCommand() *cobra.Command {
 		a.issuesListCommand(),
 		a.issueShowCommand(),
 		a.issueCreateCommand(),
+		a.issueCloneCommand(),
 		a.issueUpdateCommand(),
 		a.issueTypesCommand(),
 		a.issueTransitionsCommand(),

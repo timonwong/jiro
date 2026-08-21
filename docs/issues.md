@@ -9,6 +9,25 @@ Issue Type changes, and bulk operations. For quick examples see the
 `issue update --component` and `--fix-version` replace the complete field.
 A single `none` clears it.
 
+### Clone
+
+`issue clone SOURCE` creates an independent Issue in the source Project with
+the same Issue Type and Parent. It copies Description, Priority, Assignee,
+Labels, Components, Fix Versions, and Custom Fields available on the target
+Create screen. Summary defaults to `CLONE - <source summary>`; standard field
+flags and repeated `--field alias-or-id=value` values replace copied values.
+Sprint Custom Fields are never replayed through Create Issue.
+
+By default jiro resolves the Jira Link Type named `Cloners` before creation and
+then links the source outward to the clone. In Jira's link vocabulary,
+`Cloners` is the Link Type name while `clones` is its outward relationship.
+`--no-link` skips both Link Type discovery and link creation.
+
+If the source has one valid active Sprint Membership, jiro adds the clone to
+that Sprint after the link is created. Multiple active memberships fail before
+creation. A failed link or Sprint write preserves the created Issue, writes the
+completed stage result to stdout, and exits with `partial_failure` (`7`).
+
 ### Issue Type changes
 
 `issue list-types` reads the current Issue Type and the compatible values from

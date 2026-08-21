@@ -28,6 +28,7 @@ type commandSchema struct {
 	Args                 string         `json:"args,omitempty"`
 	Flags                []flagSchema   `json:"flags,omitempty"`
 	JSONData             map[string]any `json:"jsonData"`
+	Warnings             []string       `json:"warnings,omitempty"`
 }
 
 type flagSchema struct {
@@ -111,6 +112,12 @@ func schemaDocument() cliSchema {
 				repeatableFlag("component", "", "string"), repeatableFlag("fix-version", "", "string"), flag("sprint", "", "string"),
 				flag("sprint-board", "", "string"), repeatableFlag("field", "", "custom-field-alias-or-id=value"),
 			}, object("id", "key", "sprint", "sprintMoved")),
+			normalizedCommand(commandSchema{Name: "issue clone", Auth: true, Mutating: true, Args: "SOURCE", Flags: []flagSchema{
+				flag("summary", "s", "string"), flag("description", "", "string"), flag("description-file", "", "path-or-stdin"),
+				flagDefault("input-format", "", "enum:jira|jfm|markdown", "jira"), flag("priority", "", "string"), flag("assignee", "", "string"),
+				repeatableFlag("label", "", "string"), repeatableFlag("component", "", "string"), repeatableFlag("fix-version", "", "string"),
+				repeatableFlag("field", "", "custom-field-alias-or-id=value"), flag("no-link", "", "boolean"),
+			}, JSONData: object("sourceIssueKey", "id", "key", "linked", "sprintMoved", "link", "sprint"), Warnings: []string{"issue_clone_custom_field_skipped", "sprint_membership_normalization"}}),
 			commandWithFlags("issue update", nil, true, "ISSUE-KEY", []flagSchema{
 				flag("summary", "s", "string"), conflictingFlag("type", "t", "string", issueTypeUpdateConflictingFlags...), flag("description", "", "string"), flag("description-file", "", "path-or-stdin"),
 				flagDefault("input-format", "", "enum:jira|jfm|markdown", "jira"), flag("priority", "", "string"), flag("assignee", "", "string"),

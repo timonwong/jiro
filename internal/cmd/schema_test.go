@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -44,6 +45,7 @@ func TestSchemaDocument(t *testing.T) {
 		mutationMode         string
 		readOnlyMethods      []string
 		jsonData             map[string]any
+		warnings             []string
 	}
 	commands := make(map[string]commandMetadata)
 	flags := make(map[string]map[string]struct {
@@ -60,7 +62,7 @@ func TestSchemaDocument(t *testing.T) {
 		commands[command.Name] = commandMetadata{
 			auth: command.Auth, mutating: command.Mutating, args: command.Args, outputMode: command.OutputMode,
 			supportsGlobalOutput: command.SupportsGlobalOutput, mutationMode: command.MutationMode,
-			readOnlyMethods: command.ReadOnlyMethods, jsonData: command.JSONData,
+			readOnlyMethods: command.ReadOnlyMethods, jsonData: command.JSONData, warnings: command.Warnings,
 		}
 		flags[command.Name] = make(map[string]struct {
 			repeatable   bool
@@ -170,6 +172,7 @@ func TestSchemaDocument(t *testing.T) {
 	}{
 		{"issue list", false, []string{"resolution", "reporter", "label", "component", "fix-version", "sprint", "parent", "created", "updated"}},
 		{"issue add", true, []string{"parent", "component", "fix-version", "sprint", "sprint-board"}},
+		{"issue clone", true, []string{"summary", "description", "description-file", "input-format", "priority", "assignee", "label", "component", "fix-version", "field", "no-link"}},
 		{"issue update", true, []string{"type", "component", "fix-version", "sprint", "sprint-board"}},
 		{"issue list-types", false, nil},
 		{"issue move", true, []string{"to", "comment", "input-format", "resolution", "field"}},
@@ -194,10 +197,13 @@ func TestSchemaDocument(t *testing.T) {
 			}
 		}
 	}
-	for _, name := range []string{"issue add", "issue update", "issue move", "issue bulk move"} {
+	for _, name := range []string{"issue add", "issue clone", "issue update", "issue move", "issue bulk move"} {
 		if got := flags[name]["field"].kind; got != "custom-field-alias-or-id=value" {
 			t.Fatalf("%s --field type = %q", name, got)
 		}
+	}
+	if got := commands["issue clone"].warnings; !reflect.DeepEqual(got, []string{"issue_clone_custom_field_skipped", "sprint_membership_normalization"}) {
+		t.Fatalf("issue clone warnings = %#v", got)
 	}
 	for _, name := range []string{"search", "issue list", "issue show"} {
 		if got := flags[name]["fields"].kind; got != "field-selector-list" {
@@ -283,14 +289,14 @@ func TestSchemaDocument(t *testing.T) {
 			t.Fatalf("Sprint type is missing %q: %#v", field, document.Types["Sprint"])
 		}
 	}
-	for _, command := range []string{"issue list", "issue add", "issue update"} {
+	for _, command := range []string{"issue list", "issue add", "issue clone", "issue update"} {
 		for _, name := range []string{"label", "component", "fix-version"} {
 			if flag, ok := flags[command][name]; ok && !flag.repeatable {
 				t.Fatalf("%s --%s is not repeatable", command, name)
 			}
 		}
 	}
-	for _, command := range []string{"issue add", "issue update", "issue comment add"} {
+	for _, command := range []string{"issue add", "issue clone", "issue update", "issue comment add"} {
 		inputFormat, ok := flags[command]["input-format"]
 		if !ok || inputFormat.kind != "enum:jira|jfm|markdown" || inputFormat.defaultValue != "jira" {
 			t.Fatalf("%s --input-format schema = %+v, present=%t", command, inputFormat, ok)

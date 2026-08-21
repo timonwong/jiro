@@ -24,3 +24,9 @@ Resolve Sprint input as a numeric ID, `active`, or a case-insensitive name subst
 When the target Board is known, pass `--sprint-board SELECTOR` on `issue add`/`issue update` to scope `--sprint` resolution to that Board. The selector uses the same forms as `sprint list --board` and requires `--sprint`.
 
 After the mutation, read the Issue back. When typed Sprint Memberships are required, also follow [Fields and Sprint Memberships](fields.md).
+
+For `issue clone`, inspect the source Sprint Memberships before creation. No
+active membership is a successful no-op; exactly one valid active membership
+is applied after the clone and its optional `Cloners` link are created; more
+than one active membership is rejected before Create Issue. A failed Sprint
+write preserves the created Issue and earlier link result as a partial failure.
