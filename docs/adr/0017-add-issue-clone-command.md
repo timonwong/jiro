@@ -33,3 +33,23 @@ result is rendered, and the process exits with code 7.
 - A public REST clone endpoint was not assumed. The implementation therefore
   treats Create Issue, clone-link, and Sprint assignment as separate operations;
   only the first can create the Issue atomically.
+
+## Custom Field warning boundary
+
+Clone warning semantics apply to every source Custom Field visible to the
+authenticated Principal through the Field Metadata Snapshot. The target Create
+screen remains the write boundary: a visible non-empty field that is absent from
+that screen or lacks the `set` operation is skipped and reported through
+`issue_clone_custom_field_skipped`. Fields not visible to the Principal are
+outside the warning guarantee because jiro cannot observe their source values.
+
+## Preflight policy
+
+The default `Cloners` preflight retains the existing requirement for the Link
+Type name `Cloners`, a valid numeric ID, outward `clones`, and inward `is cloned
+by`. This issue does not change the inward relationship policy.
+
+The clone contract supports one Sprint Custom Field with the GreenHopper Sprint
+schema. If Jira exposes multiple such fields, the command fails preflight rather
+than guessing which field is authoritative or merging their values; field
+deduplication is outside this contract.

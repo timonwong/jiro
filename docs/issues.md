@@ -18,15 +18,22 @@ Create screen. Summary defaults to `CLONE - <source summary>`; standard field
 flags and repeated `--field alias-or-id=value` values replace copied values.
 Sprint Custom Fields are never replayed through Create Issue.
 
+jiro reads the source Custom Fields visible to the authenticated Principal. A
+non-empty visible field that is absent from the target Create screen or lacks
+the `set` operation is skipped and reported with the structured warning
+`issue_clone_custom_field_skipped`.
+
 By default jiro resolves the Jira Link Type named `Cloners` before creation and
 then links the source outward to the clone. In Jira's link vocabulary,
 `Cloners` is the Link Type name while `clones` is its outward relationship.
 `--no-link` skips both Link Type discovery and link creation.
 
 If the source has one valid active Sprint Membership, jiro adds the clone to
-that Sprint after the link is created. Multiple active memberships fail before
-creation. A failed link or Sprint write preserves the created Issue, writes the
-completed stage result to stdout, and exits with `partial_failure` (`7`).
+that Sprint after the link is created. The workflow supports one Sprint Custom
+Field; multiple Sprint Custom Fields fail preflight rather than being merged.
+Multiple active memberships also fail before creation. A failed link or Sprint
+write preserves the created Issue, writes the completed stage result to stdout,
+and exits with `partial_failure` (`7`).
 
 ### Issue Type changes
 

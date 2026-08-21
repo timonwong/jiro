@@ -108,8 +108,11 @@ func (a *app) runIssueClone(command *cobra.Command, client *jira.Client, setting
 		}
 	}
 	for _, field := range customFieldsOnly(metadata.fields) {
+		if field.ID == "" {
+			continue
+		}
+		fieldIDs = append(fieldIDs, field.ID)
 		if field.SchemaCustom == "com.pyxis.greenhopper.jira:gh-sprint" {
-			fieldIDs = append(fieldIDs, field.ID)
 			sprintFieldIDs[field.ID] = struct{}{}
 		}
 	}

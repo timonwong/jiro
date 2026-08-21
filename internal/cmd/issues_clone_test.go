@@ -72,8 +72,8 @@ func TestIssueCloneCreatesLinkAndSprintInOrder(t *testing.T) {
 
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	a := newFieldCacheTestApp(stdout, stderr, fieldcache.New(t.TempDir(), nil))
-	code := a.execute([]string{"--config", writeCLIConfig(t, server.URL, false), "-ojson", "issue", "clone", "OPS-1"})
-	if code != 0 || stderr.Len() != 0 {
+	code := a.execute([]string{"--config", writeCLIConfig(t, server.URL, false), "issue", "clone", "OPS-1"})
+	if code != 0 || stderr.Len() != 0 || stdout.String() != "Cloned OPS-1 to OPS-2\n" {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	wantPaths := []string{
@@ -192,6 +192,121 @@ func TestIssueCloneNoLinkAppliesExplicitOverrides(t *testing.T) {
 	}
 }
 
+func TestIssueCloneCopiesExplicitlyUnassignedSource(t *testing.T) {
+	clearCommandEnv(t)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/rest/api/2/issue/OPS-1":
+			_, _ = io.WriteString(writer, `{"id":"1","key":"OPS-1","fields":{"project":{"key":"OPS"},"issuetype":{"id":"10001","name":"Task"},"summary":"Source","assignee":null}}`)
+		case "/rest/api/2/issue/createmeta/OPS/issuetypes/10001":
+			_, _ = io.WriteString(writer, `{"fields":{}}`)
+		case "/rest/api/2/myself":
+			writeTestPrincipal(writer)
+		case "/rest/api/2/field":
+			_, _ = io.WriteString(writer, `[]`)
+		case "/rest/api/2/issue":
+			var payload struct {
+				Fields map[string]any `json:"fields"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			assignee, found := payload.Fields["assignee"]
+			if !found || assignee != nil {
+				t.Fatalf("assignee = %#v, found=%t; want explicit null", assignee, found)
+			}
+			_, _ = io.WriteString(writer, `{"id":"2","key":"OPS-2"}`)
+		default:
+			t.Fatalf("unexpected %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	a := newFieldCacheTestApp(stdout, stderr, fieldcache.New(t.TempDir(), nil))
+	code := a.execute([]string{"--config", writeCLIConfig(t, server.URL, false), "-ojson", "issue", "clone", "OPS-1", "--no-link"})
+	if code != 0 || stderr.Len() != 0 {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestIssueCloneClassifiesPreflightAndSourceErrors(t *testing.T) {
+	validIssue := `{"id":"1","key":"OPS-1","fields":{"project":{"key":"OPS"},"issuetype":{"id":"10001","name":"Task"},"summary":"Source"}}`
+	subtaskWithoutParent := `{"id":"1","key":"OPS-1","fields":{"project":{"key":"OPS"},"issuetype":{"id":"10001","name":"Sub-task","subtask":true},"summary":"Source"}}`
+	tests := []struct {
+		name        string
+		firstStatus int
+		firstBody   string
+		secondBody  string
+		linkTypes   string
+		wantCode    int
+		wantMessage string
+		noLink      bool
+		wantCreates int
+	}{
+		{name: "invalid source", firstStatus: http.StatusNotFound, wantCode: 4, wantMessage: "HTTP 404", wantCreates: 0},
+		{name: "source API failure", firstStatus: http.StatusBadGateway, wantCode: 5, wantMessage: "HTTP 502", wantCreates: 0},
+		{name: "missing project", firstBody: `{"id":"1","key":"OPS-1","fields":{"issuetype":{"id":"10001"}}}`, wantCode: 5, wantMessage: "has no Project", wantCreates: 0},
+		{name: "missing issue type", firstBody: `{"id":"1","key":"OPS-1","fields":{"project":{"key":"OPS"}}}`, wantCode: 5, wantMessage: "has no Issue Type ID", wantCreates: 0},
+		{name: "missing parent", firstBody: subtaskWithoutParent, secondBody: subtaskWithoutParent, wantCode: 5, wantMessage: "has no Parent", noLink: true, wantCreates: 0},
+		{name: "missing Cloners link type", firstBody: validIssue, secondBody: validIssue, linkTypes: `{"issueLinkTypes":[]}`, wantCode: 2, wantMessage: "was not found", wantCreates: 0},
+		{name: "ambiguous Cloners link type", firstBody: validIssue, secondBody: validIssue, linkTypes: `{"issueLinkTypes":[{"id":"10000","name":"Cloners"},{"id":"10001","name":"Cloners"}]}`, wantCode: 2, wantMessage: "is ambiguous", wantCreates: 0},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			clearCommandEnv(t)
+			var sourceCalls, creates int
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				switch request.URL.Path {
+				case "/rest/api/2/issue/OPS-1":
+					sourceCalls++
+					if sourceCalls == 1 && test.firstStatus != 0 {
+						writer.WriteHeader(test.firstStatus)
+						return
+					}
+					body := test.firstBody
+					if sourceCalls > 1 {
+						body = test.secondBody
+					}
+					if body == "" {
+						body = validIssue
+					}
+					_, _ = io.WriteString(writer, body)
+				case "/rest/api/2/issue/createmeta/OPS/issuetypes/10001":
+					_, _ = io.WriteString(writer, `{"fields":{}}`)
+				case "/rest/api/2/myself":
+					writeTestPrincipal(writer)
+				case "/rest/api/2/field":
+					_, _ = io.WriteString(writer, `[]`)
+				case "/rest/api/2/issueLinkType":
+					if test.linkTypes == "" {
+						t.Fatalf("unexpected link type lookup")
+					}
+					_, _ = io.WriteString(writer, test.linkTypes)
+				case "/rest/api/2/issue":
+					creates++
+					_, _ = io.WriteString(writer, `{"id":"2","key":"OPS-2"}`)
+				default:
+					t.Fatalf("unexpected %s %s", request.Method, request.URL.Path)
+				}
+			}))
+
+			stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+			a := newFieldCacheTestApp(stdout, stderr, fieldcache.New(t.TempDir(), nil))
+			args := []string{"--config", writeCLIConfig(t, server.URL, false), "-ojson", "issue", "clone", "OPS-1"}
+			if test.noLink {
+				args = append(args, "--no-link")
+			}
+			code := a.execute(args)
+			server.Close()
+			if code != test.wantCode || creates != test.wantCreates || !strings.Contains(stderr.String(), test.wantMessage) {
+				t.Fatalf("code=%d creates=%d stdout=%s stderr=%s", code, creates, stdout, stderr)
+			}
+		})
+	}
+}
+
 func TestIssueCloneAcceptsCreateFieldWhenOperationsAreOmitted(t *testing.T) {
 	clearCommandEnv(t)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -297,6 +412,64 @@ func TestIssueCloneWarnsForNonCreatableCustomField(t *testing.T) {
 			}
 			if _, found := payload.Fields["customfield_12345"]; found {
 				t.Fatalf("non-creatable Custom Field was sent: %#v", payload.Fields)
+			}
+			_, _ = io.WriteString(writer, `{"id":"2","key":"OPS-2"}`)
+		default:
+			t.Fatalf("unexpected %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	a := newFieldCacheTestApp(stdout, stderr, fieldcache.New(t.TempDir(), nil))
+	code := a.execute([]string{"--config", writeCLIConfig(t, server.URL, false), "-ojson", "issue", "clone", "OPS-1", "--no-link"})
+	if code != 0 || stderr.Len() != 0 {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	var envelope struct {
+		Warnings []struct {
+			Code    string         `json:"code"`
+			Details map[string]any `json:"details"`
+		} `json:"warnings"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Warnings) != 1 || envelope.Warnings[0].Code != "issue_clone_custom_field_skipped" || envelope.Warnings[0].Details["fieldId"] != "customfield_12345" {
+		t.Fatalf("warnings = %#v, stdout=%s", envelope.Warnings, stdout)
+	}
+}
+
+func TestIssueCloneWarnsForCustomFieldAbsentFromCreateScreen(t *testing.T) {
+	clearCommandEnv(t)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/rest/api/2/issue/OPS-1":
+			fields := request.URL.Query().Get("fields")
+			if fields == "project,issuetype,summary,description,priority,assignee,labels,components,fixVersions,parent" {
+				_, _ = io.WriteString(writer, `{"id":"1","key":"OPS-1","fields":{"project":{"key":"OPS"},"issuetype":{"id":"10001","name":"Task"},"summary":"Source"}}`)
+				return
+			}
+			wantFields := "project,issuetype,summary,description,priority,assignee,labels,components,fixVersions,parent,customfield_12345"
+			if fields != wantFields {
+				t.Fatalf("second source GET fields = %q, want %q", fields, wantFields)
+			}
+			_, _ = io.WriteString(writer, `{"id":"1","key":"OPS-1","fields":{"project":{"key":"OPS"},"issuetype":{"id":"10001","name":"Task"},"summary":"Source","customfield_12345":"legacy"}}`)
+		case "/rest/api/2/issue/createmeta/OPS/issuetypes/10001":
+			_, _ = io.WriteString(writer, `{"fields":{}}`)
+		case "/rest/api/2/myself":
+			writeTestPrincipal(writer)
+		case "/rest/api/2/field":
+			_, _ = io.WriteString(writer, `[{"id":"customfield_12345","name":"Legacy Flag","custom":true,"schema":{"type":"string"}}]`)
+		case "/rest/api/2/issue":
+			var payload struct {
+				Fields map[string]any `json:"fields"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if _, found := payload.Fields["customfield_12345"]; found {
+				t.Fatalf("Custom Field absent from Create screen was sent: %#v", payload.Fields)
 			}
 			_, _ = io.WriteString(writer, `{"id":"2","key":"OPS-2"}`)
 		default:
