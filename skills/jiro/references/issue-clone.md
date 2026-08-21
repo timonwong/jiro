@@ -9,17 +9,22 @@ Parent, standard fields, Custom Fields, and Sprint Memberships before creating
 anything. The clone stays in the source Project and keeps its Issue Type and
 Parent; there is no cross-Project or cross-Issue-Type form.
 
-Before a default linked clone, resolve the exact `Cloners` Link Type and verify
-that its outward relationship is `clones`. A missing, ambiguous, or malformed
-link type is a preflight failure. `--no-link` skips that lookup and the link
-write.
+Before a default linked clone, resolve the exact `Cloners` Link Type, verify its
+numeric ID, and verify its `clones` / `is cloned by` directions. A missing,
+ambiguous, or malformed link type is a preflight failure. `--no-link` skips that
+lookup and the link write.
 
-Use the target Create-screen metadata for copied Custom Fields. Explicit
-`--field alias-or-id=value` values use the normal Custom Field resolution rules
-and override copied values. Sprint is handled through Agile membership and is
-never sent as a raw Custom Field. Zero active Sprints is valid, one valid active
-Sprint is selected, and multiple active Sprints fail before Issue creation;
-malformed memberships remain visible through the structured warning.
+Read all source Custom Fields visible to the authenticated Principal, then use
+the target Create-screen metadata as the write boundary. A non-empty visible
+field that is absent from that screen or lacks the `set` operation is skipped
+and reported as `issue_clone_custom_field_skipped`. Explicit `--field
+alias-or-id=value` values use the normal Custom Field resolution rules and
+override copied values. Sprint is handled through Agile membership and is never
+sent as a raw Custom Field. Zero active Sprints is valid, one valid active Sprint
+is selected, and multiple active Sprints fail before Issue creation; behavior for
+instances with multiple Sprint Custom Field definitions is unsupported and fails
+preflight rather than merging fields. Malformed memberships remain visible
+through the structured warning.
 
 ## Mutate
 
