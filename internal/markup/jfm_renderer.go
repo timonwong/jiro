@@ -6,6 +6,7 @@ import (
 	"html"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 func renderJFM(ctx context.Context, document semanticDocument) (string, error) {
@@ -237,7 +238,7 @@ func escapeTextForJFM(ctx context.Context, value string, atLineStart bool) (stri
 				return "", err
 			}
 		}
-		character, size := utf8DecodeRune(value[index:])
+		character, size := utf8.DecodeRuneInString(value[index:])
 		if character == '\\' || strings.ContainsRune("*_~[]`<>", character) {
 			result.WriteByte('\\')
 		}

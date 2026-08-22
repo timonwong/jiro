@@ -546,3 +546,5 @@ func mergeAdjacentTextInlines(inlines []semanticInline) []semanticInline {
 	}
 	return result
 }
+
+const legacyCodeSpanEscapedDelimiters = `{}[]|-*_`

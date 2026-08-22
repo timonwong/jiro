@@ -683,3 +683,14 @@ func shiftSemanticBlock(block semanticBlock, delta int) semanticBlock {
 		return block
 	}
 }
+
+var codeLanguageAliases = map[string]string{
+	"javascript": "javascript",
+	"js":         "javascript",
+	"jsx":        "javascript",
+	"mjs":        "javascript",
+	"bash":       "bash",
+	"sh":         "bash",
+	"shell":      "bash",
+	"zsh":        "bash",
+}

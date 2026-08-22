@@ -3,8 +3,10 @@ package markup
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 func renderJiraMarkup(ctx context.Context, document semanticDocument) (string, error) {
@@ -241,7 +243,7 @@ func escapeTextForJiraText(ctx context.Context, value string, atLineStart bool) 
 				continue
 			}
 		}
-		character, size := utf8DecodeRune(remaining)
+		character, size := utf8.DecodeRuneInString(remaining)
 		if strings.ContainsRune(`\{}[]!?|#`, character) {
 			result.WriteByte('\\')
 		}
@@ -322,7 +324,7 @@ func markPlainJiraEffectEscapes(ctx context.Context, value string, plain, escape
 					}
 				}
 			}
-			_, size := utf8DecodeRune(value[offset:span.End])
+			_, size := utf8.DecodeRuneInString(value[offset:span.End])
 			offset += size
 		}
 	}
@@ -506,4 +508,85 @@ func renderJiraCodeBlock(ctx context.Context, block codeBlock) (string, error) {
 		return "", err
 	}
 	return header + "\n" + block.Body + ensureLiteralClosingSeparation(block.Body) + "{code}", nil
+}
+
+const jiraCodeSpanEntityEscapedCharacters = `{}|!?:`
+const jiraCodeSpanEffectDelimiters = `*_-+^~`
+
+func jiraLineControlPrefixLength(value string) int {
+	if len(value) >= 3 && value[0] == 'h' && value[1] >= '1' && value[1] <= '6' && value[2] == '.' &&
+		(len(value) == 3 || value[3] == ' ') {
+		return 3
+	}
+	if strings.HasPrefix(value, "bq.") && (len(value) == 3 || value[3] == ' ') {
+		return 3
+	}
+	return 0
+}
+
+func escapeCodeSpan(value string) string {
+	if isCompleteJFMURL(value) || isSimpleJiraLinkText(value) {
+		return value
+	}
+	runes := []rune(value)
+	effectEscaped := markCodeSpanEffectEscapes(runes)
+	var result strings.Builder
+	for index, character := range runes {
+		if strings.ContainsRune(jiraCodeSpanEntityEscapedCharacters, character) ||
+			(effectEscaped[index] && strings.ContainsRune(jiraCodeSpanEffectDelimiters, character)) {
+			result.WriteString("&#")
+			result.WriteString(strconv.FormatInt(int64(character), 10))
+			result.WriteByte(';')
+			continue
+		}
+		result.WriteRune(character)
+	}
+	return result.String()
+}
+
+func isCompleteJFMURL(value string) bool {
+	return jfmAutolinkURLRegexp.FindString(value) == value
+}
+
+func isSimpleJiraLinkText(value string) bool {
+	runes := []rune(value)
+	return len(runes) >= 2 && runes[0] == '[' && runes[len(runes)-1] == ']' && !strings.ContainsRune(value, '|')
+}
+
+func markCodeSpanEffectEscapes(runes []rune) []bool {
+	escaped := make([]bool, len(runes))
+	for open, delimiter := range runes {
+		if !strings.ContainsRune(jiraCodeSpanEffectDelimiters, delimiter) || !codeSpanDelimiterCanOpen(runes, open) {
+			continue
+		}
+		for close := open + 1; close < len(runes); close++ {
+			if runes[close] != delimiter || !codeSpanDelimiterCanClose(runes, close) {
+				continue
+			}
+			escaped[open], escaped[close] = true, true
+			break
+		}
+	}
+	return escaped
+}
+
+func codeSpanDelimiterCanOpen(runes []rune, index int) bool {
+	if index+1 >= len(runes) || unicode.IsSpace(runes[index+1]) {
+		return false
+	}
+	if runes[index] == '-' || runes[index] == '_' {
+		return index == 0 || !isCodeSpanWordRune(runes[index-1]) || !isCodeSpanWordRune(runes[index+1])
+	}
+	return true
+}
+
+func codeSpanDelimiterCanClose(runes []rune, index int) bool {
+	if index == 0 || unicode.IsSpace(runes[index-1]) {
+		return false
+	}
+	return runes[index] != '-' || index+1 >= len(runes) || !isCodeSpanWordRune(runes[index+1])
+}
+
+func isCodeSpanWordRune(value rune) bool {
+	return unicode.IsLetter(value) || unicode.IsDigit(value)
 }

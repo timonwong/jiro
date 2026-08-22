@@ -1156,3 +1156,12 @@ func parseJFMInlineFragment(fragment string, base int) ([]semanticInline, []conv
 	}
 	return inlines, diagnostics, nil
 }
+
+func decodedMarkdownText(value []byte, raw bool) []byte {
+	if raw {
+		return value
+	}
+	value = util.UnescapePunctuations(value)
+	value = util.ResolveNumericReferences(value)
+	return util.ResolveEntityNames(value)
+}
