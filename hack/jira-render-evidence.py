@@ -8,7 +8,7 @@ Equivalent single-case curl:
     -H 'Content-Type: application/json' -H 'X-Atlassian-Token: no-check' \
     -d '{"rendererType":"atlassian-wiki-renderer","unrenderedMarkup":"{{*bold*}}"}'
 
-Usage: python3 hack/jira-render-evidence.py [round1|round2|round3|all]   (default: all)
+Usage: python3 hack/jira-render-evidence.py [round1|round2|round3|round4|all]   (default: all)
 """
 import json, sys, time, urllib.request
 
@@ -100,6 +100,20 @@ ROUND3 = [
     "{{{x}}}", "{{x{}}", "{{{}x}}",
 ]
 
+NBSP = " "
+IDEOGRAPHIC_SPACE = "　"
+
+ROUND4 = [
+    # --- word runes on either side of an effect delimiter ---
+    "a--b--c", "foo__bar__", "1*2*3", "é*x*é", "*x*é", "*x*1",
+    "*x*_", "*x*-y", "~x~-", "x_*y*", "_*x*_", "a *b_c_ d*",
+    # --- what counts as space next to an effect delimiter ---
+    "*" + NBSP + "x*", "*" + IDEOGRAPHIC_SPACE + "x" + IDEOGRAPHIC_SPACE + "*",
+    "a *\tx*", "*x\t*",
+    # --- canonical Jira output jiro emits for the literal forms above ---
+    "a-\\-b\\--c", "foo_\\_bar\\__", "a \\_b\\_ c", "(\\_x\\_)", '"\\*x\\*"',
+]
+
 
 def render(markup, timeout=30):
     body = json.dumps({"rendererType": "atlassian-wiki-renderer",
@@ -130,5 +144,5 @@ def run(cases, delay=0.3):
 
 if __name__ == "__main__":
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
-    run({"round1": ROUND1, "round2": ROUND2, "round3": ROUND3,
-          "all": ROUND1 + ROUND2 + ROUND3}[which])
+    run({"round1": ROUND1, "round2": ROUND2, "round3": ROUND3, "round4": ROUND4,
+          "all": ROUND1 + ROUND2 + ROUND3 + ROUND4}[which])

@@ -1,0 +1,26 @@
+-- input.jira --
+a _b_ c
+
+(_x_)
+
+"*x*"
+
+a--b--c
+
+foo__bar__
+
+a-b -c- d
+-- want.md --
+a *b* c
+
+(*x*)
+
+"**x**"
+
+a-~~b~~-c
+
+foo\_*bar*\_
+
+a-b ~~c~~ d
+-- warnings.json --
+[]

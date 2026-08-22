@@ -304,8 +304,8 @@ func markPlainJiraEffectEscapes(ctx context.Context, value string, plain, escape
 			}
 			delimiter := value[offset]
 			if !escaped[offset] {
-				if _, ok := jiraInlineStyle(delimiter); ok && jiraDelimiterCanOpen(value, offset, span.End) {
-					close, err := findJiraStyleCloseIgnoring(ctx, value, offset+1, span.End, delimiter, escaped)
+				if _, ok := jiraInlineStyle(delimiter); ok && jiraEffectCanOpen(value, span.Start, offset, span.End) {
+					close, err := findJiraEffectClose(ctx, value, offset+1, span.End, delimiter, escaped)
 					if err != nil {
 						return false, err
 					}
@@ -329,28 +329,6 @@ func markPlainJiraEffectEscapes(ctx context.Context, value string, plain, escape
 		}
 	}
 	return changed, ctx.Err()
-}
-
-func findJiraStyleCloseIgnoring(ctx context.Context, source string, start, end int, delimiter byte, ignored []bool) (int, error) {
-	for index := start; index < end; index++ {
-		if (index-start)&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return -1, err
-			}
-		}
-		if source[index] == '\\' {
-			index++
-			continue
-		}
-		if ignored[index] {
-			continue
-		}
-		if source[index] == delimiter && index > start && !unicode.IsSpace(rune(source[index-1])) &&
-			(delimiter != '-' || index+1 >= end || !isWordByte(source[index+1])) {
-			return index, nil
-		}
-	}
-	return -1, ctx.Err()
 }
 
 func escapeJiraDelimitedValueWithContext(ctx context.Context, value, delimiters string) (string, error) {

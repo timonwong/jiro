@@ -180,7 +180,7 @@ The canonical mappings are:
 
 Formatting nesting follows source nesting order. Controlled HTML tags are case-insensitive on input and lowercase in canonical JFM. `<ins>`, `<sup>`, and `<sub>` accept no attributes. `<font>` accepts exactly one `color` attribute; the value is passed through to Jira as-is, so any color format Jira accepts (named colors, hex such as `#ff0000`) is valid. Malformed, unclosed, mismatched, or attribute-bearing controlled HTML uses literal fallback.
 
-JFM accepts `*` or `_` for emphasis and `**` or `__` for strong emphasis. Canonical output uses the spellings in the table above. A single span carrying both bold and italic uses `***...***`; distinct nested spans remain distinct and are not merged merely because delimiters touch. Jira effect delimiters must form a complete span. A hyphen cannot open a Jira strikethrough span between two ASCII alphanumeric characters, and a closing hyphen followed by an ASCII alphanumeric character does not close one. Ordinary hyphenated text such as `release-note` therefore remains text. JFM-to-Jira conversion escapes only those plain-text delimiters that would otherwise form a complete Jira effect span.
+JFM accepts `*` or `_` for emphasis and `**` or `__` for strong emphasis. Canonical output uses the spellings in the table above. A single span carrying both bold and italic uses `***...***`; distinct nested spans remain distinct and are not merged merely because delimiters touch. Jira effect delimiters must form a complete span, and every delimiter (`*`, `_`, `-`, `+`, `^`, and `~`) honors the same word boundaries. An opening delimiter must not follow a letter or digit of any script and must be followed by a character that is not ASCII whitespace; a closing delimiter must follow a character that is not ASCII whitespace and must not be followed by a letter or digit. Underscores, hyphens, and other punctuation are not letters or digits, so `foo_bar_baz`, `x*y* z`, `中*强*文`, and ordinary hyphenated text such as `release-note` all remain text. JFM-to-Jira conversion escapes only those plain-text delimiters that would otherwise form a complete Jira effect span.
 
 <!-- jfm-spec-example: jira-effect-token-boundaries; direction: jfm-to-jira -->
 Input:
@@ -207,6 +207,26 @@ this is also:\-deleted\-
 this is also&\-deleted\-
 
 this is also$\-deleted\-
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: jira-effect-word-boundaries; direction: jfm-to-jira -->
+Input:
+~~~jfm
+foo_bar_baz x\*y\* z 中\*强\*文
+
+(\_x\_) "\*x\*"
+~~~
+
+Output:
+~~~jira
+foo_bar_baz x*y* z 中*强*文
+
+(\_x\_) "\*x\*"
 ~~~
 
 Warnings:
