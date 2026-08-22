@@ -1,0 +1,26 @@
+-- input.md --
+foo_bar_baz
+
+x\*y\* z
+
+中\*强\*文
+
+\*x\*y
+
+a \_b\_c
+
+café_中_x
+-- want.jira --
+foo_bar_baz
+
+x*y* z
+
+中*强*文
+
+*x*y
+
+a _b_c
+
+café_中_x
+-- warnings.json --
+[]

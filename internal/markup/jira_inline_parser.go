@@ -4,7 +4,6 @@ import (
 	"context"
 	"html"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 )
 
@@ -24,7 +23,11 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 	// the same end and starts directly after an opener byte that is never a
 	// backslash, so escapedness of any candidate closer is identical for every
 	// scan start and a scan that found no closer cannot succeed from a later
-	// start. Do not reuse these helpers for scans over other strings or ranges.
+	// start. The Effect Delimiter gate preserves that property: it reads only
+	// the candidate's own neighbouring runes, which do not depend on the scan
+	// start, and its index > start bound only rejects more candidates as the
+	// start moves right. Do not reuse these helpers for scans over other
+	// strings or ranges.
 	var failedCloserScans map[string]int
 	findCloser := func(from int, delimiter string) (int, error) {
 		if failedFrom, ok := failedCloserScans[delimiter]; ok && from >= failedFrom {
@@ -44,7 +47,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 		if failedFrom, ok := failedStyleScans[delimiter]; ok && from >= failedFrom {
 			return -1, nil
 		}
-		close, err := findJiraStyleClose(ctx, source, from, end, delimiter)
+		close, err := findJiraEffectClose(ctx, source, from, end, delimiter, nil)
 		if err == nil && close < 0 {
 			if failedStyleScans == nil {
 				failedStyleScans = make(map[byte]int)
@@ -244,7 +247,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 			continue
 		}
 
-		if style, ok := jiraInlineStyle(source[offset]); ok && jiraDelimiterCanOpen(source, offset, end) {
+		if style, ok := jiraInlineStyle(source[offset]); ok && jiraEffectCanOpen(source, start, offset, end) {
 			close, err := findStyleCloser(offset+1, source[offset])
 			if err != nil {
 				return nil, nil, err
@@ -270,55 +273,6 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 		return nil, nil, err
 	}
 	return mergeAdjacentTextInlines(result), diagnostics, nil
-}
-
-func jiraInlineStyle(delimiter byte) (inlineStyle, bool) {
-	switch delimiter {
-	case '*':
-		return styleBold, true
-	case '_':
-		return styleItalic, true
-	case '-':
-		return styleStrike, true
-	case '+':
-		return styleInserted, true
-	case '^':
-		return styleSuper, true
-	case '~':
-		return styleSub, true
-	default:
-		return "", false
-	}
-}
-
-func jiraDelimiterCanOpen(source string, offset, end int) bool {
-	if offset+1 >= end || unicode.IsSpace(rune(source[offset+1])) {
-		return false
-	}
-	return source[offset] != '-' || offset == 0 || offset+1 >= end || !isWordByte(source[offset-1]) || !isWordByte(source[offset+1])
-}
-
-func findJiraStyleClose(ctx context.Context, source string, start, end int, delimiter byte) (int, error) {
-	for index := start; index < end; index++ {
-		if (index-start)&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return -1, err
-			}
-		}
-		if source[index] == '\\' {
-			index++
-			continue
-		}
-		if source[index] == delimiter && index > start && !unicode.IsSpace(rune(source[index-1])) &&
-			(delimiter != '-' || index+1 >= end || !isWordByte(source[index+1])) {
-			return index, nil
-		}
-	}
-	return -1, ctx.Err()
-}
-
-func isWordByte(value byte) bool {
-	return value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z' || value >= '0' && value <= '9'
 }
 
 func findUnescaped(ctx context.Context, source string, start, end int, delimiter string) (int, error) {
