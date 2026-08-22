@@ -22,6 +22,7 @@ const (
 	ConstructHeading             = "heading"
 	ConstructHTML                = "html"
 	ConstructImage               = "image"
+	ConstructInlineCode          = "inline-code"
 	ConstructJiraMacro           = "jira-macro"
 	ConstructLink                = "link"
 	ConstructList                = "list"

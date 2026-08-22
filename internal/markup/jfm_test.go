@@ -234,6 +234,16 @@ func TestToJFMObservesCancellationDuringLongStyleScan(t *testing.T) {
 	}
 }
 
+func TestToJFMObservesCancellationDuringLongMonospaceScan(t *testing.T) {
+	t.Parallel()
+	ctx := &cancelAfterChecksContext{}
+	ctx.remaining.Store(64)
+	result, err := markup.ToJFM(ctx, "{{"+strings.Repeat("a", 1<<20))
+	if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(result, markup.JFMResult{}) {
+		t.Fatalf("ToJFM() = %#v, %v; want zero result and context.Canceled", result, err)
+	}
+}
+
 func TestFromJFMObservesCancellationDuringLongDirectiveSerialization(t *testing.T) {
 	t.Parallel()
 	ctx := &cancelAfterChecksContext{}
