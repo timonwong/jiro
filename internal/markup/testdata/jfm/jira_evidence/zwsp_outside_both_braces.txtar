@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: Jira treats U+200B as a Monospace Span boundary; jiro drops the two boundary runes and keeps the inline code.
+-- input.jira --
+a​{{b}}​c
+-- rendered.html --
+<p>a​<tt>b</tt>​c</p>
+-- want.md --
+a`b`c
+-- warnings.json --
+[]

@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: A double hyphen at the start of the body has no preceding space, so Jira leaves it alone.
+-- input.jira --
+{{-- x}}
+-- rendered.html --
+<p><tt>-- x</tt></p>
+-- want.md --
+`-- x`
+-- warnings.json --
+[]

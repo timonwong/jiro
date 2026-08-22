@@ -8,7 +8,10 @@ Equivalent single-case curl:
     -H 'Content-Type: application/json' -H 'X-Atlassian-Token: no-check' \
     -d '{"rendererType":"atlassian-wiki-renderer","unrenderedMarkup":"{{*bold*}}"}'
 
-Usage: python3 hack/jira-render-evidence.py [round1|round2|round3|round4|all]   (default: all)
+Usage: python3 hack/jira-render-evidence.py [round1|...|round5|all] [--json]   (default: all)
+
+--json prints one {"in": ..., "out": ...} object per line so captures can be
+turned into evidence fixtures without reparsing the human-readable output.
 """
 import json, sys, time, urllib.request
 
@@ -115,6 +118,41 @@ ROUND4 = [
 ]
 
 
+# Probe strings backing internal/markup/testdata/jfm/jira_evidence fixtures that
+# ROUND1-4 do not already cover; every rendered.html in that directory must be
+# reproducible from this script.
+ROUND5 = [
+    # --- autolink scheme coverage and where a URL ends ---
+    "{{https://example.com/a_b*c-d}}", "{{http://example.com a}}",
+    "{{http://example.com.}}", "{{(http://example.com)}}",
+    "{{http://example.com,}}", "{{[http://example.com] x}}",
+    # --- emoticon tokens and gating not in _EMOTICONS ---
+    "{{(*g)}}", "{{(*b)}}", "{{(*y)}}", "{{(flagoff)}}", "{{(y)foo}}", "{{x(y)}}",
+    # --- dash substitution needs a space on both sides ---
+    "{{a--b}}", "{{a --b}}", "{{a-- b}}", "{{a --}}",
+    # --- U+200B inside the body and in prose ---
+    "{{a" + ZWSP + "b}}", "a" + ZWSP + "b",
+    "{{" + ZWSP + "a}}", "{{a" + ZWSP + "}}", "a" + ZWSP + "{{b" + ZWSP + "c}}",
+    # --- character reference token shapes ---
+    "{{&#x20;a}}", "{{&nbsp;a}}",
+    # --- an unknown macro name may carry spaces; citations gate like effects ---
+    "{{a {b c} d}}", "{{a??x??}}", "{{??x??b}}",
+    # --- which characters end an autolinked URL, and which are only trailing ---
+    '{{http://example.com"a}}', "{{http://example.com<a}}",
+    "{{http://example.com>a}}", "{{http://example.com|a}}",
+    "{{http://example.com`a}}", "{{http://example.com{a}}",
+    "{{http://example.com}a}}", "{{http://example.com[a}}",
+    "{{http://example.com]a}}", "{{http://example.com(a}}",
+    "{{http://example.com)a}}", "{{http://example.com;}}",
+    "{{http://example.com:}}", "{{http://example.com!}}",
+    "{{http://example.com?}}",
+    # --- which side of the Monospace Span boundary a word rune refuses ---
+    "x{{a}}", "{{a}}y",
+    # --- plain-text context anchors ---
+    "a@b.c", "http://example.com", "??cite??", "[x]",
+]
+
+
 def render(markup, timeout=30):
     body = json.dumps({"rendererType": "atlassian-wiki-renderer",
                        "unrenderedMarkup": markup}).encode()
@@ -126,7 +164,7 @@ def render(markup, timeout=30):
         return r.read().decode("utf-8", "replace").strip()
 
 
-def run(cases, delay=0.3):
+def run(cases, delay=0.3, as_json=False):
     seen = set()
     for m in cases:
         if m in seen:
@@ -136,13 +174,21 @@ def run(cases, delay=0.3):
             out = render(m)
         except Exception as e:
             out = "ERR " + repr(e)
-        print("IN : " + repr(m))
-        print("OUT: " + out)
-        print("-" * 66)
+        if as_json:
+            print(json.dumps({"in": m, "out": out}, ensure_ascii=False))
+        else:
+            print("IN : " + repr(m))
+            print("OUT: " + out)
+            print("-" * 66)
+        sys.stdout.flush()
         time.sleep(delay)
 
 
 if __name__ == "__main__":
-    which = sys.argv[1] if len(sys.argv) > 1 else "all"
+    arguments = sys.argv[1:]
+    as_json = "--json" in arguments
+    arguments = [a for a in arguments if a != "--json"]
+    which = arguments[0] if arguments else "all"
     run({"round1": ROUND1, "round2": ROUND2, "round3": ROUND3, "round4": ROUND4,
-          "all": ROUND1 + ROUND2 + ROUND3 + ROUND4}[which])
+          "round5": ROUND5,
+          "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5}[which], as_json=as_json)

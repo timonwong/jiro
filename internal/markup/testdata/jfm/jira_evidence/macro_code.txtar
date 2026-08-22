@@ -1,0 +1,14 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: Jira lifts the code macro out of the paragraph and leaves the braces literal; jiro closes the span at the first `}}` and keeps the rest literal, without a warning because macro consumption is outside the Text Effect, citation, link and text-changing autolink set this conversion reports.
+-- input.jira --
+{{{code}}}
+-- rendered.html --
+<p>{{</p>
+<div class="code panel" style="border-width: 1px;"><div class="codeContent panelContent">
+<pre class="code-java"></pre>
+</div></div>
+<p>}}</p>
+-- want.md --
+`{code`}
+-- warnings.json --
+[]

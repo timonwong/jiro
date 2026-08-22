@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: Jira autolinks the URL without changing its visible text, so jiro stays silent.
+-- input.jira --
+{{http://example.com/a_b*c-d}}
+-- rendered.html --
+<p><tt><a href="http://example.com/a_b*c-d" class="external-link" target="_blank" rel="nofollow noopener">http://example.com/a_b*c-d</a></tt></p>
+-- want.md --
+`http://example.com/a_b*c-d`
+-- warnings.json --
+[]

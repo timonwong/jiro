@@ -35,6 +35,19 @@ h1. Example
 []
 ```
 
+## Jira renderer evidence
+
+`internal/markup/testdata/jfm/jira_evidence` holds one observed Jira renderer behaviour per archive, in four sections: `input.jira`, `rendered.html`, `want.md`, and `warnings.json`. `rendered.html` is the verbatim response of the live renderer; the golden loader ignores it and it exists so a grammar rule can be traced to the render that justifies it.
+
+A two-line comment header precedes the sections:
+
+```text
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: one sentence on what Jira rendered and what jiro therefore does
+```
+
+`python3 hack/jira-render-evidence.py round5 --json` reproduces every `rendered.html` in the directory; add the probe there when adding an archive.
+
 ## JFM specification examples
 
 Normative examples in `docs/jiro-flavored-markdown.md` are executable conformance cases. Each example has a stable `jfm-spec-example` marker, a direction, and exact `Input`, `Output`, and `Warnings` fences. Keep examples focused on format rules visible to users; parser, renderer, API, and test-harness details do not belong in the specification.

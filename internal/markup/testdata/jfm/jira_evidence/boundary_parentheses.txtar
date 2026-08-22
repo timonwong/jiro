@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: Parentheses are not word runes, so the span forms between them.
+-- input.jira --
+({{a}})
+-- rendered.html --
+<p>(<tt>a</tt>)</p>
+-- want.md --
+(`a`)
+-- warnings.json --
+[]

@@ -19,6 +19,9 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 		result = append(result, textInline{Span: sourceSpan{Start: textStart, End: stop}, Text: value})
 	}
 
+	// A run without a `}}` anywhere after an opener has none after any later
+	// opener either, so one exhausted scan settles the rest of the run.
+	failedMonospaceScan := -1
 	// Failed closer scans are memoized per delimiter: every scan below shares
 	// the same end and starts directly after an opener byte that is never a
 	// backslash, so escapedness of any candidate closer is identical for every
@@ -27,7 +30,8 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 	// the candidate's own neighbouring runes, which do not depend on the scan
 	// start, and its index > start bound only rejects more candidates as the
 	// start moves right. Do not reuse these helpers for scans over other
-	// strings or ranges.
+	// strings or ranges; the Monospace Span closer in particular ignores
+	// backslash escapes and uses its own memo.
 	var failedCloserScans map[string]int
 	findCloser := func(from int, delimiter string) (int, error) {
 		if failedFrom, ok := failedCloserScans[delimiter]; ok && from >= failedFrom {
@@ -82,7 +86,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 					continue
 				}
 			}
-			if offset+1 < end && strings.ContainsRune(`\{}[]|!*_-+^~`, rune(source[offset+1])) {
+			if offset+1 < end && strings.ContainsRune(jiraEscapableCharacters, rune(source[offset+1])) {
 				flushText(offset)
 				result = append(result, textInline{Span: sourceSpan{Start: offset, End: offset + 2}, Text: source[offset+1 : offset+2]})
 				offset, textStart = offset+2, offset+2
@@ -90,14 +94,25 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 			}
 		}
 
-		if strings.HasPrefix(source[offset:end], "{{") {
-			close, err := findCloser(offset+2, "}}")
+		if strings.HasPrefix(source[offset:end], "{{") && (failedMonospaceScan < 0 || offset+2 < failedMonospaceScan) {
+			close, ok, err := jiraMonospaceSpanEnd(ctx, source, start, offset, end)
 			if err != nil {
 				return nil, nil, err
 			}
-			if close >= 0 {
-				flushText(offset)
-				body, err := decodeJiraDelimitedText(ctx, source[offset+2:close])
+			if close < 0 {
+				failedMonospaceScan = offset + 2
+			}
+			if ok {
+				raw := source[offset+2 : close]
+				// Jira reads U+200B as a Monospace Span boundary rather than as
+				// content, so a rune touching the outside of the braces is
+				// delimiter protection and never reaches the JFM output.
+				textEnd := offset
+				if strings.HasSuffix(source[textStart:offset], "\u200b") {
+					textEnd -= len("\u200b")
+				}
+				flushText(textEnd)
+				body, err := decodeJiraDelimitedText(ctx, raw)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -107,7 +122,20 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 					return nil, nil, err
 				}
 				result = append(result, codeInline{Span: sourceSpan{Start: offset, End: close + 2}, Text: body})
-				offset, textStart = close+2, close+2
+				// The hazard scan reads the undecoded body: character references
+				// and backslash escapes are what stop Jira from reinterpreting it.
+				reinterpreted, warned, err := jiraMonospaceReinterpretation(ctx, raw)
+				if err != nil {
+					return nil, nil, err
+				}
+				if warned {
+					diagnostics = append(diagnostics, conversionDiagnostic{offset: offset, warning: ConversionWarning{Construct: ConstructInlineCode, Reason: "Jira would render " + reinterpreted + " inside this Monospace Span; inline code keeps the characters literal"}})
+				}
+				next := close + 2
+				if strings.HasPrefix(source[next:end], "\u200b") {
+					next += len("\u200b")
+				}
+				offset, textStart = next, next
 				continue
 			}
 		}
@@ -502,3 +530,40 @@ func mergeAdjacentTextInlines(inlines []semanticInline) []semanticInline {
 }
 
 const legacyCodeSpanEscapedDelimiters = `{}[]|-*_`
+
+// jiraMonospaceReinterpretation names the first construct Jira would render
+// inside the undecoded Monospace Span body instead of showing its characters.
+// Emoticon, dash, macro and escape reinterpretations stay silent: they are Jira
+// misrendering code, not semantics jiro drops.
+func jiraMonospaceReinterpretation(ctx context.Context, body string) (string, bool, error) {
+	hazards, err := jiraInlineHazards(ctx, body, 0, len(body), jiraMonospaceContext, false)
+	if err != nil {
+		return "", false, err
+	}
+	for _, hazard := range hazards {
+		switch hazard.Kind {
+		case jiraHazardEffect:
+			return jiraEffectReinterpretations[hazard.Style], true, nil
+		case jiraHazardCitation:
+			return "a citation", true, nil
+		case jiraHazardLink:
+			if hazard.TextChanges {
+				return "a link", true, nil
+			}
+		case jiraHazardAutolink:
+			if hazard.TextChanges {
+				return "a mailto autolink with different text", true, nil
+			}
+		}
+	}
+	return "", false, nil
+}
+
+var jiraEffectReinterpretations = map[inlineStyle]string{
+	styleBold:     "a bold effect",
+	styleItalic:   "an italic effect",
+	styleStrike:   "a strikethrough effect",
+	styleInserted: "an inserted effect",
+	styleSuper:    "a superscript effect",
+	styleSub:      "a subscript effect",
+}

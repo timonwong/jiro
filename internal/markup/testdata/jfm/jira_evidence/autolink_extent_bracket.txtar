@@ -1,0 +1,17 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: Brackets around the URL make it a link rather than an autolink, and Jira drops them, so jiro warns.
+-- input.jira --
+{{[http://example.com] x}}
+-- rendered.html --
+<p><tt><a href="http://example.com" class="external-link" target="_blank" rel="nofollow noopener">http://example.com</a> x</tt></p>
+-- want.md --
+`[http://example.com] x`
+-- warnings.json --
+[
+ {
+  "Line": 1,
+  "Column": 1,
+  "Construct": "inline-code",
+  "Reason": "Jira would render a link inside this Monospace Span; inline code keeps the characters literal"
+ }
+]

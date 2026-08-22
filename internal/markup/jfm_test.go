@@ -21,10 +21,55 @@ import (
 
 func TestToJFMGolden(t *testing.T) {
 	t.Parallel()
-	runJFMGoldens(t, "testdata/jfm/to_jfm", "input.jira", "want.md", func(ctx context.Context, input string) (string, []markup.ConversionWarning, error) {
+	convert := func(ctx context.Context, input string) (string, []markup.ConversionWarning, error) {
 		result, err := markup.ToJFM(ctx, input)
 		return result.Markdown, result.Warnings, err
-	})
+	}
+	runJFMGoldens(t, "testdata/jfm/to_jfm", "input.jira", "want.md", convert)
+	runJFMGoldens(t, "testdata/jfm/jira_evidence", "input.jira", "want.md", convert)
+}
+
+// TestJiraEvidenceFixturesAreComplete guards the contract that makes the
+// jira_evidence directory usable as grammar evidence: every archive names the
+// renderer it was captured from and carries the verbatim response that justifies
+// its expectation.
+func TestJiraEvidenceFixturesAreComplete(t *testing.T) {
+	t.Parallel()
+	const directory = "testdata/jfm/jira_evidence"
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("no Jira renderer evidence fixtures")
+	}
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) != ".txtar" {
+			t.Fatalf("unexpected non-archive entry %q", entry.Name())
+		}
+		t.Run(strings.TrimSuffix(entry.Name(), ".txtar"), func(t *testing.T) {
+			t.Parallel()
+			archive, err := txtar.ParseFile(filepath.Join(directory, entry.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.HasPrefix(string(archive.Comment), "source:") {
+				t.Fatalf("comment header = %q, want a source: line naming the renderer", archive.Comment)
+			}
+			if !strings.Contains(string(archive.Comment), "\nobserved:") {
+				t.Fatalf("comment header = %q, want an observed: line", archive.Comment)
+			}
+			sections := map[string][]byte{}
+			for _, file := range archive.Files {
+				sections[file.Name] = file.Data
+			}
+			for _, required := range []string{"input.jira", "rendered.html", "want.md", "warnings.json"} {
+				if len(sections[required]) == 0 {
+					t.Fatalf("section %q is missing or empty", required)
+				}
+			}
+		})
+	}
 }
 
 func TestFromJFMGolden(t *testing.T) {
@@ -184,6 +229,16 @@ func TestToJFMObservesCancellationDuringLongStyleScan(t *testing.T) {
 	ctx := &cancelAfterChecksContext{}
 	ctx.remaining.Store(64)
 	result, err := markup.ToJFM(ctx, "*"+strings.Repeat("a", 1<<20)+"*")
+	if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(result, markup.JFMResult{}) {
+		t.Fatalf("ToJFM() = %#v, %v; want zero result and context.Canceled", result, err)
+	}
+}
+
+func TestToJFMObservesCancellationDuringLongMonospaceScan(t *testing.T) {
+	t.Parallel()
+	ctx := &cancelAfterChecksContext{}
+	ctx.remaining.Store(64)
+	result, err := markup.ToJFM(ctx, "{{"+strings.Repeat("a", 1<<20))
 	if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(result, markup.JFMResult{}) {
 		t.Fatalf("ToJFM() = %#v, %v; want zero result and context.Canceled", result, err)
 	}

@@ -1,0 +1,12 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: Jira lifts even an unknown macro whose name carries a space out of the paragraph and refuses the span; jiro keeps the braces in the code body, without a warning because macro consumption is outside the Text Effect, citation, link and text-changing autolink set this conversion reports.
+-- input.jira --
+{{a {b c} d}}
+-- rendered.html --
+<p>{{a </p>
+{b c}
+<p> d}}</p>
+-- want.md --
+`a {b c} d`
+-- warnings.json --
+[]

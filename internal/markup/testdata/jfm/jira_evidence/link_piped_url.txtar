@@ -1,0 +1,17 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: Jira turns the piped link into an anchor showing only the label, so jiro warns.
+-- input.jira --
+{{[x|http://example.com]}}
+-- rendered.html --
+<p><tt><a href="http://example.com" class="external-link" target="_blank" rel="nofollow noopener">x</a></tt></p>
+-- want.md --
+`[x|http://example.com]`
+-- warnings.json --
+[
+ {
+  "Line": 1,
+  "Column": 1,
+  "Construct": "inline-code",
+  "Reason": "Jira would render a link inside this Monospace Span; inline code keeps the characters literal"
+ }
+]

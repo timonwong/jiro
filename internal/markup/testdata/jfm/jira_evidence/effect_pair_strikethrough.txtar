@@ -1,0 +1,17 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: Jira renders the space-separated strikethrough pair inside the Monospace Span; jiro keeps the delimiters literal and warns.
+-- input.jira --
+{{a -b- c}}
+-- rendered.html --
+<p><tt>a <del>b</del> c</tt></p>
+-- want.md --
+`a -b- c`
+-- warnings.json --
+[
+ {
+  "Line": 1,
+  "Column": 1,
+  "Construct": "inline-code",
+  "Reason": "Jira would render a strikethrough effect inside this Monospace Span; inline code keeps the characters literal"
+ }
+]
