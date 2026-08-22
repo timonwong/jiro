@@ -22,7 +22,8 @@ var codeLanguageAliases = map[string]string{
 }
 
 const legacyCodeSpanEscapedDelimiters = `{}[]|-*_`
-const jiraCodeSpanEntityEscapedCharacters = `&<>\{}[]|!*?_-+^~:`
+const jiraCodeSpanEntityEscapedCharacters = `{}|!?:`
+const jiraCodeSpanEffectDelimiters = `*_-+^~`
 
 func decodedMarkdownText(value []byte, raw bool) []byte {
 	if raw {
@@ -66,9 +67,15 @@ func jiraLineControlPrefixLength(value string) int {
 }
 
 func escapeCodeSpan(value string) string {
+	if isCompleteJFMURL(value) || isSimpleJiraLinkText(value) {
+		return value
+	}
+	runes := []rune(value)
+	effectEscaped := markCodeSpanEffectEscapes(runes)
 	var result strings.Builder
-	for _, character := range value {
-		if strings.ContainsRune(jiraCodeSpanEntityEscapedCharacters, character) {
+	for index, character := range runes {
+		if strings.ContainsRune(jiraCodeSpanEntityEscapedCharacters, character) ||
+			(effectEscaped[index] && strings.ContainsRune(jiraCodeSpanEffectDelimiters, character)) {
 			result.WriteString("&#")
 			result.WriteString(strconv.FormatInt(int64(character), 10))
 			result.WriteByte(';')
@@ -77,6 +84,53 @@ func escapeCodeSpan(value string) string {
 		result.WriteRune(character)
 	}
 	return result.String()
+}
+
+func isCompleteJFMURL(value string) bool {
+	return jfmAutolinkURLRegexp.FindString(value) == value
+}
+
+func isSimpleJiraLinkText(value string) bool {
+	runes := []rune(value)
+	return len(runes) >= 2 && runes[0] == '[' && runes[len(runes)-1] == ']' && !strings.ContainsRune(value, '|')
+}
+
+func markCodeSpanEffectEscapes(runes []rune) []bool {
+	escaped := make([]bool, len(runes))
+	for open, delimiter := range runes {
+		if !strings.ContainsRune(jiraCodeSpanEffectDelimiters, delimiter) || !codeSpanDelimiterCanOpen(runes, open) {
+			continue
+		}
+		for close := open + 1; close < len(runes); close++ {
+			if runes[close] != delimiter || !codeSpanDelimiterCanClose(runes, close) {
+				continue
+			}
+			escaped[open], escaped[close] = true, true
+			break
+		}
+	}
+	return escaped
+}
+
+func codeSpanDelimiterCanOpen(runes []rune, index int) bool {
+	if index+1 >= len(runes) || unicode.IsSpace(runes[index+1]) {
+		return false
+	}
+	if runes[index] == '-' || runes[index] == '_' {
+		return index == 0 || !isCodeSpanWordRune(runes[index-1]) || !isCodeSpanWordRune(runes[index+1])
+	}
+	return true
+}
+
+func codeSpanDelimiterCanClose(runes []rune, index int) bool {
+	if index == 0 || unicode.IsSpace(runes[index-1]) {
+		return false
+	}
+	return runes[index] != '-' || index+1 >= len(runes) || !isCodeSpanWordRune(runes[index+1])
+}
+
+func isCodeSpanWordRune(value rune) bool {
+	return unicode.IsLetter(value) || unicode.IsDigit(value)
 }
 
 func combinedBoldItalic(inline styledInline) ([]semanticInline, bool) {

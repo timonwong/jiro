@@ -9,7 +9,7 @@ https://example.com/a-b
 -- want.jira --
 Visit [https://example.com/a(b)c)].
 
-Inside {{https&#58;//example.com/a&#45;b}} and:
+Inside {{https://example.com/a-b}} and:
 
 {noformat}
 https://example.com/a-b

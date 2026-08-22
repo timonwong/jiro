@@ -1,6 +1,6 @@
 -- input.jira --
-{{&#38;amp; &#60;tag&#62; x&#92;&#45;y}}
+{{&amp; <tag> x\-y}}
 -- want.md --
-`&amp; <tag> x\-y`
+`& <tag> x-y`
 -- warnings.json --
 []

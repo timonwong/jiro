@@ -7,6 +7,7 @@ For a Jira mutation, use this branch together with the core `inspect -> prefligh
 ## Select the contract
 
 - Jira Markup is the byte-preserving default for Description and Comment Body input.
+- Typed Issue and Comment reads expose Jira Markup. When reusing that text, omit `--input-format` or pass `--input-format=jira`; do not send it through JFM conversion.
 - Use the canonical `--input-format=jfm` value for JFM. `markdown` is a permanent, warning-free compatibility alias, but generate new commands with `jfm`.
 - Use `--input-format` only where the current schema and command help expose it: Issue creation, Issue update, Comment creation, and the inline transition comment on `issue move`. Custom fields retain their declared Jira value contract.
 - Treat Jira Markup as the only typed Issue and Comment read representation; the current contract has no JFM projection flags or sibling fields such as `--jfm`, `descriptionJfm`, or `bodyJfm`.
@@ -27,6 +28,8 @@ jiro issue move OPS-42 --to Done --comment "**Verified** in staging." \
 Keep inline and file inputs mutually exclusive. Use `-` as the file value to read long input from stdin. `issue move --comment` is inline-only, and an explicitly supplied `--input-format` without `--comment` is invalid.
 
 JFM conversion is best-effort. Conversion warnings retain every target-representable semantic, keep the mutation successful, and use code `jfm_conversion`. In JSON output, inspect `warnings[].details.direction`, `field`, `line`, `column`, `construct`, and `reason`; in text output, preserve stderr alongside the successful result. A fatal conversion failure stops before the Jira write and returns no successful mutation result.
+
+JFM inline code follows Jira renderer behavior rather than treating `{{...}}` as an opaque literal container. Canonical output keeps complete HTTP(S) URLs, simple bracketed literal text, identifier-internal `-` and `_`, literal `&<>`, and Jira backslash escapes readable, while protecting effect spans and Jira structure characters that would be reinterpreted. Jira-specific rendering behavior around a `}}` boundary is not by itself a `jfm_conversion` warning.
 
 ## Convert documents offline
 
