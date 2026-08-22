@@ -68,6 +68,22 @@ _Avoid_: Jira Markdown, wiki Markdown
 jiro's sole Markdown-based format for representing Jira Markup bidirectionally, including jiro-owned extensions for Jira-specific semantics. Warning-free constructs round-trip canonically; recognized lossy constructs retain every target-representable semantic and report discarded information separately.
 _Avoid_: Markdown Input, Markdown Projection, Jira Flavored Markdown, Jira export
 
+**Canonical Jira Markup**:
+The single Jira Markup form jiro produces for a given Jiro Flavored Markdown document. It is jiro's output, not a stable representation of what a Jira Instance stores.
+_Avoid_: Escaped markup, wire format
+
+**Text Effect**:
+An inline style that Jira Markup expresses with a matched pair of effect delimiters, such as bold, italic, strikethrough, inserted, superscript, subscript, and citation.
+_Avoid_: Style, formatting, emphasis
+
+**Effect Delimiter**:
+A character that opens or closes one Text Effect when Jira's word-boundary rules allow it; the same character elsewhere is literal text.
+_Avoid_: Special character, markup character
+
+**Monospace Span**:
+The Jira Markup inline construct written as `{{...}}`. It corresponds one-to-one with Jiro Flavored Markdown inline code, but Jira still applies Text Effects, links, and other inline rules inside it.
+_Avoid_: Code span, inline code (when referring to the Jira side)
+
 **Board**:
 A Jira Software planning view whose Sprint endpoint defines one queryable relationship between that Board and each returned Sprint.
 _Avoid_: Project, Sprint container
