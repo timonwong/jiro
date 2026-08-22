@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: CJK characters count as word runes, so they refuse the Monospace Span like ASCII letters.
+-- input.jira --
+中{{a}}文
+-- rendered.html --
+<p>中{{a}}文</p>
+-- want.md --
+中{{a}}文
+-- warnings.json --
+[]

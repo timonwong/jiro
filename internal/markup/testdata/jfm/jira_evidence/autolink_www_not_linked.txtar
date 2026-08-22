@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: Jira does not autolink a scheme-less www host, so jiro stays silent.
+-- input.jira --
+{{www.example.com}}
+-- rendered.html --
+<p><tt>www.example.com</tt></p>
+-- want.md --
+`www.example.com`
+-- warnings.json --
+[]

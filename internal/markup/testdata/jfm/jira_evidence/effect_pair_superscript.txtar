@@ -1,0 +1,17 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: Jira renders the superscript pair inside the Monospace Span; jiro keeps the delimiters literal and warns.
+-- input.jira --
+{{^sup^}}
+-- rendered.html --
+<p><tt><sup>sup</sup></tt></p>
+-- want.md --
+`^sup^`
+-- warnings.json --
+[
+ {
+  "Line": 1,
+  "Column": 1,
+  "Construct": "inline-code",
+  "Reason": "Jira would render a superscript effect inside this Monospace Span; inline code keeps the characters literal"
+ }
+]

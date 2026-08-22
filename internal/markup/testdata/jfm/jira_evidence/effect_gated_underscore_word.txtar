@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: A word rune before the delimiter blocks the pair, so Jira renders the underscores literally and jiro stays silent.
+-- input.jira --
+{{foo_bar_baz}}
+-- rendered.html --
+<p><tt>foo_bar_baz</tt></p>
+-- want.md --
+`foo_bar_baz`
+-- warnings.json --
+[]

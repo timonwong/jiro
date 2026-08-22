@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: An apostrophe is not a word rune, so the span still closes before it.
+-- input.jira --
+{{a}}'s
+-- rendered.html --
+<p><tt>a</tt>'s</p>
+-- want.md --
+`a`'s
+-- warnings.json --
+[]

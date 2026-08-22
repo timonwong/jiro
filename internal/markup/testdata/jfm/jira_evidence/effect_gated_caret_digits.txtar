@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: A digit before the caret blocks the superscript pair, so Jira renders it literally and jiro stays silent.
+-- input.jira --
+{{2^10}}
+-- rendered.html --
+<p><tt>2^10</tt></p>
+-- want.md --
+`2^10`
+-- warnings.json --
+[]

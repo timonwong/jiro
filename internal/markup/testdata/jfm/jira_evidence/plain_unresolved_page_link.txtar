@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
+observed: Jira shows an unresolvable page link as an error span; jiro parses the Jira link and emits a reversible link directive.
+-- input.jira --
+[x]
+-- rendered.html --
+<p><span class="error">&#91;x&#93;</span></p>
+-- want.md --
+:link[x]{target="x"}
+-- warnings.json --
+[]
