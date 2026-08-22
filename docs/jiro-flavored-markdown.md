@@ -1,6 +1,6 @@
 # Jiro Flavored Markdown Specification
 
-JFM (Jiro Flavored Markdown) is a Markdown dialect that converts bidirectionally with Jira Markup. Write Issue descriptions and comments in Markdown; jiro converts them to Jira Markup for Jira storage. Read Jira content back as Markdown for local editing.
+JFM (Jiro Flavored Markdown) is a Markdown dialect that converts bidirectionally with Jira Markup. Author new Issue descriptions and comments in JFM; jiro converts them to Jira Markup for Jira storage. Typed Issue and Comment reads remain Jira Markup; use `jiro jfm from-jira` explicitly when a JFM document is needed for local editing.
 
 ## 1. Status and conformance
 
@@ -214,7 +214,7 @@ Warnings:
 []
 ~~~
 
-Inline code uses a delimiter one backtick longer than the longest backtick run in its body, with a minimum length of one. Only CommonMark-required padding spaces may be added. Literal body content is otherwise preserved. Canonical Jira Markup encodes the Jira-active characters `&<>\{}[]|!*?_-+^~:` in an inline-code body as decimal character references. This prevents Jira from applying formatting, character references, automatic links, embedded objects, or a premature `}}` close while leaving unrelated punctuation readable. Jira-to-JFM conversion resolves character references once. Legacy Jira backslash escapes remain accepted, and delimiter-protection U+200B characters are removed only when they match the legacy inline-code safety patterns; unrelated U+200B characters remain content.
+Inline code uses a delimiter one backtick longer than the longest backtick run in its body, with a minimum length of one. Only CommonMark-required padding spaces may be added. Literal body content is otherwise preserved. Jira's `{{...}}` container is not an opaque literal boundary, so canonical Jira Markup uses the smallest escaping set validated against Jira's renderer: complete HTTP(S) URL bodies, simple bracketed literal text such as `[x]`, identifier-internal `-` and `_`, literal `&<>`, and Jira backslash escapes remain readable; effect delimiter spans and Jira-active structure characters that would be reinterpreted are encoded as decimal character references. `}}` is protected in the wire representation, but Jira's own close-boundary behavior remains renderer-specific and is not reported as a conversion warning. Jira-to-JFM conversion resolves character references once. Legacy Jira backslash escapes remain accepted, and delimiter-protection U+200B characters are removed only when they match the legacy inline-code safety patterns; unrelated U+200B characters remain content.
 
 <!-- jfm-spec-example: inline-code-literal-punctuation; direction: jfm-to-jira -->
 Input:
@@ -224,7 +224,23 @@ Input:
 
 Output:
 ~~~jira
-{{https&#58;//registry&#45;mirror.alauda.io&#58;60070/v2/ &#45;literal&#45;}}
+{{https&#58;//registry-mirror.alauda.io&#58;60070/v2/ &#45;literal&#45;}}
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: inline-code-readable-identifiers; direction: jfm-to-jira -->
+Input:
+~~~jfm
+`cluster-cert-rotator` `foo_bar_baz` `[x]`
+~~~
+
+Output:
+~~~jira
+{{cluster-cert-rotator}} {{foo_bar_baz}} {{[x]}}
 ~~~
 
 Warnings:

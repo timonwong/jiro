@@ -1,0 +1,6 @@
+-- input.md --
+`cluster-cert-rotator` `foo_bar_baz` `foo_中文_baz` `[x]`
+-- want.jira --
+{{cluster-cert-rotator}} {{foo_bar_baz}} {{foo_中文_baz}} {{[x]}}
+-- warnings.json --
+[]
