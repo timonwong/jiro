@@ -26,7 +26,7 @@ Load each conditional branch before using it:
 - For a single or bulk Issue Type change, read [Issue Type changes](references/issue-types.md).
 - For `issue clone SOURCE`, read [Issue Clone workflow](references/issue-clone.md) before mutation.
 - For Board or Sprint discovery, or any `--sprint` selector, read [Boards and Sprints](references/agile.md).
-- For JFM authoring, conversion, mutation input, or `jfm_conversion` warnings, read [JFM workflows](references/jfm.md). Standalone `jiro jfm` conversion is offline and skips the Jira mutation loop.
+- For JFM authoring, conversion, mutation input, reuse of typed Issue or Comment text, or `jfm_conversion` warnings, read [JFM workflows](references/jfm.md). Standalone `jiro jfm` conversion is offline and skips the Jira mutation loop.
 - For any `issue bulk` operation, read [Bulk workflows](references/bulk.md) before dry-run.
 - When the required operation is unavailable in typed commands (confirmed by `schema` and `--help`), read [REST API fallback](references/rest-api-fallback.md).
 
@@ -61,6 +61,9 @@ Resolve Jira-owned names and write semantics before mutating:
 - For `issue move --resolution`, use a resolution name, numeric ID, or `none` to clear. Use dedicated flags rather than passing system fields through `--field`.
 - Treat `--component` and `--fix-version` updates as full replacements. Use the single value `none` only for an empty final field.
 
+Preflight is complete when the exact Jira Instance, target Issues, current values,
+Jira-owned selectors, and final payload are resolved with no remaining ambiguity.
+
 ## Mutate
 
 Use only the operation and fields requested. Carry an explicitly selected `--profile` through inspection, mutation, and readback.
@@ -75,6 +78,10 @@ jiro issue link add OPS-42 --to OPS-99 --type Blocks --output=json
 
 Preserve partial results. A failed follow-up operation can leave a newly created Issue or ordinary update fields in Jira; retain the returned Issue Key and every confirmed update when reporting the failure.
 
+Mutation is complete when the command has returned a normalized result recording
+every succeeded, failed, unknown, and unattempted operation; Jira readback still
+determines whether the requested final state was achieved.
+
 ## Read back
 
 Read every consequential result through jiro after the write:
@@ -82,7 +89,10 @@ Read every consequential result through jiro after the write:
 - Use `issue show` for creation, field updates, transitions, and assignments.
 - Use `issue comment list` for Comments and `issue link list` for Issue Link changes.
 
-A zero exit code is not the completion criterion. A missing value, unintended destination status, unresolved partial result, or unavailable readback means the work is incomplete or its final state is unknown.
+Complete readback only when every requested change is visible with its requested
+final value and every consequential resource has been checked. A missing value,
+unintended destination status, unresolved partial result, or unavailable readback
+keeps the work incomplete or its final state unknown.
 
 ## Interpret output and failures
 

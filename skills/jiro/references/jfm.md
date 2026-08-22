@@ -6,8 +6,8 @@ For a Jira mutation, use this branch together with the core `inspect -> prefligh
 
 ## Select the contract
 
-- Jira Markup is the byte-preserving default for Description and Comment Body input.
-- Typed Issue and Comment reads expose Jira Markup. When reusing that text, omit `--input-format` or pass `--input-format=jira`; do not send it through JFM conversion.
+- Jira Markup is the default Description and Comment Body input contract; `--input-format=jira` passes supplied Jira Markup through unchanged to the Jira REST payload.
+- Typed Issue and Comment reads expose Jira Markup. Reuse that text as Jira Markup with an omitted `--input-format` or `--input-format=jira`; reserve `--input-format=jfm` for newly authored Markdown.
 - Use the canonical `--input-format=jfm` value for JFM. `markdown` is a permanent, warning-free compatibility alias, but generate new commands with `jfm`.
 - Use `--input-format` only where the current schema and command help expose it: Issue creation, Issue update, Comment creation, and the inline transition comment on `issue move`. Custom fields retain their declared Jira value contract.
 - Treat Jira Markup as the only typed Issue and Comment read representation; the current contract has no JFM projection flags or sibling fields such as `--jfm`, `descriptionJfm`, or `bodyJfm`.

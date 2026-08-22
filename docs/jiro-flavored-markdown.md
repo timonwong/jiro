@@ -1,6 +1,6 @@
 # Jiro Flavored Markdown Specification
 
-JFM (Jiro Flavored Markdown) is a Markdown dialect that converts bidirectionally with Jira Markup. Write Issue descriptions and comments in Markdown; jiro converts them to Jira Markup for Jira storage. Read Jira content back as Markdown for local editing.
+JFM (Jiro Flavored Markdown) is a Markdown dialect that converts bidirectionally with Jira Markup. Author new Issue descriptions and comments in JFM; jiro converts them to Jira Markup for Jira storage. Typed Issue and Comment reads remain Jira Markup; use `jiro jfm from-jira` explicitly when a JFM document is needed for local editing.
 
 ## 1. Status and conformance
 
