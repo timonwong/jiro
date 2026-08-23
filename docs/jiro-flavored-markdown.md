@@ -319,7 +319,7 @@ Warnings:
 []
 ~~~
 
-Inline code uses a delimiter one backtick longer than the longest backtick run in its body, with a minimum length of one. Only CommonMark-required padding spaces may be added. Literal body content is otherwise preserved. Jira's `{{...}}` container is not an opaque literal boundary, so canonical Jira Markup encodes a body character as a decimal character reference exactly when Jira would otherwise read it as markup, and leaves it readable otherwise. Encoded are `{`, `}`, and `\`; an `&` that begins a character reference, which Jira would decode; a complete Text Effect or `??citation??` pair; a `[...]` link whose visible text Jira would change; an emoticon token; a space-surrounded `--` or `---`; a tab; a space at either end of the body; and a `|` when the inline code sits in a table cell. Readable are a lone `&`, `<`, `>`, `!`, a `|` outside a table cell, identifier-internal `-` and `_`, an Effect Delimiter that no word boundary lets pair, bracketed literal text such as `[x]`, and complete `http`, `https`, `ftp`, and `mailto` URLs. Inline code adjacent to a word character is separated from it with U+200B, and so is inline code adjacent to an authored U+200B, which conversion back to JFM would otherwise consume. Where a body cannot be protected, it is emitted as plain text with a conversion warning rather than silently changed. Jira-to-JFM conversion resolves character references once and consumes a backslash before any character Jira consumes one before, so `{{a\?b}}` reads back as `` `a?b` `` while `{{a\.b}}` keeps both characters. Delimiter-protection U+200B characters are removed only when they touch the outside of `{{` or `}}`; unrelated U+200B characters remain content.
+Inline code uses a delimiter one backtick longer than the longest backtick run in its body, with a minimum length of one. Only CommonMark-required padding spaces may be added. Literal body content is otherwise preserved. Jira's Monospace Span is not an opaque literal container: Jira still applies Text Effects, links, autolinks, emoticons, dash substitution, and backslash escapes inside `{{...}}`, and refuses a span whose braces touch a word character. Canonical Jira Markup therefore keeps a body readable wherever Jira would leave it alone — identifiers, word-attached or unpaired Effect Delimiters, bracketed literal text, and complete URLs, which stay visible and may become clickable — and protects with decimal character references exactly what Jira would otherwise reinterpret or swallow: a complete Text Effect or citation pair, braces and backslashes, text Jira would decode as a character reference, a link shape whose visible text would change, an emoticon token, a space-surrounded `--` or `---`, a tab or an edge space, and a `|` that would split a table cell. Inline code adjacent to a word character, or to an authored U+200B, is separated from it with U+200B; that separator is the only U+200B Canonical Jira Markup emits around a Monospace Span, and a U+200B inside the body is encoded. Warning-free inline code is byte-lossless: its body survives JFM → Jira Markup → JFM unchanged, a stricter promise than the stabilization rule in §3. A body that cannot be proven safe is emitted as plain text with an `inline-code` warning rather than changed in silence. Jira-to-JFM conversion maps every Monospace Span to inline code and keeps the body literal, resolving character references once and consuming a backslash exactly where Jira consumes one, so `{{a\?b}}` reads back as `` `a?b` `` while `{{a\.b}}` keeps both characters. When Jira would have rendered a Text Effect, citation, or link inside the span, conversion reports an `inline-code` warning naming that construct; emoticon and dash reinterpretations are not reported, because they are Jira misrendering code rather than a semantic the conversion drops. A U+200B touching the outside of `{{` or `}}` is removed; any other U+200B remains content.
 
 <!-- jfm-spec-example: inline-code-literal-punctuation; direction: jfm-to-jira -->
 Input:
@@ -351,6 +351,90 @@ Output:
 Warnings:
 ~~~json
 []
+~~~
+
+<!-- jfm-spec-example: inline-code-readable-url-and-delimiters; direction: jfm-to-jira -->
+Input:
+~~~jfm
+`https://registry.example.io:60070/v2/` `2^10` `a--b`
+~~~
+
+Output:
+~~~jira
+{{https://registry.example.io:60070/v2/}} {{2^10}} {{a--b}}
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: inline-code-effect-pair; direction: jfm-to-jira -->
+Input:
+~~~jfm
+`*bold*` `x*y*z`
+~~~
+
+Output:
+~~~jira
+{{&#42;bold&#42;}} {{x*y*z}}
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: inline-code-emoticon-and-dash; direction: jfm-to-jira -->
+Input:
+~~~jfm
+`f(x)` `cmd -- arg`
+~~~
+
+Output:
+~~~jira
+{{f&#40;x)}} {{cmd &#45;- arg}}
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: inline-code-adjacency-separator; direction: jfm-to-jira -->
+Input:
+~~~jfm
+a`b`c
+~~~
+
+Output:
+~~~jira
+a​{{b}}​c
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+The Output above contains U+200B on each side of the Monospace Span.
+
+<!-- jfm-spec-example: inline-code-jira-effect-warning; direction: jira-to-jfm -->
+Input:
+~~~jira
+{{*bold*}}
+~~~
+
+Output:
+~~~jfm
+`*bold*`
+~~~
+
+Warnings:
+~~~json
+[
+  {"Line":1,"Column":1,"Construct":"inline-code","Reason":"Jira would render a bold effect inside this Monospace Span; inline code keeps the characters literal"}
+]
 ~~~
 
 <!-- jfm-spec-example: inline-formatting; direction: jfm-to-jira -->
