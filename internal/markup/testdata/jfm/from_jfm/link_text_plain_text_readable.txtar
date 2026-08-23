@@ -1,0 +1,6 @@
+-- input.md --
+[foo_bar_baz café_中_x](http://x) [x\*y\*z a--b 中\*强\*文](http://x)
+-- want.jira --
+[foo_bar_baz café_中_x|http://x] [x*y*z a--b 中*强*文|http://x]
+-- warnings.json --
+[]

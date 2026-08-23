@@ -1,0 +1,8 @@
+-- input.md --
+- foo_bar_baz café_中_x
+- x\*y\*z a--b 中\*强\*文
+-- want.jira --
+* foo_bar_baz café_中_x
+* x*y*z a--b 中*强*文
+-- warnings.json --
+[]
