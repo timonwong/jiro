@@ -152,24 +152,21 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 				if err != nil {
 					return nil, nil, err
 				}
-				labelText, target, unnamed := body, body, true
+				labelEnd, target, unnamed := close, body, true
 				if separator >= 0 {
-					labelText, target, unnamed = body[:separator], body[separator+1:], false
-				}
-				labelText, err = decodeJiraDelimitedText(ctx, labelText)
-				if err != nil {
-					return nil, nil, err
+					labelEnd, target, unnamed = offset+1+separator, body[separator+1:], false
 				}
 				target, err = decodeJiraDelimitedText(ctx, target)
 				if err != nil {
 					return nil, nil, err
 				}
-				label, nestedDiagnostics, err := parseJiraInlines(ctx, labelText, 0, len(labelText))
+				// The label is parsed from the source rather than from a decoded
+				// copy: Jira shows an escaped delimiter in link text as the
+				// character, so decoding first would let `[a \-b\- c|url]` read
+				// back as a strikethrough Jira never renders.
+				label, nestedDiagnostics, err := parseJiraInlines(ctx, source, offset+1, labelEnd)
 				if err != nil {
 					return nil, nil, err
-				}
-				for labelIndex, child := range label {
-					label[labelIndex] = shiftSemanticInline(child, offset+1)
 				}
 				diagnostics = append(diagnostics, nestedDiagnostics...)
 				_, dangerous := dangerousDestinationScheme([]byte(strings.TrimLeftFunc(target, unicodeSpaceOrControl)))

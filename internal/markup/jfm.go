@@ -26,6 +26,7 @@ const (
 	ConstructJiraMacro           = "jira-macro"
 	ConstructLink                = "link"
 	ConstructList                = "list"
+	ConstructPlainText           = "plain-text"
 	ConstructReferenceDefinition = "reference-definition"
 	ConstructTable               = "table"
 	ConstructUTF8                = "utf-8"

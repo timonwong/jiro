@@ -154,6 +154,71 @@ func findJiraEffectClose(ctx context.Context, source string, start, end int, del
 	return -1, -1, ctx.Err()
 }
 
+// jiraEffectPair is one complete Text Effect or citation, as the half-open
+// ranges of its two delimiter tokens.
+type jiraEffectPair struct {
+	OpenStart  int
+	OpenEnd    int
+	CloseStart int
+	CloseEnd   int
+}
+
+// forEachJiraEffectPair visits every complete Text Effect and citation pair in
+// source[start:end], descending into each pair's content the way the Jira parser
+// does so that a nested pair is scanned in its own range. It is the plain-text
+// escaper's whole decision: a delimiter this walk does not report is one Jira
+// shows as a character, and escaping it would only add noise.
+func forEachJiraEffectPair(ctx context.Context, source string, start, end int, visit func(jiraEffectPair)) error {
+	ranges := []sourceSpan{{Start: start, End: end}}
+	for len(ranges) != 0 {
+		span := ranges[len(ranges)-1]
+		ranges = ranges[:len(ranges)-1]
+		for offset := span.Start; offset < span.End; {
+			if (offset-span.Start)&255 == 0 {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+			}
+			if source[offset] == '\\' && offset+1 < span.End && strings.ContainsRune(jiraEscapableCharacters, rune(source[offset+1])) {
+				offset += 2
+				continue
+			}
+			if strings.HasPrefix(source[offset:span.End], "??") {
+				close, err := jiraCitationClose(ctx, source, span.Start, offset, span.End)
+				if err != nil {
+					return err
+				}
+				if close > 0 {
+					visit(jiraEffectPair{OpenStart: offset, OpenEnd: offset + 2, CloseStart: close, CloseEnd: close + 2})
+					ranges = append(ranges, sourceSpan{Start: offset + 2, End: close})
+					offset = close + 2
+					continue
+				}
+			}
+			token, opens, scanned := jiraEffectOpener(source, span.Start, offset, span.End)
+			if opens {
+				closeStart, closeEnd, err := findJiraEffectClose(ctx, source, token.End, span.End, token.Delimiter)
+				if err != nil {
+					return err
+				}
+				if closeStart >= 0 {
+					visit(jiraEffectPair{OpenStart: token.Start, OpenEnd: token.End, CloseStart: closeStart, CloseEnd: closeEnd})
+					ranges = append(ranges, sourceSpan{Start: token.End, End: closeStart})
+					offset = closeEnd
+					continue
+				}
+			}
+			if scanned > offset {
+				offset = scanned
+				continue
+			}
+			_, size := utf8.DecodeRuneInString(source[offset:span.End])
+			offset += size
+		}
+	}
+	return ctx.Err()
+}
+
 // jiraInlineContext selects the rule subset that applies to a scanned run. Jira
 // keeps reinterpreting inline markup inside `{{...}}`, so the Monospace Span
 // context is the plain-text context plus the characters that only a Monospace

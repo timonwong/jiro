@@ -39,8 +39,8 @@ func TestJiraInlineRunEscalatesThroughBoundedModes(t *testing.T) {
 		t.Errorf("full-encode render = %q, want %q", verified[1], want)
 	}
 	// The literal fallback abandons the Monospace Span and sends the body
-	// through the plain-text escaper.
-	if want := `a-b \{x\}`; output != want {
+	// through the fully escaped plain-text escaper.
+	if want := `a\-b \{x\}`; output != want {
 		t.Errorf("literal fallback = %q, want %q", output, want)
 	}
 	wantDiagnostics := []conversionDiagnostic{{
@@ -55,10 +55,10 @@ func TestJiraInlineRunEscalatesThroughBoundedModes(t *testing.T) {
 	}
 }
 
-// TestJiraInlineRunSkipsVerificationWithoutInlineCode holds the harness's scope:
-// plain-text escaping is not verified here, so a run without a Monospace Span
-// must not pay for a re-parse.
-func TestJiraInlineRunSkipsVerificationWithoutInlineCode(t *testing.T) {
+// TestJiraInlineRunSkipsVerificationWithoutHazards holds the cost bound: prose
+// that carries no character any Jira inline rule starts from reads back as
+// itself, so it must not pay for a re-parse.
+func TestJiraInlineRunSkipsVerificationWithoutHazards(t *testing.T) {
 	t.Parallel()
 	inlines := []semanticInline{textInline{Span: sourceSpan{Start: 0, End: 5}, Text: "plain"}}
 	state := &jiraRenderState{diagnostics: make([]conversionDiagnostic, 0)}
@@ -73,6 +73,56 @@ func TestJiraInlineRunSkipsVerificationWithoutInlineCode(t *testing.T) {
 	}
 	if calls != 0 || output != "plain" || len(state.diagnostics) != 0 {
 		t.Fatalf("calls = %d, output = %q, diagnostics = %#v; want 0, \"plain\", none", calls, output, state.diagnostics)
+	}
+}
+
+// TestJiraPlainTextRunFallsBackFullyEscaped drives a run without inline code to
+// the end of the escalation. No real input reaches it, so only a verifier that
+// never accepts exercises the fully escaped output and the plain-text warning.
+func TestJiraPlainTextRunFallsBackFullyEscaped(t *testing.T) {
+	t.Parallel()
+	inlines := []semanticInline{
+		textInline{Span: sourceSpan{Start: 4, End: 8}, Text: "a-b "},
+		styledInline{Span: sourceSpan{Start: 8, End: 15}, Style: styleBold, Children: []semanticInline{
+			textInline{Span: sourceSpan{Start: 10, End: 11}, Text: "c"},
+		}},
+	}
+	state := &jiraRenderState{diagnostics: make([]conversionDiagnostic, 0)}
+	verified := make([]string, 0, 2)
+	rejectEverything := func(_ context.Context, rendered, _ string, _ []semanticInline, _ jiraRunContext) (jiraVerificationVerdict, error) {
+		verified = append(verified, rendered)
+		return jiraVerificationVerdict{}, nil
+	}
+
+	output, err := renderJiraInlineRunWith(context.Background(), state, inlines, jiraRunContext{}, rejectEverything)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(verified) != 2 {
+		t.Fatalf("verification calls = %d (%q), want 2", len(verified), verified)
+	}
+	// The predicted mode leaves an unpaired `-` alone and writes the effect
+	// bare; the fully escaped mode escapes every plain-text delimiter and writes
+	// the effect in the brace form.
+	if want := "a-b *c*"; verified[0] != want {
+		t.Errorf("predicted render = %q, want %q", verified[0], want)
+	}
+	if want := `a\-b {*}c{*}`; verified[1] != want {
+		t.Errorf("fully escaped render = %q, want %q", verified[1], want)
+	}
+	if output != verified[1] {
+		t.Errorf("fallback = %q, want the fully escaped render %q", output, verified[1])
+	}
+	wantDiagnostics := []conversionDiagnostic{{
+		offset: 4,
+		warning: ConversionWarning{
+			Construct: ConstructPlainText,
+			Reason:    "plain text could not be verified to read back as written on Jira; emitted fully escaped",
+		},
+	}}
+	if !reflect.DeepEqual(state.diagnostics, wantDiagnostics) {
+		t.Errorf("diagnostics = %#v, want %#v", state.diagnostics, wantDiagnostics)
 	}
 }
 
