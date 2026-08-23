@@ -360,10 +360,9 @@ func markPlainJiraEffectEscapes(ctx context.Context, value string, plain, escape
 					return false, err
 				}
 			}
-			delimiter := value[offset]
 			if !escaped[offset] {
-				if _, ok := jiraInlineStyle(delimiter); ok && jiraEffectCanOpen(value, span.Start, offset, span.End) {
-					close, err := findJiraEffectClose(ctx, value, offset+1, span.End, delimiter, escaped)
+				if token, opens, _ := jiraEffectOpener(value, span.Start, offset, span.End); opens {
+					close, _, err := findJiraEffectClose(ctx, value, token.End, span.End, token.Delimiter)
 					if err != nil {
 						return false, err
 					}
@@ -374,8 +373,8 @@ func markPlainJiraEffectEscapes(ctx context.Context, value string, plain, escape
 						if plain[close] && !escaped[close] {
 							escaped[close], changed = true, true
 						}
-						if offset+1 < close {
-							ranges = append(ranges, sourceSpan{Start: offset + 1, End: close})
+						if token.End < close {
+							ranges = append(ranges, sourceSpan{Start: token.End, End: close})
 						}
 						offset = close + 1
 						continue

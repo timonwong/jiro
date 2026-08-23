@@ -47,18 +47,18 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 		return close, err
 	}
 	var failedStyleScans map[byte]int
-	findStyleCloser := func(from int, delimiter byte) (int, error) {
+	findStyleCloser := func(from int, delimiter byte) (int, int, error) {
 		if failedFrom, ok := failedStyleScans[delimiter]; ok && from >= failedFrom {
-			return -1, nil
+			return -1, -1, nil
 		}
-		close, err := findJiraEffectClose(ctx, source, from, end, delimiter, nil)
-		if err == nil && close < 0 {
+		closeStart, closeEnd, err := findJiraEffectClose(ctx, source, from, end, delimiter)
+		if err == nil && closeStart < 0 {
 			if failedStyleScans == nil {
 				failedStyleScans = make(map[byte]int)
 			}
 			failedStyleScans[delimiter] = from
 		}
-		return close, err
+		return closeStart, closeEnd, err
 	}
 
 	for offset := start; offset < end; {
@@ -275,22 +275,27 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 			continue
 		}
 
-		if style, ok := jiraInlineStyle(source[offset]); ok && jiraEffectCanOpen(source, start, offset, end) {
-			close, err := findStyleCloser(offset+1, source[offset])
+		if token, opens, scanned := jiraEffectOpener(source, start, offset, end); opens {
+			closeStart, closeEnd, err := findStyleCloser(token.End, token.Delimiter)
 			if err != nil {
 				return nil, nil, err
 			}
-			if close >= 0 {
+			if closeStart >= 0 {
 				flushText(offset)
-				children, nestedDiagnostics, err := parseJiraInlines(ctx, source, offset+1, close)
+				children, nestedDiagnostics, err := parseJiraInlines(ctx, source, token.End, closeStart)
 				if err != nil {
 					return nil, nil, err
 				}
 				diagnostics = append(diagnostics, nestedDiagnostics...)
-				result = append(result, styledInline{Span: sourceSpan{Start: offset, End: close + 1}, Style: style, Children: children})
-				offset, textStart = close+1, close+1
+				result = append(result, styledInline{Span: sourceSpan{Start: offset, End: closeEnd}, Style: token.Style, Children: children})
+				offset, textStart = closeEnd, closeEnd
 				continue
 			}
+			offset = scanned
+			continue
+		} else if scanned > offset {
+			offset = scanned
+			continue
 		}
 
 		_, size := utf8.DecodeRuneInString(source[offset:end])

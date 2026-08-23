@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: The brace form applies inside a heading.
+-- input.jira --
+h1. a{*}b{*}c
+-- rendered.html --
+<h1><a name="a%7B%7Db%7B%7Dc"></a>a<b>b</b>c</h1>
+-- want.md --
+# a**b**c
+-- warnings.json --
+[]

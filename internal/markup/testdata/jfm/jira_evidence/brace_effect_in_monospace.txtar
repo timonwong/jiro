@@ -1,0 +1,17 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: Jira renders a brace-form Text Effect inside a Monospace Span, so inline code conversion warns and keeps the characters literal.
+-- input.jira --
+{{a{*}b{*}c}}
+-- rendered.html --
+<p><tt>a<b>b</b>c</tt></p>
+-- want.md --
+`a{*}b{*}c`
+-- warnings.json --
+[
+  {
+    "Line": 1,
+    "Column": 1,
+    "Construct": "inline-code",
+    "Reason": "Jira would render a bold effect inside this Monospace Span; inline code keeps the characters literal"
+  }
+]

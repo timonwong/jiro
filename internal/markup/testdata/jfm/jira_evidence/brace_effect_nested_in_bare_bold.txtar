@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A brace-form italic nests inside a bare bold effect whose content has no word-boundary gap.
+-- input.jira --
+*a{_}b{_}c*
+-- rendered.html --
+<p><b>a<em>b</em>c</b></p>
+-- want.md --
+**a*b*c**
+-- warnings.json --
+[]

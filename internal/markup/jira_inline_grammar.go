@@ -68,49 +68,90 @@ func isJiraEffectSpace(value rune) bool {
 	}
 }
 
-// jiraEffectCanOpen reports whether the Effect Delimiter at source[offset] may
-// open a Text Effect inside the inline run source[start:end]. Ranges are
-// half-open.
-func jiraEffectCanOpen(source string, start, offset, end int) bool {
-	if offset+1 >= end {
-		return false
-	}
-	if next, _ := utf8.DecodeRuneInString(source[offset+1 : end]); isJiraEffectSpace(next) {
-		return false
-	}
-	return !jiraWordRuneBefore(source, start, offset)
+// jiraEffectToken is one Effect Delimiter occurrence: either the bare character
+// or its brace form `{X}`, which Jira accepts for every delimiter and which
+// waives the word-rune gate on the token's outer side.
+type jiraEffectToken struct {
+	Style     inlineStyle
+	Delimiter byte
+	Start     int
+	End       int
+	Brace     bool
 }
 
-// findJiraEffectClose scans source[start:end] for the Effect Delimiter closing
-// an opener at start-1. The plain-text escaper passes the delimiters it has
-// already decided to backslash-escape as ignored, because Jira no longer reads
-// an escaped delimiter as a closer; the parser has no such set and passes nil.
-func findJiraEffectClose(ctx context.Context, source string, start, end int, delimiter byte, ignored []bool) (int, error) {
+// jiraEffectOpener reports the Effect Delimiter token opening a Text Effect at
+// offset inside the inline run source[start:end]. scanned is where a caller
+// resumes when the token opens nothing: a recognized brace form is passed over
+// whole, so in `a{*}*b*{*}c` the `*` behind the braces opens rather than the one
+// inside them, while an unrecognized `{*}` leaves its delimiter available and
+// `a{*} b {*}c` pairs the bare `*` characters across the braces.
+func jiraEffectOpener(source string, start, offset, end int) (jiraEffectToken, bool, int) {
+	if source[offset] == '{' && offset+2 < end && source[offset+2] == '}' {
+		if style, ok := jiraInlineStyle(source[offset+1]); ok && jiraEffectContentFollows(source, offset+3, end) {
+			if source[offset+3] == source[offset+1] {
+				return jiraEffectToken{}, false, offset + 3
+			}
+			return jiraEffectToken{Style: style, Delimiter: source[offset+1], Start: offset, End: offset + 3, Brace: true}, true, offset + 3
+		}
+	}
+	style, ok := jiraInlineStyle(source[offset])
+	if !ok || !jiraEffectContentFollows(source, offset+1, end) {
+		return jiraEffectToken{}, false, offset
+	}
+	// An effect's content may not begin with its own delimiter: Jira reads
+	// `**x**` as a literal `*` around bold `x`, not as bold `*x`.
+	if source[offset+1] == source[offset] || jiraWordRuneBefore(source, start, offset) {
+		return jiraEffectToken{}, false, offset
+	}
+	return jiraEffectToken{Style: style, Delimiter: source[offset], Start: offset, End: offset + 1}, true, offset + 1
+}
+
+// jiraEffectContentFollows reports whether source[at:end] can begin the content
+// of a Text Effect, which Jira requires to start with a non-space character.
+func jiraEffectContentFollows(source string, at, end int) bool {
+	if at >= end {
+		return false
+	}
+	next, _ := utf8.DecodeRuneInString(source[at:end])
+	return !isJiraEffectSpace(next)
+}
+
+// findJiraEffectClose scans source[start:end] for the Effect Delimiter token
+// closing an opener whose content begins at start, and reports its half-open
+// range or -1. A brace form that cannot close leaves the delimiter inside it
+// available, which is how `a{*}{*}b` closes on the second `*`.
+func findJiraEffectClose(ctx context.Context, source string, start, end int, delimiter byte) (int, int, error) {
 	for index := start; index < end; index++ {
 		if (index-start)&255 == 0 {
 			if err := ctx.Err(); err != nil {
-				return -1, err
+				return -1, -1, err
 			}
 		}
 		if source[index] == '\\' {
 			index++
 			continue
 		}
-		if source[index] != delimiter || index <= start {
+		closeEnd, brace := 0, false
+		switch {
+		case source[index] == '{' && index+2 < end && source[index+1] == delimiter && source[index+2] == '}':
+			closeEnd, brace = index+3, true
+		case source[index] == delimiter:
+			closeEnd = index + 1
+		default:
 			continue
 		}
-		if ignored != nil && ignored[index] {
+		if index <= start {
 			continue
 		}
 		if previous, _ := utf8.DecodeLastRuneInString(source[start:index]); isJiraEffectSpace(previous) {
 			continue
 		}
-		if jiraWordRuneAfter(source, index+1, end) {
+		if !brace && jiraWordRuneAfter(source, closeEnd, end) {
 			continue
 		}
-		return index, nil
+		return index, closeEnd, nil
 	}
-	return -1, ctx.Err()
+	return -1, -1, ctx.Err()
 }
 
 // jiraInlineContext selects the rule subset that applies to a scanned run. Jira
@@ -214,6 +255,32 @@ func jiraInlineHazards(ctx context.Context, source string, start, end int, inlin
 		hazards = append(hazards, jiraInlineHazard{Kind: kind, Style: style, Start: hazardStart, End: hazardEnd, TextChanges: textChanges})
 	}
 	var failedEffectScans map[byte]int
+	// scanEffect reports the Text Effect opening at index and where the scan
+	// resumes, or -1 when no Effect Delimiter token opens there.
+	scanEffect := func(index int) (int, error) {
+		token, opens, scanned := jiraEffectOpener(source, start, index, end)
+		if !opens {
+			if scanned > index {
+				return scanned, nil
+			}
+			return -1, nil
+		}
+		if failedFrom, known := failedEffectScans[token.Delimiter]; !known || token.End < failedFrom {
+			closeStart, closeEnd, err := findJiraEffectClose(ctx, source, token.End, end, token.Delimiter)
+			if err != nil {
+				return -1, err
+			}
+			if closeStart < 0 {
+				if failedEffectScans == nil {
+					failedEffectScans = make(map[byte]int)
+				}
+				failedEffectScans[token.Delimiter] = token.End
+			} else {
+				add(jiraHazardEffect, token.Style, token.Start, closeEnd, true)
+			}
+		}
+		return scanned, nil
+	}
 	for index := start; index < end; {
 		if (index-start)&255 == 0 {
 			if err := ctx.Err(); err != nil {
@@ -262,6 +329,14 @@ func jiraInlineHazards(ctx context.Context, source string, start, end int, inlin
 			continue
 		}
 		if character == '{' || character == '}' {
+			// The brace form of an Effect Delimiter outranks the macro rule:
+			// Jira renders `a{*}b{*}c` bold rather than lifting `{*}` out.
+			if next, err := scanEffect(index); err != nil {
+				return nil, err
+			} else if next > index {
+				index = next
+				continue
+			}
 			if macroEnd := jiraMacroEnd(source, index, end); macroEnd > 0 {
 				add(jiraHazardMacro, "", index, macroEnd, true)
 				index = macroEnd
@@ -329,21 +404,11 @@ func jiraInlineHazards(ctx context.Context, source string, start, end int, inlin
 			index = autolinkEnd
 			continue
 		}
-		if style, ok := jiraInlineStyle(character); ok && jiraEffectCanOpen(source, start, index, end) {
-			if failedFrom, known := failedEffectScans[character]; !known || index+1 < failedFrom {
-				close, err := findJiraEffectClose(ctx, source, index+1, end, character, nil)
-				if err != nil {
-					return nil, err
-				}
-				if close < 0 {
-					if failedEffectScans == nil {
-						failedEffectScans = make(map[byte]int)
-					}
-					failedEffectScans[character] = index + 1
-				} else {
-					add(jiraHazardEffect, style, index, close+1, true)
-				}
-			}
+		if next, err := scanEffect(index); err != nil {
+			return nil, err
+		} else if next > index {
+			index = next
+			continue
 		}
 		_, size := utf8.DecodeRuneInString(source[index:end])
 		index += size
