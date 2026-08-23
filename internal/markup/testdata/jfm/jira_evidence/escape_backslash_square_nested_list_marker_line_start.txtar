@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: An escaped leading `-` keeps a `-*` marker run a paragraph, and Jira shows the bare characters — the unprotected probe is in round7 of hack/jira-render-evidence.py.
+-- input.jira --
+\-* item
+-- rendered.html --
+<p>&#45;* item</p>
+-- want.md --
+\-\* item
+-- warnings.json --
+[]

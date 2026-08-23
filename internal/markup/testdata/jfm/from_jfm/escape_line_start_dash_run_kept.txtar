@@ -1,0 +1,10 @@
+-- input.md --
+\-\- item
+
+\-\-\- item
+-- want.jira --
+-- item
+
+--- item
+-- warnings.json --
+[]

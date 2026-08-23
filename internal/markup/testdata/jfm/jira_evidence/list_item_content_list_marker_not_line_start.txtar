@@ -1,0 +1,12 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A list item's own content is not a line start: a bare marker run inside the item stays text.
+-- input.jira --
+* * item
+-- rendered.html --
+<ul>
+	<li>* item</li>
+</ul>
+-- want.md --
+- \* item
+-- warnings.json --
+[]

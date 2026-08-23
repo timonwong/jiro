@@ -217,3 +217,93 @@ func sortedBytes(value string) string {
 	sort.Slice(bytes, func(left, right int) bool { return bytes[left] < bytes[right] })
 	return string(bytes)
 }
+
+// TestJiraInlineRunVerificationReadsEveryLineStart holds the block-level half of
+// the harness. A list marker and a `h1.` prefix are readings the inline re-parse
+// cannot report, so a rendered run that carries one at a line start has to fail
+// verification although its inlines read back unchanged.
+func TestJiraInlineRunVerificationReadsEveryLineStart(t *testing.T) {
+	t.Parallel()
+	text := func(value string) []semanticInline {
+		return []semanticInline{textInline{Text: value}}
+	}
+	for _, test := range []struct {
+		name     string
+		inlines  []semanticInline
+		rendered string
+		run      jiraRunContext
+		accepted bool
+	}{
+		{name: "bullet", inlines: text("* item"), rendered: "* item", run: jiraRunContext{atLineStart: true}},
+		{name: "square bullet", inlines: text("- item"), rendered: "- item", run: jiraRunContext{atLineStart: true}},
+		{name: "nested bullets", inlines: text("** item"), rendered: "** item", run: jiraRunContext{atLineStart: true}},
+		{name: "mixed markers", inlines: text("*- item"), rendered: "*- item", run: jiraRunContext{atLineStart: true}},
+		{name: "line control prefix", inlines: text("h1. x"), rendered: "h1. x", run: jiraRunContext{atLineStart: true}},
+		{
+			name:     "after a forced newline",
+			inlines:  []semanticInline{textInline{Text: "x"}, hardBreakInline{}, textInline{Text: "* item"}},
+			rendered: "x\\\\\n* item",
+		},
+		{name: "escaped marker", inlines: text("* item"), rendered: `\* item`, run: jiraRunContext{atLineStart: true}, accepted: true},
+		{name: "marker as a character reference", inlines: text("* item"), rendered: "&#42; item", run: jiraRunContext{atLineStart: true}, accepted: true},
+		{name: "protected line control prefix", inlines: text("h1. x"), rendered: "h1&#46; x", run: jiraRunContext{atLineStart: true}, accepted: true},
+		{name: "marker without a space", inlines: text("*item"), rendered: "*item", run: jiraRunContext{atLineStart: true}, accepted: true},
+		{name: "lone marker", inlines: text("*"), rendered: "*", run: jiraRunContext{atLineStart: true}, accepted: true},
+		{name: "dash run", inlines: text("-- item"), rendered: "-- item", run: jiraRunContext{atLineStart: true}, accepted: true},
+		{name: "inside a list item", inlines: text("* item"), rendered: "* item", accepted: true},
+		{
+			name:     "table cell",
+			inlines:  text("* item"),
+			rendered: "* item",
+			run:      jiraRunContext{atLineStart: true, cellDelimiter: "|"},
+		},
+		{
+			name:     "escaped marker in a table cell",
+			inlines:  text("* item"),
+			rendered: `\* item`,
+			run:      jiraRunContext{atLineStart: true, cellDelimiter: "|"},
+			accepted: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			intended := jiraVerificationKey(test.inlines, false)
+			verdict, err := verifyJiraInlineRun(context.Background(), test.rendered, intended, test.inlines, test.run)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if verdict.accepts() != test.accepted {
+				t.Fatalf("verifyJiraInlineRun(%q) accepted = %t, want %t", test.rendered, verdict.accepts(), test.accepted)
+			}
+		})
+	}
+}
+
+// TestJiraLineStartMismatchStillCreditsInlineCode holds the attribution rule
+// across the block-level check. A line start Jira would misread says nothing
+// about the Monospace Spans of the run, so the verdict has to keep crediting
+// them; without that the run would give up its spans and blame inline code for
+// a fault that belongs to the plain text beside it.
+func TestJiraLineStartMismatchStillCreditsInlineCode(t *testing.T) {
+	t.Parallel()
+	inlines := []semanticInline{textInline{Text: "* "}, codeInline{Text: "x"}}
+	intended := jiraVerificationKey(inlines, false)
+
+	// The same render away from a line start verifies, so the line start is the
+	// only thing the rejected verdict below can be about.
+	inside, err := verifyJiraInlineRun(context.Background(), "* {{x}}", intended, inlines, jiraRunContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inside.accepts() {
+		t.Fatalf("verdict inside a list item = %#v, want matched", inside)
+	}
+
+	verdict, err := verifyJiraInlineRun(context.Background(), "* {{x}}", intended, inlines, jiraRunContext{atLineStart: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verdict.accepts() || !verdict.codePreserved {
+		t.Fatalf("verdict = %#v, want matched false and codePreserved true", verdict)
+	}
+}

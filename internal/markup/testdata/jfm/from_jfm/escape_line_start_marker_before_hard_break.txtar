@@ -1,0 +1,8 @@
+-- input.md --
+\* \
+next
+-- want.jira --
+\* \\
+next
+-- warnings.json --
+[]

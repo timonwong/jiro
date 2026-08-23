@@ -8,7 +8,7 @@ Equivalent single-case curl:
     -H 'Content-Type: application/json' -H 'X-Atlassian-Token: no-check' \
     -d '{"rendererType":"atlassian-wiki-renderer","unrenderedMarkup":"{{*bold*}}"}'
 
-Usage: python3 hack/jira-render-evidence.py [round1|...|round6|all] [--json]   (default: all)
+Usage: python3 hack/jira-render-evidence.py [round1|...|round7|all] [--json]   (default: all)
 
 --json prints one {"in": ..., "out": ...} object per line so captures can be
 turned into evidence fixtures without reparsing the human-readable output.
@@ -236,6 +236,33 @@ ROUND6 = [
     r"{{a\!b}}", r"{{a\.b}}", r"{{a\,b}}", r"{{a\\b}}",
 ]
 
+# Probe strings backing the line-start list marker rule (#93): which marker runs
+# Jira reads as a list, where a line start is, and what keeps one off it.
+ROUND7 = [
+    # --- which marker runs at a line start are a list ---
+    "* item", "- item", "# item", "** item", "*# item", "#* item",
+    "-* item", "*- item", "-- item", "--- item", "-# item", "#- item",
+    "*item", "-item", "*", "-", "#", "**", "* ", "*\titem",
+    "*\nfoo", "*\\\\\nfoo", "* \\\\\nfoo",
+    # --- what keeps a marker run off the line start ---
+    r"\* item", r"\- item", r"\** item", r"\*# item", r"\#* item",
+    r"\-- item", r"\-* item", r"\--- item", "&#42;* item", "&#45;- item",
+    r"\*\* item",
+    # --- where a line start is ---
+    "x\\\\\n* item", "x\\\\\n" + r"\* item", "x\\\\\n- item", "x\\\\\n** item",
+    "{{* item}}", "{{** item}}", "h1. * item", "* * item", r"* \* item",
+    "* foo\\\\\n* bar", "* foo\\\\\n" + r"\* bar",
+    " * item", "*  item", "x\n * item",
+    # --- Jira skips leading spaces and tabs before either line-start rule ---
+    "\t* item", " \\* item", " h1. x", "  h1. x", "\th1. x", " bq. x",
+    " h1&#46; x",
+    # --- every table cell is its own line start ---
+    "||h||\n|* item|", "||h||\n" + r"|\* item|",
+    "||h||\n|h1. x|", "||h||\n|bq. x|", "||h||\n|h1&#46; x|",
+    "||h||\n|- item|", "||h||\n| * item|", "||h||\n|x|* item|",
+    "||h||\n|a\\\\\n* item|", "||h||\n|a\\\\\n" + r"\* item|",
+]
+
 
 def render(markup, timeout=30):
     body = json.dumps({"rendererType": "atlassian-wiki-renderer",
@@ -274,5 +301,5 @@ if __name__ == "__main__":
     arguments = [a for a in arguments if a != "--json"]
     which = arguments[0] if arguments else "all"
     run({"round1": ROUND1, "round2": ROUND2, "round3": ROUND3, "round4": ROUND4,
-          "round5": ROUND5, "round6": ROUND6,
-          "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5 + ROUND6}[which], as_json=as_json)
+          "round5": ROUND5, "round6": ROUND6, "round7": ROUND7,
+          "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5 + ROUND6 + ROUND7}[which], as_json=as_json)

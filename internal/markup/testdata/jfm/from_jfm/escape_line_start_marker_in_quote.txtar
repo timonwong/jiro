@@ -1,0 +1,8 @@
+-- input.md --
+> \* item
+-- want.jira --
+{quote}
+\* item
+{quote}
+-- warnings.json --
+[]

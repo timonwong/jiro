@@ -388,6 +388,17 @@ func escapeTextForJiraText(ctx context.Context, value string, atLineStart bool) 
 				offset, atLineStart = pending, false
 				continue
 			}
+			if markerStart, markerEnd := jiraListMarkerPrefix(value[offset:]); markerEnd != 0 {
+				// Jira reads the whole marker run as a list, and stops reading one
+				// as soon as the first marker carries a backslash, so the rest of
+				// the run needs nothing beyond what its own byte class asks for.
+				flush(offset + markerStart)
+				result.WriteByte('\\')
+				result.WriteByte(value[offset+markerStart])
+				pending, changed = offset+markerStart+1, true
+				offset, atLineStart = pending, false
+				continue
+			}
 		}
 		character := value[offset]
 		atLineStart = character == '\n'
@@ -605,7 +616,10 @@ func renderJiraTable(ctx context.Context, state *jiraRenderState, table tableBlo
 func renderJiraTableRow(ctx context.Context, state *jiraRenderState, cells []tableCell, delimiter string) (string, error) {
 	values := make([]string, len(cells))
 	for index, cell := range cells {
-		value, err := renderJiraInlineRun(ctx, state, cell.Inlines, jiraRunContext{cellDelimiter: delimiter})
+		// Jira reads every cell of every row from its own line start, so a cell
+		// whose content opens with a list marker or a `h1.` prefix renders a list
+		// or a heading inside the cell rather than the text it was written as.
+		value, err := renderJiraInlineRun(ctx, state, cell.Inlines, jiraRunContext{atLineStart: true, cellDelimiter: delimiter})
 		if err != nil {
 			return "", err
 		}
@@ -640,16 +654,60 @@ func renderJiraCodeBlock(ctx context.Context, block codeBlock) (string, error) {
 	return header + "\n" + block.Body + ensureLiteralClosingSeparation(block.Body) + "{code}", nil
 }
 
-// jiraPlainTextEscapedCharacters are the characters the plain-text escaper
-// backslash-escapes outside any grammar rule, as legacy safety escaping
-// (ADR-0016).
-func jiraLineControlPrefixLength(value string) int {
-	if len(value) >= 3 && value[0] == 'h' && value[1] >= '1' && value[1] <= '6' && value[2] == '.' &&
-		(len(value) == 3 || value[3] == ' ') {
-		return 3
+// jiraLineIndentLength reports the ASCII spaces and tabs Jira skips at a line
+// start before it reads either of the rules below. Jira indents no block by
+// them, so `\t* item` is the same list as `* item`.
+func jiraLineIndentLength(line string) int {
+	length := 0
+	for length < len(line) && (line[length] == ' ' || line[length] == '\t') {
+		length++
 	}
-	if strings.HasPrefix(value, "bq.") && (len(value) == 3 || value[3] == ' ') {
-		return 3
+	return length
+}
+
+// jiraLineControlPrefixLength reports the length of the indent and the `h1.`
+// through `h6.` or `bq.` prefix that makes Jira read a line start as a heading
+// or a quote, which needs a space or the end of the line after it, and 0 when
+// there is none. The length reaches one past the `.` so that the escaper can
+// spell that `.` as `&#46;` instead of escaping it: `.` is not in Jira's
+// escapable set, and a backslash before it would stay visible.
+func jiraLineControlPrefixLength(value string) int {
+	indent := jiraLineIndentLength(value)
+	rest := value[indent:]
+	if len(rest) >= 3 && rest[0] == 'h' && rest[1] >= '1' && rest[1] <= '6' && rest[2] == '.' &&
+		(len(rest) == 3 || rest[3] == ' ') {
+		return indent + 3
+	}
+	if strings.HasPrefix(rest, "bq.") && (len(rest) == 3 || rest[3] == ' ') {
+		return indent + 3
 	}
 	return 0
+}
+
+// jiraListMarkerPrefix reports the byte range of the marker run that makes Jira
+// read line as a list item, and 0, 0 when it reads no list there. After the
+// indent Jira takes a run of `*`, `#` and `-` in any mix as the marker when a
+// space or a tab follows it; a run with anything else after it is text, and so
+// is a run of two or more `-`, which is Jira's en or em dash and a semantic
+// jiro keeps (see jiraPlainTextByteClasses).
+//
+// This is the renderer's reading of a line start rather than the parser's: the
+// Jira-to-JFM block parser reads a narrower set, and the difference is a
+// divergence of that parser rather than of this rule.
+func jiraListMarkerPrefix(line string) (int, int) {
+	start := jiraLineIndentLength(line)
+	end, dashes := start, 0
+	for end < len(line) && (line[end] == '*' || line[end] == '#' || line[end] == '-') {
+		if line[end] == '-' {
+			dashes++
+		}
+		end++
+	}
+	if end == start || end == len(line) || line[end] != ' ' && line[end] != '\t' {
+		return 0, 0
+	}
+	if dashes == end-start && dashes > 1 {
+		return 0, 0
+	}
+	return start, end
 }

@@ -1,0 +1,9 @@
+-- input.md --
+| a | b |
+| --- | --- |
+| x | \* item |
+-- want.jira --
+||a||b||
+|x|\* item|
+-- warnings.json --
+[]

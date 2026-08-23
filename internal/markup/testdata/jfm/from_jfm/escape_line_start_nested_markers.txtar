@@ -1,0 +1,18 @@
+-- input.md --
+\*\* item
+
+\*# item
+
+\-\* item
+
+\#\* item
+-- want.jira --
+\** item
+
+\*\# item
+
+\-* item
+
+\#* item
+-- warnings.json --
+[]

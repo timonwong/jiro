@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: An escaped marker keeps an indented line a paragraph, so the indent Jira skips does not change what the escape protects — the unprotected probe is in round7 of hack/jira-render-evidence.py.
+-- input.jira --
+ \* item
+-- rendered.html --
+<p> &#42; item</p>
+-- want.md --
+\* item
+-- warnings.json --
+[]
