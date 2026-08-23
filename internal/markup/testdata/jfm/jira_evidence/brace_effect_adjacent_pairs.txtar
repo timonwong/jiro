@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: Two brace-form pairs may touch.
+-- input.jira --
+a{*}b{*}{*}c{*}
+-- rendered.html --
+<p>a<b>b</b><b>c</b></p>
+-- want.md --
+a**b****c**
+-- warnings.json --
+[]

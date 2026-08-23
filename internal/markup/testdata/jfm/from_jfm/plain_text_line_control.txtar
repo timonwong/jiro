@@ -1,0 +1,20 @@
+-- input.md --
+h1. x
+
+bq. x
+
+h1.x
+
+a\
+h1. y
+-- want.jira --
+h1&#46; x
+
+bq&#46; x
+
+h1.x
+
+a\\
+h1&#46; y
+-- warnings.json --
+[]

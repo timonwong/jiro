@@ -1,0 +1,25 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: The `|` separating an image's source from its parameters does not split the row.
+-- input.jira --
+||h1||h2||
+|!http://x/i.png|alt=alt!|c|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h1</th>
+<th class='confluenceTh'>h2</th>
+</tr>
+<tr>
+<td class='confluenceTd'><span class="image-wrap" style=""><img src="http://x/i.png" alt="alt" style="border: 0px solid black" /></span></td>
+<td class='confluenceTd'>c</td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+:::table
+||h1||h2||
+|!http://x/i.png|alt=alt!|c|
+:::
+-- warnings.json --
+[]

@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A brace closer before a word rune closes, which is how a word-attached italic is written.
+-- input.jira --
+_i{_}t
+-- rendered.html --
+<p><em>i</em>t</p>
+-- want.md --
+*i*t
+-- warnings.json --
+[]

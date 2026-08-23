@@ -1,0 +1,6 @@
+-- input.md --
+[a -b- c](http://x) [foo_bar_baz](http://x) [y *x*](http://x) [h1. x](http://x)
+-- want.jira --
+[a \-b\- c|http://x] [foo_bar_baz|http://x] [y _x_|http://x] [h1. x|http://x]
+-- warnings.json --
+[]

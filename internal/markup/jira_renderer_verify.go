@@ -16,26 +16,30 @@ import (
 // here without one of those two sources behind it is a rule with no renderer
 // evidence, which is what the allowlists this harness replaced were.
 
-// jiraMonospaceEscapeMode selects how far a Monospace Span body is encoded. The
-// renderer walks the modes in order and stops at the first one whose rendered
-// run re-parses to the intended inlines.
-type jiraMonospaceEscapeMode uint8
+// jiraEscapeMode selects how far one inline run is encoded. The renderer walks
+// the modes in order and stops at the first one whose rendered run re-parses to
+// the intended inlines.
+type jiraEscapeMode uint8
 
 const (
-	// jiraMonospacePredicted encodes only what the grammar reports.
-	jiraMonospacePredicted jiraMonospaceEscapeMode = iota
-	// jiraMonospaceFullyEncoded encodes every ASCII character that is not a
-	// letter or digit, which leaves Jira nothing inside the braces to
-	// reinterpret.
-	jiraMonospaceFullyEncoded
-	// jiraMonospaceAbandoned gives up the Monospace Span and emits the body
-	// through the plain-text escaper.
-	jiraMonospaceAbandoned
+	// jiraEscapePredicted encodes only what the grammar reports: the hazards
+	// inside a Monospace Span body, the plain-text delimiters of a complete Text
+	// Effect or citation pair, and a Text Effect's own delimiters in the brace
+	// form only where a word rune would gate the bare one.
+	jiraEscapePredicted jiraEscapeMode = iota
+	// jiraEscapeFullyEncoded leaves Jira nothing to reinterpret: every ASCII
+	// character of a Monospace Span body that is not a letter or digit becomes a
+	// character reference, every plain-text delimiter is backslash-escaped, and
+	// every Text Effect is written in the brace form.
+	jiraEscapeFullyEncoded
+	// jiraEscapeAbandoned additionally gives up the Monospace Span and emits its
+	// body through the plain-text escaper.
+	jiraEscapeAbandoned
 )
 
-// jiraVerifiedMonospaceEscapeModes are the modes that still emit a Monospace
-// Span, so their number is also the bound on re-parses per run.
-var jiraVerifiedMonospaceEscapeModes = [...]jiraMonospaceEscapeMode{jiraMonospacePredicted, jiraMonospaceFullyEncoded}
+// jiraVerifiedEscapeModes are the modes a rendered run is verified in, so their
+// number is also the bound on re-parses per run.
+var jiraVerifiedEscapeModes = [...]jiraEscapeMode{jiraEscapePredicted, jiraEscapeFullyEncoded}
 
 // jiraRenderState collects the diagnostics the Jira renderer raises while
 // converting a document.
@@ -58,7 +62,7 @@ func (run jiraRunContext) inTableCell() bool { return run.cellDelimiter != "" }
 // jiraInlineRender carries the escaping decisions down a nested inline run.
 type jiraInlineRender struct {
 	inTableCell bool
-	mode        jiraMonospaceEscapeMode
+	mode        jiraEscapeMode
 	atLineStart bool
 }
 
@@ -67,11 +71,14 @@ func (render jiraInlineRender) nested() jiraInlineRender {
 	return render
 }
 
-// jiraInlineOutput reports where a rendered fragment touches a Monospace Span
-// brace, so that a caller can place the U+200B separator Jira needs between a
-// word rune and the brace.
+// jiraInlineOutput is one rendered inline run before plain-text escaping. It
+// reports where the run touches a Monospace Span brace, so that a caller can
+// place the U+200B separator Jira needs between a word rune and the brace, and
+// carries the offsets of the plain-text characters that may become markup, so
+// that one escaping decision covers the whole top-level run.
 type jiraInlineOutput struct {
 	text          string
+	plainOffsets  []int
 	opensWithCode bool
 	endsWithCode  bool
 }
@@ -98,8 +105,7 @@ func forEachInlineCode(inlines []semanticInline, visit func(codeInline)) {
 type jiraInlineRunVerifier func(ctx context.Context, rendered, intended string, inlines []semanticInline, run jiraRunContext) (jiraVerificationVerdict, error)
 
 // renderJiraInlineRun renders one top-level inline run and proves the escaping
-// by re-parsing it. A run without inline code needs no proof: plain-text
-// escaping is unchanged by this harness and joins it separately.
+// by re-parsing it.
 func renderJiraInlineRun(ctx context.Context, state *jiraRenderState, inlines []semanticInline, run jiraRunContext) (string, error) {
 	return renderJiraInlineRunWith(ctx, state, inlines, run, verifyJiraInlineRun)
 }
@@ -108,43 +114,111 @@ func renderJiraInlineRun(ctx context.Context, state *jiraRenderState, inlines []
 // exercise the later modes without an input Jira actually misreads.
 func renderJiraInlineRunWith(ctx context.Context, state *jiraRenderState, inlines []semanticInline, run jiraRunContext, verify jiraInlineRunVerifier) (string, error) {
 	render := jiraInlineRender{inTableCell: run.inTableCell(), atLineStart: run.atLineStart}
-	output, err := renderJiraInlines(ctx, inlines, render)
-	if err != nil || !inlinesContainCode(inlines) {
-		return output.text, err
+	rendered, err := renderJiraInlineRunIn(ctx, inlines, render)
+	if err != nil || !jiraRunNeedsVerification(inlines, rendered) {
+		return rendered, err
 	}
 	intended := jiraVerificationKey(inlines, false)
-	for index, mode := range jiraVerifiedMonospaceEscapeModes {
+	var verdict jiraVerificationVerdict
+	for index, mode := range jiraVerifiedEscapeModes {
 		// The first mode is the render already in hand.
 		if index != 0 {
 			render.mode = mode
-			if output, err = renderJiraInlines(ctx, inlines, render); err != nil {
+			if rendered, err = renderJiraInlineRunIn(ctx, inlines, render); err != nil {
 				return "", err
 			}
 		}
-		verdict, err := verify(ctx, output.text, intended, inlines, run)
-		if err != nil || verdict.accepts() {
-			return output.text, err
+		if verdict, err = verify(ctx, rendered, intended, inlines, run); err != nil {
+			return "", err
+		}
+		if verdict.accepts() {
+			return rendered, nil
 		}
 	}
-	render.mode = jiraMonospaceAbandoned
-	output, err = renderJiraInlines(ctx, inlines, render)
+	// Nothing verified. The last verdict says only which fallback answers: a
+	// Monospace Span that did not read back as its inline code is a loss the
+	// span itself caused, so the span goes; a run whose code survived owes the
+	// mismatch to its plain text, which the fully escaped render already carries
+	// as far as this harness can take it.
+	if inlinesContainCode(inlines) && !verdict.codePreserved {
+		render.mode = jiraEscapeAbandoned
+		if rendered, err = renderJiraInlineRunIn(ctx, inlines, render); err != nil {
+			return "", err
+		}
+		forEachInlineCode(inlines, func(code codeInline) {
+			state.diagnostics = append(state.diagnostics, conversionDiagnostic{
+				offset: code.Span.Start,
+				warning: ConversionWarning{
+					Construct: ConstructInlineCode,
+					Reason:    "inline code could not be protected from Jira reinterpretation; emitted as plain text",
+				},
+			})
+		})
+		return rendered, nil
+	}
+	collectRunFallbackDiagnostic(state, inlines, ConversionWarning{
+		Construct: ConstructPlainText,
+		Reason:    "plain text could not be verified to read back as written on Jira; emitted fully escaped",
+	})
+	return rendered, nil
+}
+
+// renderJiraInlineRunIn renders one run in one escape mode. Plain-text escaping
+// is decided over the finished run rather than per fragment, so rendering and
+// escaping are one step and no caller may take only half of it.
+func renderJiraInlineRunIn(ctx context.Context, inlines []semanticInline, render jiraInlineRender) (string, error) {
+	output, err := renderJiraInlines(ctx, inlines, render)
 	if err != nil {
 		return "", err
 	}
-	collectInlineCodeFallbackDiagnostics(state, inlines)
-	return output.text, nil
+	return escapePlainJiraEffects(ctx, output.text, output.plainOffsets, render.mode)
 }
 
-func collectInlineCodeFallbackDiagnostics(state *jiraRenderState, inlines []semanticInline) {
-	forEachInlineCode(inlines, func(code codeInline) {
-		state.diagnostics = append(state.diagnostics, conversionDiagnostic{
-			offset: code.Span.Start,
-			warning: ConversionWarning{
-				Construct: ConstructInlineCode,
-				Reason:    "inline code could not be protected from Jira reinterpretation; emitted as plain text",
-			},
-		})
-	})
+// jiraRunNeedsVerification reports whether re-parsing the rendered run can tell
+// the renderer anything. A run of nothing but text and hard breaks whose bytes
+// hold no Jira delimiter reads back as itself, and skipping the parse there is
+// what keeps the harness off the cost of ordinary prose.
+func jiraRunNeedsVerification(inlines []semanticInline, rendered string) bool {
+	if strings.ContainsAny(rendered, jiraPlainTextHazardBytes) {
+		return true
+	}
+	for _, inline := range inlines {
+		switch inline.(type) {
+		case textInline, literalInline, hardBreakInline:
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+func collectRunFallbackDiagnostic(state *jiraRenderState, inlines []semanticInline, warning ConversionWarning) {
+	offset := 0
+	if len(inlines) != 0 {
+		offset = jiraInlineSpanStart(inlines[0])
+	}
+	state.diagnostics = append(state.diagnostics, conversionDiagnostic{offset: offset, warning: warning})
+}
+
+func jiraInlineSpanStart(inline semanticInline) int {
+	switch typed := inline.(type) {
+	case textInline:
+		return typed.Span.Start
+	case literalInline:
+		return typed.Span.Start
+	case codeInline:
+		return typed.Span.Start
+	case styledInline:
+		return typed.Span.Start
+	case linkInline:
+		return typed.Span.Start
+	case imageInline:
+		return typed.Span.Start
+	case hardBreakInline:
+		return typed.Span.Start
+	default:
+		return 0
+	}
 }
 
 func inlinesContainCode(inlines []semanticInline) bool {
@@ -153,13 +227,14 @@ func inlinesContainCode(inlines []semanticInline) bool {
 	return found
 }
 
-// jiraVerificationVerdict reports what re-parsing a rendered run proved.
-// matched is the strict result ADR-0018 asks for. codePreserved carries the
-// attribution rule: a mismatch belongs to inline code only when a Monospace
-// Span fails to read back as the inline code it was rendered from. A residual
-// mismatch elsewhere in the run belongs to the plain text around it, and
-// encoding the code further cannot repair it, so accepting the run is the only
-// answer that does not destroy correct code over someone else's defect.
+// jiraVerificationVerdict reports what re-parsing a rendered run proved. Only
+// matched, the strict result ADR-0018 asks for, lets a run stand. codePreserved
+// is the attribution rule, and it decides which fallback a run that never
+// verified takes rather than whether it falls back: a Monospace Span that did
+// not read back as its inline code is a loss the span caused and the span is
+// given up, while a run whose code survived owes its mismatch to the plain text
+// around it, which the fully escaped render already addresses. Both fallbacks
+// warn.
 type jiraVerificationVerdict struct {
 	matched       bool
 	codePreserved bool
@@ -167,14 +242,16 @@ type jiraVerificationVerdict struct {
 
 // accepts reports whether the rendered run may stand as it is.
 func (verdict jiraVerificationVerdict) accepts() bool {
-	return verdict.matched || verdict.codePreserved
+	return verdict.matched
 }
 
 // verifyJiraInlineRun re-parses rendered in its block context. A table cell is
 // verified against the row splitter first, because the block layer splits the
 // row before any inline rule runs. The body comparison behind codePreserved is
 // only reached when the strict comparison has already failed, so a run that
-// verifies pays for one re-parse and one key.
+// verifies pays for one re-parse and one key. A run without inline code has an
+// empty body key on both sides; that is the truthful answer, since there is no
+// code for the plain-text fallback to protect.
 func verifyJiraInlineRun(ctx context.Context, rendered, intended string, inlines []semanticInline, run jiraRunContext) (jiraVerificationVerdict, error) {
 	if run.inTableCell() {
 		bounds, err := jiraTableCellBounds(ctx, rendered, 0, len(rendered), run.cellDelimiter)
@@ -237,13 +314,13 @@ func appendJiraCodeBodyKey(builder *strings.Builder, inlines []semanticInline) {
 // each side scanned its source. Attributes a reader derives from the target
 // rather than reads from the markup (linkInline.Directive and the Dangerous
 // flags) are absent for the same reason.
-func jiraVerificationKey(inlines []semanticInline, decodeSafetyEscapes bool) string {
+func jiraVerificationKey(inlines []semanticInline, reparsed bool) string {
 	var builder strings.Builder
-	appendJiraVerificationKey(&builder, inlines, decodeSafetyEscapes)
+	appendJiraVerificationKey(&builder, inlines, reparsed)
 	return builder.String()
 }
 
-func appendJiraVerificationKey(builder *strings.Builder, inlines []semanticInline, decodeSafetyEscapes bool) {
+func appendJiraVerificationKey(builder *strings.Builder, inlines []semanticInline, reparsed bool) {
 	var text strings.Builder
 	flush := func() {
 		if text.Len() == 0 {
@@ -255,9 +332,9 @@ func appendJiraVerificationKey(builder *strings.Builder, inlines []semanticInlin
 	for _, inline := range inlines {
 		switch typed := inline.(type) {
 		case textInline:
-			text.WriteString(normalizeVerificationText(typed.Text, decodeSafetyEscapes))
+			text.WriteString(normalizeVerificationText(typed.Text, reparsed))
 		case literalInline:
-			text.WriteString(normalizeVerificationText(typed.Text, decodeSafetyEscapes))
+			text.WriteString(normalizeVerificationText(typed.Text, reparsed))
 		case codeInline:
 			flush()
 			appendVerificationScalar(builder, "c", typed.Text)
@@ -275,7 +352,7 @@ func appendJiraVerificationKey(builder *strings.Builder, inlines []semanticInlin
 			appendVerificationScalar(builder, "s", style)
 			appendVerificationScalar(builder, "v", typed.Value)
 			builder.WriteByte('(')
-			appendJiraVerificationKey(builder, children, decodeSafetyEscapes)
+			appendJiraVerificationKey(builder, children, reparsed)
 			builder.WriteByte(')')
 		case linkInline:
 			flush()
@@ -285,7 +362,7 @@ func appendJiraVerificationKey(builder *strings.Builder, inlines []semanticInlin
 			// An unnamed link shows its target, so its label is derived rather
 			// than authored and each side derives it from its own conventions.
 			if !typed.Unnamed {
-				appendJiraVerificationKey(builder, typed.Label, decodeSafetyEscapes)
+				appendJiraVerificationKey(builder, typed.Label, reparsed)
 			}
 			builder.WriteByte(')')
 		case imageInline:
@@ -315,37 +392,34 @@ func appendVerificationScalar(builder *strings.Builder, tag, value string) {
 	builder.WriteByte(';')
 }
 
-// normalizeVerificationText folds the differences that are not the Monospace
-// Span's to answer for. A Jira inline run is one line, so the Jira parser reads
-// a newline inside text as the space that joins the line to the next one. On the
-// re-parsed side it also decodes the plain-text safety escapes below, whose
-// visible backslash belongs to the plain text around the span; a Monospace Span
-// cannot produce one, so decoding it hides no escaping failure of this harness.
-func normalizeVerificationText(value string, decodeSafetyEscapes bool) string {
+// normalizeVerificationText folds the differences that are not an escaping
+// decision. A Jira inline run is one line, so the Jira parser reads a newline
+// inside text as the space that joins the line to the next one. On the re-parsed
+// side it also decodes numeric character references, which the Jira parser keeps
+// verbatim in plain text: the line-control and backslash protections at
+// escapeTextForJiraText are the only places this renderer writes one, so
+// `h1&#46; x` and `C:&#92;\{x\}` have to compare equal to the text they were
+// rendered from.
+func normalizeVerificationText(value string, reparsed bool) string {
 	if strings.Contains(value, "\n") {
 		value = strings.ReplaceAll(value, "\n", " ")
 	}
-	if !decodeSafetyEscapes || !strings.Contains(value, `\`) {
+	if !reparsed || !strings.Contains(value, "&#") {
 		return value
 	}
 	var result strings.Builder
-	for index := 0; index < len(value); index++ {
-		if value[index] == '\\' && index+1 < len(value) && isJiraPlainTextSafetyEscape(value[index+1]) {
+	result.Grow(len(value))
+	for index := 0; index < len(value); {
+		character, referenceEnd := jiraCharacterReference(value, index, len(value))
+		if referenceEnd > 0 && character != utf8.RuneError {
+			result.WriteRune(character)
+			index = referenceEnd
 			continue
 		}
 		result.WriteByte(value[index])
+		index++
 	}
 	return result.String()
-}
-
-// isJiraPlainTextSafetyEscape reports whether the plain-text escaper writes a
-// backslash before character although Jira's escape grammar does not name it, so
-// that Jira shows the backslash instead of consuming it.
-func isJiraPlainTextSafetyEscape(character byte) bool {
-	if strings.IndexByte(jiraEscapableCharacters, character) >= 0 {
-		return false
-	}
-	return strings.IndexByte(jiraPlainTextEscapedCharacters, character) >= 0 || character == jiraLineControlEscapedCharacter
 }
 
 // renderJiraMonospaceSpanBody encodes a Monospace Span body so that Jira renders
@@ -354,7 +428,7 @@ func isJiraPlainTextSafetyEscape(character byte) bool {
 func renderJiraMonospaceSpanBody(ctx context.Context, body string, render jiraInlineRender) (string, error) {
 	encoded := make([]bool, len(body))
 	var marked bool
-	if render.mode == jiraMonospaceFullyEncoded {
+	if render.mode == jiraEscapeFullyEncoded {
 		marked = markFullyEncodedMonospaceSpan(body, encoded)
 	} else {
 		var err error

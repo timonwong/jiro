@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A character reference keeps `h1.` off the line start and shows no extra character, which is how the renderer protects a paragraph.
+-- input.jira --
+h1&#46; x
+-- rendered.html --
+<p>h1&#46; x</p>
+-- want.md --
+h1&#46; x
+-- warnings.json --
+[]

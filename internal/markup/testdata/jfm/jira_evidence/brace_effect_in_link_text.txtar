@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: The brace form applies inside link text.
+-- input.jira --
+[a{*}b{*}c|http://x]
+-- rendered.html --
+<p><a href="http://x" class="external-link" target="_blank" rel="nofollow noopener">a<b>b</b>c</a></p>
+-- want.md --
+[a**b**c](http://x)
+-- warnings.json --
+[]

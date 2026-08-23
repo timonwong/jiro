@@ -1,0 +1,6 @@
+-- input.md --
+C:\\{x} and a\\\\b
+-- want.jira --
+C:&#92;\{x\} and a&#92;\b
+-- warnings.json --
+[]

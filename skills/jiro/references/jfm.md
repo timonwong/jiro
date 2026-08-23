@@ -31,6 +31,8 @@ JFM conversion is best-effort. Conversion warnings retain every target-represent
 
 JFM inline code follows Jira renderer behavior rather than treating `{{...}}` as an opaque literal container. Canonical output encodes a body character as a decimal character reference exactly when Jira would otherwise read it as markup: `{`, `}`, `\`, an `&` that begins a character reference, a complete Text Effect or `??citation??` pair, a link whose visible text Jira would change, an emoticon token, a space-surrounded `--`, a tab, a space at either end, and a `|` inside a table cell. A lone `&`, `<`, `>`, `!`, a `|` outside a table cell, identifier-internal `-` and `_`, bracketed literal text, and complete `http`, `https`, `ftp`, and `mailto` URLs stay readable. Warning-free inline code round-trips byte-for-byte; a body that cannot be protected becomes plain text with a warning. Jira-specific rendering behavior around a `}}` boundary is not by itself a `jfm_conversion` warning.
 
+Plain text follows the same rule. An effect delimiter is escaped only where Jira would read it as one delimiter of a complete span, so `foo_bar_baz`, `release-note` and `what??` stay readable while `a -b- c` becomes `a \-b\- c`; a Text Effect that touches a letter or digit is written in Jira's brace form (`a**b**c` becomes `a{*}b{*}c`); a `h1.` or `bq.` line start is protected with `&#46;`; and an authored backslash becomes `&#92;` only where a bare one would start a Jira escape or forced newline, so `C:\dir\file` stays readable. Plain text that cannot be verified becomes fully escaped with a `plain-text` warning.
+
 ## Convert documents offline
 
 Use the non-mutating JFM subcommands when no Jira request is needed:

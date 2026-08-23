@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A brace opener after a space still opens.
+-- input.jira --
+x {*}b{*}
+-- rendered.html --
+<p>x <b>b</b></p>
+-- want.md --
+x **b**
+-- warnings.json --
+[]

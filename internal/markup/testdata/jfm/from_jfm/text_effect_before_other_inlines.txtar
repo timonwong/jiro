@@ -1,0 +1,6 @@
+-- input.md --
+**b**`c` **b**[l](http://x) **b**![alt](http://x/i.png)
+-- want.jira --
+*b*{{c}} *b*[l|http://x] *b*!http://x/i.png|alt=alt!
+-- warnings.json --
+[]

@@ -1,0 +1,12 @@
+-- input.md --
+# a -b- c
+
+- a -b- c
+- foo_bar_baz
+-- want.jira --
+h1. a \-b\- c
+
+* a \-b\- c
+* foo_bar_baz
+-- warnings.json --
+[]

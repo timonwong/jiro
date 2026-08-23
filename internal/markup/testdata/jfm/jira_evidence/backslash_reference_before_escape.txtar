@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: `&#92;` shows the authored backslash while the escapes beside it still protect the braces, which is exactly what the renderer emits for the text `C:\{x}`.
+-- input.jira --
+C:&#92;\{x\}
+-- rendered.html --
+<p>C:&#92;{x}</p>
+-- want.md --
+C:&#92;{x}
+-- warnings.json --
+[]

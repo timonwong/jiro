@@ -1,0 +1,22 @@
+-- input.md --
+a**b**c
+
+*i*t
+
+中**强**文
+
+**a*b*c**
+
+~~a~~b
+-- want.jira --
+a{*}b{*}c
+
+_i{_}t
+
+中{*}强{*}文
+
+*a{_}b{_}c*
+
+-a{-}b
+-- warnings.json --
+[]

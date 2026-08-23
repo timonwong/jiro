@@ -47,18 +47,18 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 		return close, err
 	}
 	var failedStyleScans map[byte]int
-	findStyleCloser := func(from int, delimiter byte) (int, error) {
+	findStyleCloser := func(from int, delimiter byte) (int, int, error) {
 		if failedFrom, ok := failedStyleScans[delimiter]; ok && from >= failedFrom {
-			return -1, nil
+			return -1, -1, nil
 		}
-		close, err := findJiraEffectClose(ctx, source, from, end, delimiter, nil)
-		if err == nil && close < 0 {
+		closeStart, closeEnd, err := findJiraEffectClose(ctx, source, from, end, delimiter)
+		if err == nil && closeStart < 0 {
 			if failedStyleScans == nil {
 				failedStyleScans = make(map[byte]int)
 			}
 			failedStyleScans[delimiter] = from
 		}
-		return close, err
+		return closeStart, closeEnd, err
 	}
 
 	for offset := start; offset < end; {
@@ -112,7 +112,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 					textEnd -= len("\u200b")
 				}
 				flushText(textEnd)
-				body, err := decodeJiraDelimitedText(ctx, raw)
+				body, err := decodeJiraEscapes(ctx, raw)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -152,24 +152,21 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 				if err != nil {
 					return nil, nil, err
 				}
-				labelText, target, unnamed := body, body, true
+				labelEnd, target, unnamed := close, body, true
 				if separator >= 0 {
-					labelText, target, unnamed = body[:separator], body[separator+1:], false
-				}
-				labelText, err = decodeJiraDelimitedText(ctx, labelText)
-				if err != nil {
-					return nil, nil, err
+					labelEnd, target, unnamed = offset+1+separator, body[separator+1:], false
 				}
 				target, err = decodeJiraDelimitedText(ctx, target)
 				if err != nil {
 					return nil, nil, err
 				}
-				label, nestedDiagnostics, err := parseJiraInlines(ctx, labelText, 0, len(labelText))
+				// The label is parsed from the source rather than from a decoded
+				// copy: Jira shows an escaped delimiter in link text as the
+				// character, so decoding first would let `[a \-b\- c|url]` read
+				// back as a strikethrough Jira never renders.
+				label, nestedDiagnostics, err := parseJiraInlines(ctx, source, offset+1, labelEnd)
 				if err != nil {
 					return nil, nil, err
-				}
-				for labelIndex, child := range label {
-					label[labelIndex] = shiftSemanticInline(child, offset+1)
 				}
 				diagnostics = append(diagnostics, nestedDiagnostics...)
 				_, dangerous := dangerousDestinationScheme([]byte(strings.TrimLeftFunc(target, unicodeSpaceOrControl)))
@@ -275,22 +272,27 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 			continue
 		}
 
-		if style, ok := jiraInlineStyle(source[offset]); ok && jiraEffectCanOpen(source, start, offset, end) {
-			close, err := findStyleCloser(offset+1, source[offset])
+		if token, opens, scanned := jiraEffectOpener(source, start, offset, end); opens {
+			closeStart, closeEnd, err := findStyleCloser(token.End, token.Delimiter)
 			if err != nil {
 				return nil, nil, err
 			}
-			if close >= 0 {
+			if closeStart >= 0 {
 				flushText(offset)
-				children, nestedDiagnostics, err := parseJiraInlines(ctx, source, offset+1, close)
+				children, nestedDiagnostics, err := parseJiraInlines(ctx, source, token.End, closeStart)
 				if err != nil {
 					return nil, nil, err
 				}
 				diagnostics = append(diagnostics, nestedDiagnostics...)
-				result = append(result, styledInline{Span: sourceSpan{Start: offset, End: close + 1}, Style: style, Children: children})
-				offset, textStart = close+1, close+1
+				result = append(result, styledInline{Span: sourceSpan{Start: offset, End: closeEnd}, Style: token.Style, Children: children})
+				offset, textStart = closeEnd, closeEnd
 				continue
 			}
+			offset = scanned
+			continue
+		} else if scanned > offset {
+			offset = scanned
+			continue
 		}
 
 		_, size := utf8.DecodeRuneInString(source[offset:end])
@@ -322,6 +324,37 @@ func findUnescaped(ctx context.Context, source string, start, end int, delimiter
 		return -1, err
 	}
 	return -1, nil
+}
+
+// decodeJiraEscapes resolves the backslash escapes Jira consumes wherever it
+// reads inline markup, which is the grammar's escapable set. A backslash before
+// any other character is text Jira shows, so `C:\temp` survives. A delimited
+// value such as a link target or an image parameter is not this: each has its
+// own per-context escape rule and keeps decodeJiraDelimitedText.
+func decodeJiraEscapes(ctx context.Context, value string) (string, error) {
+	if !strings.Contains(value, `\`) {
+		return value, ctx.Err()
+	}
+	var result strings.Builder
+	result.Grow(len(value))
+	for index := 0; index < len(value); {
+		if index&255 == 0 {
+			if err := ctx.Err(); err != nil {
+				return "", err
+			}
+		}
+		if value[index] == '\\' && index+1 < len(value) && isJiraEscapable(value[index+1]) {
+			result.WriteByte(value[index+1])
+			index += 2
+			continue
+		}
+		result.WriteByte(value[index])
+		index++
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return result.String(), nil
 }
 
 func decodeJiraDelimitedText(ctx context.Context, value string) (string, error) {

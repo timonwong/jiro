@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: The brace form of `-` renders strikethrough between word runes.
+-- input.jira --
+a{-}b{-}c
+-- rendered.html --
+<p>a<del>b</del>c</p>
+-- want.md --
+a~~b~~c
+-- warnings.json --
+[]

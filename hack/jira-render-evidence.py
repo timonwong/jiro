@@ -8,7 +8,7 @@ Equivalent single-case curl:
     -H 'Content-Type: application/json' -H 'X-Atlassian-Token: no-check' \
     -d '{"rendererType":"atlassian-wiki-renderer","unrenderedMarkup":"{{*bold*}}"}'
 
-Usage: python3 hack/jira-render-evidence.py [round1|...|round5|all] [--json]   (default: all)
+Usage: python3 hack/jira-render-evidence.py [round1|...|round6|all] [--json]   (default: all)
 
 --json prints one {"in": ..., "out": ...} object per line so captures can be
 turned into evidence fixtures without reparsing the human-readable output.
@@ -153,6 +153,90 @@ ROUND5 = [
 ]
 
 
+# Probe strings backing the plain-text escaping rules (#87): which characters a
+# backslash escapes, the brace form of an Effect Delimiter, how a table row
+# splits around links and images, and line-control protection.
+ROUND6 = [
+    # --- which characters a backslash escapes in plain text ---
+    r"plain \?\?", r"a\?", r"a \?b", r"a\!b", r"a\#b", r"a\.b", r"h1\. x",
+    r"\h1. x", r"a\ab", r"a\,b", r"a\=b", r"a\:b", r"a\(b\)", 'a\\"b', r"a\'b",
+    r"a\;b", r"a\/b", r"a\&b", r"a\<b", r"a\%b", r"a\@b", r"a\$b", r"a\^b",
+    r"a\~b", r"a\+b", r"a\ b", r"a\-b", r"a\*b", r"a\_b", r"a\{b\}c",
+    r"a\[b\]c", r"\# item", r"\* item", r"\- item", r"\|a|b|",
+    # --- line-control protection by character reference ---
+    "h1&#46; x", "bq&#46; x", "&#104;1. x", "h1.x", "x\nh1. y", "h1. x",
+    "&#42; item", "&#45; item", "&#35; item", "&#124;a|b|",
+    "a&#63;b", "what&#63;&#63;", "a&#46;b",
+    # --- citation pairing in plain text ---
+    "what??", "?? hello", "a ??cite?? b", "a??cite??b", "??cite??",
+    "what?? and why??", r"a \?\?cite\?\? b", r"a\?\?cite\?\?b",
+    # --- word runes on either side of a bare Effect Delimiter ---
+    "a*b*", "a*b*c", "x*y* z", "a" + ZWSP + "*b*c", "a·*b* c",
+    "a— *b* c", "é*b* c", "a *b*·c", "a *b*—c",
+    "a *b*€c", "a *b*中", "*b*中", "中*b*",
+    "a。*b* c", "a *b*。c", "a、*b*c", "a *b*、c",
+    "a «*b*» c",
+    # --- the brace form of an Effect Delimiter ---
+    "a{*}b{*}c", "a{_}b{_}c", "a{-}b{-}c", "a{+}b{+}c", "a{^}b{^}c",
+    "a{~}b{~}c", "a{??}b{??}c", "{*}b{*}", "{*}b{*} c", "x {*}b{*}",
+    "中{*}强{*}文", "{*}a*", "a{*}b*c", "a*b{*}c",
+    "a{*}b{*}{*}c{*}", "a{*} b {*}c", "{*} b{*}", "a{*}*b*{*}c",
+    "a{**}b{**}c", "{*}", "a{*}", r"a{*}b{*}c\*", "[a{*}b{*}c|http://x]",
+    "{{a{*}b{*}c}}", "h1. a{*}b{*}c", "* a{*}b{*}c",
+    "||h1||h2||\n|a{*}b{*}c|c|", "{color:red}x{color}",
+    "_i{_}t", "*a{_}b{_}c*", "-a{-}b",
+    # --- a table row splits around links and images ---
+    "||h1||h2||\n|[x|http://x]|c|",
+    "||h1||h2||\n|[x|y]|c|",
+    "||h1||h2||\n|[a|b|c]|d|",
+    "||h1||h2||\n|[x|http://x|title]|c|",
+    "||h1||h2||\n|[x|http://x]c|d|",
+    "||h1||h2||\n|a [x|http://x] b|c|",
+    "||h1||h2||\n|[~user]|c|",
+    "||h1||h2||\n|[#anchor]|c|",
+    "||h1||h2||\n|[^file.txt]|c|",
+    "||h1||h2||\n|[x]|c|",
+    "||h1||h2||\n|[a|c|",
+    "||h1||h2||\n" + r"|\[x|y]|c|",
+    "||h1||h2||\n|!http://x/i.png|alt=alt!|c|",
+    "||h1||h2||\n|!http://x/i.png|alt=alt, width=10!|c|",
+    "||h1||h2||\n|!http://x/i.png|alt=a|b!|c|",
+    "||h1||h2||\n|!http://x/i.png!|c|",
+    "||h1||h2||\n|!a!|b|",
+    "||h1||h2||\n|!a|b|c|",
+    "||h1||h2||\n|!a.png|b!x|c|",
+    "||h1||h2||\n|! a|b!|c|",
+    "||h1||h2||\n|a!b|c!d|",
+    "||h1||h2||\n|{{a|b}}|c|",
+    "||h1||h2||\n" + r"|a\|b|c|",
+    "||h1||h2||\n" + r"|!http://x/i.png\|alt=alt!|c|",
+    # --- inline runs in a link label ---
+    "[a -b- c|http://x]", "[foo_bar_baz|http://x]", "[y *x*|http://x]",
+    r"[a\-b\-c|http://x]", "[a{*}b{*}c|http://x]", "[x|http://x] *y*",
+    r"[a \?\? b|http://x]", "[h1. x|http://x]", r"[a\[b|http://x]",
+    "[a|b|http://x]",
+    # --- the same plain text in the other block contexts ---
+    "h1. a -b- c", "h1. foo_bar_baz", "* a -b- c", "* foo_bar_baz",
+    "a -b- c", r"a\-b\-c", r"y \*x\*", r"a \-b\- c", r"a-b \-c\- d",
+    "+ins+", "^sup^", "~sub~", "2^10", "a+b+c", "x~y~z", "a--b",
+    r"\+ins\+", r"\^sup\^", r"\~sub\~", "(_x_)", '"*x*"',
+    # --- an effect's content may not begin with its own delimiter ---
+    "**x**", "a**b**c", "*x**", "**x*", "*a*b*", "a *b** c", "*a**b*",
+    "a{*}{*}b", "{*}{_}x{_}{*}", "a{*}b{-}c{-}d{*}e", "{{a{-}b{-}c}}",
+    # --- the brace form of the citation delimiter ---
+    "a{??}b??c", "a??b{??}c", "{??}b{??}",
+    # --- mixed runs the renderer has to spell two ways at once ---
+    "a{*}b{*}c and x*y*z", "{*}a{*} {*}b{*}",
+    # --- an authored backslash: which ones Jira reads as a forced newline ---
+    r"a\\b", r"a \\ b", r"\\a", r"a\\", r"C:\\dir\\file", r"a\\\\b",
+    r"C:\dir\file", "x\\", r"x\ y", r"C:\{x}", r"C:&#92;\{x\}",
+    "C:&#92;dir&#92;file", "a &#92; b",
+    # --- which escapes a Monospace Span body consumes ---
+    r"{{a\?b}}", r"{{a\#b}}", r"{{a\(b\)}}", r"{{a\%b}}", r"{{a\@b}}",
+    r"{{a\!b}}", r"{{a\.b}}", r"{{a\,b}}", r"{{a\\b}}",
+]
+
+
 def render(markup, timeout=30):
     body = json.dumps({"rendererType": "atlassian-wiki-renderer",
                        "unrenderedMarkup": markup}).encode()
@@ -190,5 +274,5 @@ if __name__ == "__main__":
     arguments = [a for a in arguments if a != "--json"]
     which = arguments[0] if arguments else "all"
     run({"round1": ROUND1, "round2": ROUND2, "round3": ROUND3, "round4": ROUND4,
-          "round5": ROUND5,
-          "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5}[which], as_json=as_json)
+          "round5": ROUND5, "round6": ROUND6,
+          "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5 + ROUND6}[which], as_json=as_json)

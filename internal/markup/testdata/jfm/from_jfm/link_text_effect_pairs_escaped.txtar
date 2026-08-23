@@ -1,0 +1,10 @@
+-- input.md --
+[(\_x\_) "\*x\*"](http://x)
+
+[y \*x\*](http://x) [a-b -c- d](http://x)
+-- want.jira --
+[(\_x\_) "\*x\*"|http://x]
+
+[y \*x\*|http://x] [a-b \-c\- d|http://x]
+-- warnings.json --
+[]

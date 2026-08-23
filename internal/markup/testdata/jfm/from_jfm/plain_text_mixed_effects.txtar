@@ -1,0 +1,6 @@
+-- input.md --
+a**b**c and x\*y\*z
+-- want.jira --
+a{*}b{*}c and x*y*z
+-- warnings.json --
+[]

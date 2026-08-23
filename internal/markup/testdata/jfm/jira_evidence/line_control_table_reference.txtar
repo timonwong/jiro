@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A character reference also keeps a `|` table row off the line start.
+-- input.jira --
+&#124;a|b|
+-- rendered.html --
+<p>&#124;a|b|</p>
+-- want.md --
+&#124;a|b|
+-- warnings.json --
+[]
