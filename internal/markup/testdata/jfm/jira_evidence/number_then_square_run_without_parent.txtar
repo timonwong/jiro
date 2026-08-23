@@ -1,0 +1,23 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A run ending in `-` squares the level it names even below an ordered parent.
+-- input.jira --
+#- item
+-- rendered.html --
+<ol>
+	<li>
+	<ul class="alternate" type="square">
+		<li>item</li>
+	</ul>
+	</li>
+</ol>
+-- want.md --
+\#- item
+-- warnings.json --
+[
+  {
+    "Line": 1,
+    "Column": 1,
+    "Construct": "list",
+    "Reason": "list item has no parent at its authored nesting level"
+  }
+]

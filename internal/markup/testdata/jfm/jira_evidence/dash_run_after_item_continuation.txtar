@@ -1,0 +1,20 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A plain line continues the item it follows and leaves the list open, so the dash run below it is still a marker.
+-- input.jira --
+* a
+foo
+-- b
+-- rendered.html --
+<ul>
+	<li>a<br/>
+foo
+	<ul class="alternate" type="square">
+		<li>b</li>
+	</ul>
+	</li>
+</ul>
+-- want.md --
+- a foo
+    - b
+-- warnings.json --
+[]

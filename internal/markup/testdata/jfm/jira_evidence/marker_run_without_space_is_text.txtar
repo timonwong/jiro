@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A marker run that no space or tab follows is a paragraph, and no list level goes missing.
+-- input.jira --
+**
+-- rendered.html --
+<p>**</p>
+-- want.md --
+\*\*
+-- warnings.json --
+[]

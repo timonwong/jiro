@@ -1,0 +1,23 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A run ending in `#` numbers the level it names whatever the characters before it are.
+-- input.jira --
+-# item
+-- rendered.html --
+<ul class="alternate" type="square">
+	<li>
+	<ol>
+		<li>item</li>
+	</ol>
+	</li>
+</ul>
+-- want.md --
+\-# item
+-- warnings.json --
+[
+  {
+    "Line": 1,
+    "Column": 1,
+    "Construct": "list",
+    "Reason": "list item has no parent at its authored nesting level"
+  }
+]

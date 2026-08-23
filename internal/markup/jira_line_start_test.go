@@ -130,3 +130,139 @@ func TestEscapeTextForJiraTextProtectsLineStarts(t *testing.T) {
 		})
 	}
 }
+
+// TestJiraLineMarkerRunMatchesRenderer pins the reading the block parser needs
+// on top of the escaper's: the whole marker run, where the item content starts,
+// and whether the run is one of the dash runs Jira reads as a marker only while
+// a list is open. Every row is a render captured in round7 or round8 of
+// hack/jira-render-evidence.py.
+func TestJiraLineMarkerRunMatchesRenderer(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		line    string
+		run     string
+		content int
+		dashRun bool
+	}{
+		{name: "bullet", line: "* item", run: "*", content: 2},
+		{name: "square bullet", line: "- item", run: "-", content: 2},
+		{name: "number", line: "# item", run: "#", content: 2},
+		{name: "square bullet then bullet", line: "-* item", run: "-*", content: 3},
+		{name: "bullet then square bullet", line: "*- item", run: "*-", content: 3},
+		{name: "tab after the marker", line: "*\titem", run: "*", content: 2},
+		{name: "tab after a square bullet", line: "-\titem", run: "-", content: 2},
+		{name: "two spaces after the marker", line: "*  item", run: "*", content: 3},
+		{name: "indented square bullet", line: "  - item", run: "-", content: 4},
+		{name: "tab indented bullet", line: "\t* item", run: "*", content: 3},
+		{name: "empty item", line: "* ", run: "*", content: 2},
+		{name: "empty nested item", line: "** ", run: "**", content: 3},
+		{name: "en dash run", line: "-- item", run: "--", content: 3, dashRun: true},
+		{name: "em dash run", line: "--- item", run: "---", content: 4, dashRun: true},
+		{name: "dash run with an empty item", line: "-- ", run: "--", content: 3, dashRun: true},
+		{name: "mixed run ending in dashes", line: "*-- item", run: "*--", content: 4},
+		{name: "run without a space", line: "**"},
+		{name: "number run without a space", line: "##"},
+		{name: "dash run without a space", line: "--"},
+		{name: "lone bullet", line: "*"},
+		{name: "bullet without a space", line: "*item"},
+		{name: "escaped bullet", line: `\* item`},
+		{name: "empty", line: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			run, content, dashRun := jiraLineMarkerRun(test.line)
+			if run != test.run || content != test.content || dashRun != test.dashRun {
+				t.Fatalf("jiraLineMarkerRun(%q) = %q, %d, %t; want %q, %d, %t", test.line, run, content, dashRun, test.run, test.content, test.dashRun)
+			}
+		})
+	}
+}
+
+// TestJiraLineControlPrefixReportsTheBlockItOpens holds the part of the line
+// control the block parser reads that the escaper does not: which of the two
+// blocks Jira opens there, and at which heading level.
+func TestJiraLineControlPrefixReportsTheBlockItOpens(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name  string
+		line  string
+		level int
+		quote bool
+		end   int
+	}{
+		{name: "heading", line: "h1. x", level: 1, end: 3},
+		{name: "deepest heading", line: "h6. x", level: 6, end: 3},
+		{name: "indented heading", line: " h2. x", level: 2, end: 4},
+		{name: "twice tab indented heading", line: "\t\th1. x", level: 1, end: 5},
+		{name: "quote", line: "bq. x", quote: true, end: 3},
+		{name: "indented quote", line: "  bq. x", quote: true, end: 5},
+		{name: "heading level Jira has none of", line: "h7. x"},
+		{name: "quote without a space", line: "bq.x"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			level, quote, end := jiraLineControlPrefix(test.line)
+			if level != test.level || quote != test.quote || end != test.end {
+				t.Fatalf("jiraLineControlPrefix(%q) = %d, %t, %d; want %d, %t, %d", test.line, level, quote, end, test.level, test.quote, test.end)
+			}
+		})
+	}
+}
+
+// TestJiraLineThematicBreakMatchesRenderer holds the third line-start rule on
+// the same indent: Jira draws the rule past leading spaces and tabs and ignores
+// the ones trailing it.
+func TestJiraLineThematicBreakMatchesRenderer(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		line string
+		want bool
+	}{
+		{name: "rule", line: "----", want: true},
+		{name: "indented rule", line: " ----", want: true},
+		{name: "tab indented rule", line: "\t----", want: true},
+		{name: "trailing space", line: " ---- ", want: true},
+		{name: "three dashes", line: "---"},
+		{name: "dash run with an item", line: "---- x"},
+		{name: "text before the rule", line: "x ----"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := jiraLineThematicBreak(test.line); got != test.want {
+				t.Fatalf("jiraLineThematicBreak(%q) = %t, want %t", test.line, got, test.want)
+			}
+		})
+	}
+}
+
+// TestJiraLineStartBlockNameNamesEveryCellBlock covers the reading a table cell
+// gets: Jira renders a block at the cell's own line start, and the name is what
+// the warning tells the reader jiro kept as text instead.
+func TestJiraLineStartBlockNameNamesEveryCellBlock(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		line string
+		want string
+	}{
+		{name: "bullet", line: "* item", want: "a list"},
+		{name: "square bullet", line: "- item", want: "a list"},
+		{name: "number", line: "# item", want: "a list"},
+		{name: "indented bullet", line: " * item", want: "a list"},
+		{name: "heading", line: "h1. x", want: "a heading"},
+		{name: "quote", line: "bq. x", want: "a block quote"},
+		{name: "rule", line: "----", want: "a horizontal rule"},
+		{name: "dash run", line: "-- item"},
+		{name: "escaped bullet", line: `\* item`},
+		{name: "plain text", line: "x"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := jiraLineStartBlockName(test.line); got != test.want {
+				t.Fatalf("jiraLineStartBlockName(%q) = %q, want %q", test.line, got, test.want)
+			}
+		})
+	}
+}

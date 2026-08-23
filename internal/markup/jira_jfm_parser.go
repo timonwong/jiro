@@ -3,11 +3,9 @@ package markup
 import (
 	"context"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
-var jiraHeadingPattern = regexp.MustCompile(`^h([1-6])\.(?: (.*))?$`)
 var jiraHeadingLikePattern = regexp.MustCompile(`^h[0-9]+\.(?: |$)`)
 
 func parseJiraMarkup(ctx context.Context, source string) (semanticDocument, []conversionDiagnostic, error) {
@@ -30,19 +28,22 @@ func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, quoteDepth 
 			continue
 		}
 		line := lines[index]
-		if match := jiraHeadingPattern.FindStringSubmatch(line.Text); match != nil {
-			level, _ := strconv.Atoi(match[1])
-			contentStart := line.Start + len(match[0]) - len(match[2])
+		if level, quote, prefixEnd := jiraLineControlPrefix(line.Text); prefixEnd != 0 {
+			contentStart := line.Start + prefixEnd
+			if contentStart < line.End && source[contentStart] == ' ' {
+				contentStart++
+			}
 			inlines, inlineDiagnostics, err := parseJiraInlines(ctx, source, contentStart, line.End)
 			if err != nil {
 				return semanticDocument{}, nil, err
 			}
 			diagnostics = append(diagnostics, inlineDiagnostics...)
-			document.Blocks = append(document.Blocks, headingBlock{
-				Span:    sourceSpan{Start: line.Start, End: line.End},
-				Level:   level,
-				Inlines: inlines,
-			})
+			span := sourceSpan{Start: line.Start, End: line.End}
+			if quote {
+				document.Blocks = append(document.Blocks, quoteBlock{Span: span, Blocks: []semanticBlock{paragraphBlock{Span: sourceSpan{Start: contentStart, End: line.End}, Inlines: inlines}}})
+			} else {
+				document.Blocks = append(document.Blocks, headingBlock{Span: span, Level: level, Inlines: inlines})
+			}
 			index++
 			continue
 		}
@@ -52,12 +53,12 @@ func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, quoteDepth 
 			index++
 			continue
 		}
-		if line.Text == "----" {
+		if jiraLineThematicBreak(line.Text) {
 			document.Blocks = append(document.Blocks, thematicBreakBlock{Span: sourceSpan{Start: line.Start, End: line.End}})
 			index++
 			continue
 		}
-		if match := jiraListLinePattern.FindStringSubmatch(line.Text); match != nil {
+		if _, markerEnd := jiraListMarkerPrefix(line.Text); markerEnd != 0 {
 			blocks, next, listDiagnostics, err := parseJiraLists(ctx, source, lines, index)
 			if err != nil {
 				return semanticDocument{}, nil, err
@@ -75,20 +76,6 @@ func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, quoteDepth 
 			document.Blocks = append(document.Blocks, table)
 			diagnostics = append(diagnostics, tableDiagnostics...)
 			index = next
-			continue
-		}
-		if strings.HasPrefix(line.Text, "bq.") && (len(line.Text) == 3 || line.Text[3] == ' ') {
-			contentStart := line.Start + 3
-			if contentStart < line.End && source[contentStart] == ' ' {
-				contentStart++
-			}
-			inlines, inlineDiagnostics, err := parseJiraInlines(ctx, source, contentStart, line.End)
-			if err != nil {
-				return semanticDocument{}, nil, err
-			}
-			diagnostics = append(diagnostics, inlineDiagnostics...)
-			document.Blocks = append(document.Blocks, quoteBlock{Span: sourceSpan{Start: line.Start, End: line.End}, Blocks: []semanticBlock{paragraphBlock{Span: sourceSpan{Start: contentStart, End: line.End}, Inlines: inlines}}})
-			index++
 			continue
 		}
 		if macro, ok := parseJiraBlockMacro(ctx, source, lines, index, quoteDepth); ok {

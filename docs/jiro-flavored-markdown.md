@@ -501,6 +501,8 @@ Warnings:
 
 JFM accepts CommonMark unordered markers `-`, `*`, and `+` and ordered markers ending in `.` or `)`. Jira marker chains preserve the ordered or unordered type at every nesting level. Canonical JFM uses `-` and `1.` regardless of authored marker or ordinal. Authored ordered-list start values other than one are discarded with a warning because Jira Markup cannot retain them.
 
+Jira has two unordered bullets, the round `*` and the square `-`, and JFM has one. Both become the same JFM bullet, so a square Jira bullet comes back as a round one and a Jira list that changes bullet shape mid-way becomes plain bullets throughout.
+
 A list item with one inline paragraph followed by nested lists is reversible. When an item contains additional recognized blocks that Jira list markers cannot own:
 
 1. The first paragraph remains the list item.
@@ -527,6 +529,24 @@ Output:
 ~~~jira
 * alpha
 * beta
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: square-bullet-list; direction: jira-to-jfm -->
+Input:
+~~~jira
+- alpha
+- beta
+~~~
+
+Output:
+~~~jfm
+- alpha
+- beta
 ~~~
 
 Warnings:
