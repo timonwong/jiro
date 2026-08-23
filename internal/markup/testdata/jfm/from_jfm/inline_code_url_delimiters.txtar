@@ -1,6 +1,6 @@
 -- input.md --
 `https://example.com/a_b*c-d`
 -- want.jira --
-{{https&#58;//example.com/a_b*c-d}}
+{{https://example.com/a_b*c-d}}
 -- warnings.json --
 []

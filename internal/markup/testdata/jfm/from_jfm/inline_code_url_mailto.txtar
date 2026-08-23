@@ -1,6 +1,6 @@
 -- input.md --
-Run `a|b`.
+`mailto:a@b`
 -- want.jira --
-Run {{a|b}}.
+{{mailto:a@b}}
 -- warnings.json --
 []

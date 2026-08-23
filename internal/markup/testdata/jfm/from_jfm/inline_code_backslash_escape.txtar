@@ -1,6 +1,6 @@
 -- input.md --
-Run `a|b`.
+`[a\-z]+`
 -- want.jira --
-Run {{a|b}}.
+{{[a&#92;-z]+}}
 -- warnings.json --
 []

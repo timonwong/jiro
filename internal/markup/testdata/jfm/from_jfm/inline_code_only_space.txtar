@@ -1,6 +1,6 @@
 -- input.md --
-Run `a|b`.
+` `
 -- want.jira --
-Run {{a|b}}.
+{{&#32;}}
 -- warnings.json --
 []

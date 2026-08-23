@@ -1,5 +1,5 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
-observed: Jira autolinks mailto and shows only the address, so the visible text changes and jiro warns.
+observed: Jira autolinks mailto and shows only the address, but jiro keeps the body literal without a warning: the address stays visible and a REST read returns the raw markup unchanged.
 -- input.jira --
 {{mailto:a@b.c}}
 -- rendered.html --
@@ -7,11 +7,4 @@ observed: Jira autolinks mailto and shows only the address, so the visible text 
 -- want.md --
 `mailto:a@b.c`
 -- warnings.json --
-[
- {
-  "Line": 1,
-  "Column": 1,
-  "Construct": "inline-code",
-  "Reason": "Jira would render a mailto autolink with different text inside this Monospace Span; inline code keeps the characters literal"
- }
-]
+[]

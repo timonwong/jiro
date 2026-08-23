@@ -80,17 +80,6 @@ func TestFromJFMGolden(t *testing.T) {
 	})
 }
 
-func TestFromJFMInlineCodePreservesJiraSafeEscapes(t *testing.T) {
-	t.Parallel()
-	result, err := markup.FromJFM(context.Background(), "`&amp; <tag> x\\-y`")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Markup != "{{&amp; <tag> x\\-y}}" || len(result.Warnings) != 0 {
-		t.Fatalf("result = %#v, want Jira-safe wire output without warnings", result)
-	}
-}
-
 func TestJFMSpecExamplesConform(t *testing.T) {
 	t.Parallel()
 	source, err := os.ReadFile("../../docs/jiro-flavored-markdown.md")

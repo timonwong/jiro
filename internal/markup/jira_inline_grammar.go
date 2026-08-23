@@ -147,6 +147,14 @@ const (
 	jiraHazardZeroWidthSpace
 )
 
+// jiraMonospaceAlwaysEncoded are the characters a Monospace Span body can never
+// keep raw, whichever hazards the scan reports around them. Which construct a
+// `{`, `}` or `\` is consumed into -- a macro, the span's own closer, a forced
+// newline, a legacy escape -- depends only on what follows it, and U+200B is a
+// span boundary wherever it sits, so a body keeps none of them even at an offset
+// where no hazard fires.
+const jiraMonospaceAlwaysEncoded = "{}\\\u200b"
+
 // jiraHazardInPlainText is the plain-text subset of jiraHazardKind, kept as data
 // so that both contexts run through one scanner.
 var jiraHazardInPlainText = [...]bool{
@@ -311,8 +319,13 @@ func jiraInlineHazards(ctx context.Context, source string, start, end int, inlin
 				continue
 			}
 		}
-		if scheme, autolinkEnd := jiraAutolinkExtent(source, start, index, end); autolinkEnd > 0 {
-			add(jiraHazardAutolink, "", index, autolinkEnd, scheme == "mailto:")
+		if _, autolinkEnd := jiraAutolinkExtent(source, start, index, end); autolinkEnd > 0 {
+			// An autolink of any scheme, including mailto, leaves Jira's visible
+			// text derived from the address rather than the raw markup, but no
+			// caller marks it: Jira's autolinker leaves the address visible and
+			// a REST read returns the raw markup unchanged, so nothing is lost
+			// by leaving it raw.
+			add(jiraHazardAutolink, "", index, autolinkEnd, false)
 			index = autolinkEnd
 			continue
 		}

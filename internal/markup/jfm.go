@@ -86,10 +86,11 @@ func FromJFM(ctx context.Context, jfm string) (JiraMarkupResult, error) {
 		return JiraMarkupResult{}, err
 	}
 	diagnostics = append(diagnostics, parsedDiagnostics...)
-	markup, err := renderJiraMarkup(ctx, document)
+	markup, renderedDiagnostics, err := renderJiraMarkup(ctx, document)
 	if err != nil {
 		return JiraMarkupResult{}, err
 	}
+	diagnostics = append(diagnostics, renderedDiagnostics...)
 	return JiraMarkupResult{Markup: markup, Warnings: finalizeDiagnostics(source, diagnostics)}, nil
 }
 

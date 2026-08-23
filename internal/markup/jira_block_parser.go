@@ -211,34 +211,50 @@ func parseJiraTableRow(ctx context.Context, source string, line sourceLine, head
 	if innerEnd < innerStart || !strings.HasSuffix(text, delimiter) {
 		return []tableCell{{Span: sourceSpan{Start: line.Start, End: line.End}, Inlines: []semanticInline{textInline{Span: sourceSpan{Start: line.Start, End: line.End}, Text: text}}}}, nil, false, nil
 	}
-	cells := make([]tableCell, 0)
+	bounds, err := jiraTableCellBounds(ctx, text, innerStart, innerEnd, delimiter)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	cells := make([]tableCell, 0, len(bounds))
 	diagnostics := make([]conversionDiagnostic, 0)
 	edgeWhitespace := false
-	for cellStart := innerStart; cellStart <= innerEnd; {
-		next, err := findUnescaped(ctx, text, cellStart, innerEnd, delimiter)
-		if err != nil {
-			return nil, nil, false, err
-		}
-		if next < 0 {
-			next = innerEnd
-		}
-		value := text[cellStart:next]
+	for _, bound := range bounds {
+		value := text[bound.Start:bound.End]
 		if strings.TrimSpace(value) != value {
 			edgeWhitespace = true
 		}
-		absoluteStart := line.Start + cellStart
-		inlines, inlineDiagnostics, err := parseJiraInlines(ctx, source, absoluteStart, line.Start+next)
+		span := sourceSpan{Start: line.Start + bound.Start, End: line.Start + bound.End}
+		inlines, inlineDiagnostics, err := parseJiraInlines(ctx, source, span.Start, span.End)
 		if err != nil {
 			return nil, nil, false, err
 		}
 		diagnostics = append(diagnostics, inlineDiagnostics...)
-		cells = append(cells, tableCell{Span: sourceSpan{Start: absoluteStart, End: line.Start + next}, Inlines: inlines})
+		cells = append(cells, tableCell{Span: span, Inlines: inlines})
+	}
+	return cells, diagnostics, edgeWhitespace, nil
+}
+
+// jiraTableCellBounds splits the inside of a table row into cells. The Jira
+// renderer reuses it to prove that a rendered cell still reaches the inline
+// parser as one cell, so a row and a candidate cell must never be split by two
+// different rules.
+func jiraTableCellBounds(ctx context.Context, text string, innerStart, innerEnd int, delimiter string) ([]sourceSpan, error) {
+	bounds := make([]sourceSpan, 0, 1)
+	for cellStart := innerStart; cellStart <= innerEnd; {
+		next, err := findUnescaped(ctx, text, cellStart, innerEnd, delimiter)
+		if err != nil {
+			return nil, err
+		}
+		if next < 0 {
+			next = innerEnd
+		}
+		bounds = append(bounds, sourceSpan{Start: cellStart, End: next})
 		if next == innerEnd {
 			break
 		}
 		cellStart = next + len(delimiter)
 	}
-	return cells, diagnostics, edgeWhitespace, nil
+	return bounds, nil
 }
 
 func tableCellSupportsGFM(cell tableCell) bool {
