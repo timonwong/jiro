@@ -1,0 +1,13 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: The line after a forced newline is a line start, and an escaped marker there keeps the line inside the paragraph.
+-- input.jira --
+x\\
+\* item
+-- rendered.html --
+<p>x<br class="atl-forced-newline" />
+&#42; item</p>
+-- want.md --
+x\
+\* item
+-- warnings.json --
+[]

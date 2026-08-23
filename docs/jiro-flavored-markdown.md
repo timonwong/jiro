@@ -104,6 +104,7 @@ Escaping is interpreted in the source notation before target escaping is applied
 - Plain-text Jira effect delimiters (`*`, `_`, `-`, `+`, `^`, and `~`) are escaped in Jira output only when they participate in a complete formatting span. Unmatched effect delimiters and word-internal punctuation that Jira cannot tokenize as formatting remain unescaped. `?` is escaped only as part of a complete `??…??` citation, so `what??` stays readable. Jira structural delimiters (`\`, `{`, `}`, `[`, `]`, `!`, `|`, and `#`) retain their safety escaping.
 - An authored backslash is written as the character reference `&#92;` when the next character is one whose backslash Jira consumes, so that neither the forced newline `\\` nor an escape `\X` can form from authored text. Every other backslash is written as itself, keeping `C:\dir\file`, `a \ b`, and a trailing `x\` readable.
 - A `h1.` through `h6.` or `bq.` prefix at the start of a Jira output line is protected with the character reference `&#46;`, because Jira shows a backslash before `.` instead of consuming it. These two references are the only places plain text is not written literally.
+- A run of Jira list markers (`*`, `-`, and `#`, in any mix) followed by a space or a tab at the start of a Jira output line is protected by backslash-escaping its first character, so `\* item` becomes `\* item` and `\*\* item` becomes `\** item`. Every line of a paragraph is a line start, including the line after a hard break. A marker run with nothing after it, and a run of two or more `-`, which Jira reads as a dash, are not list markers and stay literal.
 - Escaping decisions are proven by re-parsing the rendered inline run. Plain text that cannot be verified is emitted fully escaped with a `plain-text` warning rather than changed in silence.
 - Plain-text characters that would start unintended Markdown formatting are escaped in JFM output.
 - Directive attribute escapes are interpreted only inside directive attributes. Unknown escape sequences remain visible and produce warnings.
@@ -280,6 +281,30 @@ C:\\dir\\file and C:\\{x}
 Output:
 ~~~jira
 C:\dir\file and C:&#92;\{x\}
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: jira-plain-text-list-marker; direction: jfm-to-jira -->
+Input:
+~~~jfm
+\* item
+
+\*\* item
+
+\-\- item
+~~~
+
+Output:
+~~~jira
+\* item
+
+\** item
+
+-- item
 ~~~
 
 Warnings:

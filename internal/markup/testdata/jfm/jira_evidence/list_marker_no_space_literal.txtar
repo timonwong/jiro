@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A marker run with no space after it is plain text.
+-- input.jira --
+*item
+-- rendered.html --
+<p>*item</p>
+-- want.md --
+\*item
+-- warnings.json --
+[]

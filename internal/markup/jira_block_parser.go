@@ -9,6 +9,39 @@ import (
 
 var jiraListLinePattern = regexp.MustCompile(`^([*#]+)(?: (.*))?$`)
 
+// jiraListMarkerPrefix reports the byte range of the marker run that makes Jira
+// read line as a list item, and 0, 0 when it reads no list there. Jira takes a
+// run of `*`, `#` and `-` in any mix, after any number of leading ASCII spaces,
+// as the marker when a space or a tab follows it; a run with anything else after
+// it is text, and so is a run of two or more `-`, which is Jira's en or em dash
+// and a semantic jiro keeps (see jiraPlainTextByteClasses).
+//
+// This is the renderer's reading of a line start rather than the parser's: the
+// Jira-to-JFM block parser in this file recognizes a narrower set, and the
+// difference is a divergence of that parser rather than of this rule. The
+// captures behind the rule are the list-marker archives in
+// testdata/jfm/jira_evidence.
+func jiraListMarkerPrefix(line string) (int, int) {
+	start := 0
+	for start < len(line) && line[start] == ' ' {
+		start++
+	}
+	end, dashes := start, 0
+	for end < len(line) && (line[end] == '*' || line[end] == '#' || line[end] == '-') {
+		if line[end] == '-' {
+			dashes++
+		}
+		end++
+	}
+	if end == start || end == len(line) || line[end] != ' ' && line[end] != '\t' {
+		return 0, 0
+	}
+	if dashes == end-start && dashes > 1 {
+		return 0, 0
+	}
+	return start, end
+}
+
 func isJiraBlockStart(line string) bool {
 	if jiraHeadingPattern.MatchString(line) || jiraHeadingLikePattern.MatchString(line) || line == "----" || jiraListLinePattern.MatchString(line) ||
 		strings.HasPrefix(line, "||") || strings.HasPrefix(line, "|") ||

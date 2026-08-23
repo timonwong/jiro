@@ -247,7 +247,9 @@ func (verdict jiraVerificationVerdict) accepts() bool {
 
 // verifyJiraInlineRun re-parses rendered in its block context. A table cell is
 // verified against the row splitter first, because the block layer splits the
-// row before any inline rule runs. The body comparison behind codePreserved is
+// row before any inline rule runs, and every line start is read against the
+// block layer's list-marker and line-control rules, which the inline re-parse
+// cannot report. The body comparison behind codePreserved is
 // only reached when the strict comparison has already failed, so a run that
 // verifies pays for one re-parse and one key. A run without inline code has an
 // empty body key on both sides; that is the truthful answer, since there is no
@@ -259,6 +261,9 @@ func verifyJiraInlineRun(ctx context.Context, rendered, intended string, inlines
 			return jiraVerificationVerdict{}, err
 		}
 	}
+	if !jiraLineStartsReadAsText(rendered, run.atLineStart) {
+		return jiraVerificationVerdict{}, nil
+	}
 	parsed, _, err := parseJiraInlines(ctx, rendered, 0, len(rendered))
 	if err != nil {
 		return jiraVerificationVerdict{}, err
@@ -267,6 +272,29 @@ func verifyJiraInlineRun(ctx context.Context, rendered, intended string, inlines
 		return jiraVerificationVerdict{matched: true}, nil
 	}
 	return jiraVerificationVerdict{codePreserved: jiraCodeBodyKey(parsed) == jiraCodeBodyKey(inlines)}, nil
+}
+
+// jiraLineStartsReadAsText reports whether every line start of a rendered run is
+// one Jira keeps inside the block it was rendered for. A forced newline opens a
+// line start wherever it stands, so the scan follows the newlines of the run
+// itself and only the run's own first offset depends on the block context.
+func jiraLineStartsReadAsText(rendered string, atLineStart bool) bool {
+	for offset := 0; offset < len(rendered); {
+		if atLineStart {
+			if _, markerEnd := jiraListMarkerPrefix(rendered[offset:]); markerEnd != 0 {
+				return false
+			}
+			if jiraLineControlPrefixLength(rendered[offset:]) != 0 {
+				return false
+			}
+		}
+		newline := strings.IndexByte(rendered[offset:], '\n')
+		if newline < 0 {
+			break
+		}
+		offset, atLineStart = offset+newline+1, true
+	}
+	return true
 }
 
 // jiraCodeBodyKey keys the inline code of a run together with the Text Effects

@@ -388,6 +388,17 @@ func escapeTextForJiraText(ctx context.Context, value string, atLineStart bool) 
 				offset, atLineStart = pending, false
 				continue
 			}
+			if markerStart, markerEnd := jiraListMarkerPrefix(value[offset:]); markerEnd != 0 {
+				// Jira reads the whole marker run as a list, and stops reading one
+				// as soon as the first marker carries a backslash, so the rest of
+				// the run needs nothing beyond what its own byte class asks for.
+				flush(offset + markerStart)
+				result.WriteByte('\\')
+				result.WriteByte(value[offset+markerStart])
+				pending, changed = offset+markerStart+1, true
+				offset, atLineStart = pending, false
+				continue
+			}
 		}
 		character := value[offset]
 		atLineStart = character == '\n'

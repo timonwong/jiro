@@ -1,0 +1,6 @@
+-- input.md --
+\* **b** c
+-- want.jira --
+\* *b* c
+-- warnings.json --
+[]

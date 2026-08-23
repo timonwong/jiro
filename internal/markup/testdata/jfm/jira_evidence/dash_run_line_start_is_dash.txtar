@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A line-start run of nothing but `-` is a Jira dash rather than a list marker.
+-- input.jira --
+-- item
+-- rendered.html --
+<p>&#8211; item</p>
+-- want.md --
+\-- item
+-- warnings.json --
+[]
