@@ -1,6 +1,6 @@
 -- input.md --
 `mailto:a@b`
 -- want.jira --
-{{&#109;ailto:a@b}}
+{{mailto:a@b}}
 -- warnings.json --
 []

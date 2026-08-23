@@ -534,7 +534,10 @@ const legacyCodeSpanEscapedDelimiters = `{}[]|-*_`
 // jiraMonospaceReinterpretation names the first construct Jira would render
 // inside the undecoded Monospace Span body instead of showing its characters.
 // Emoticon, dash, macro and escape reinterpretations stay silent: they are Jira
-// misrendering code, not semantics jiro drops.
+// misrendering code, not semantics jiro drops. An autolink of any scheme,
+// including mailto, is also silent: Jira's autolinker leaves the address
+// visible and a REST read returns the raw markup unchanged, so nothing is
+// lost by leaving it raw.
 func jiraMonospaceReinterpretation(ctx context.Context, body string) (string, bool, error) {
 	hazards, err := jiraInlineHazards(ctx, body, 0, len(body), jiraMonospaceContext, false)
 	if err != nil {
@@ -549,10 +552,6 @@ func jiraMonospaceReinterpretation(ctx context.Context, body string) (string, bo
 		case jiraHazardLink:
 			if hazard.TextChanges {
 				return "a link", true, nil
-			}
-		case jiraHazardAutolink:
-			if hazard.TextChanges {
-				return "a mailto autolink with different text", true, nil
 			}
 		}
 	}

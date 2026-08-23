@@ -428,12 +428,13 @@ func markPredictedMonospaceSpanEncoding(ctx context.Context, body string, encode
 		case jiraHazardCitation:
 			// One `?` per `??` delimiter is enough to break the pair.
 			mark(hazard.Start, hazard.End-2)
-		case jiraHazardLink, jiraHazardAutolink:
-			// The token's first character alone, which is enough to stop Jira
-			// recognizing it: the opening bracket of a link, the scheme's first
-			// letter of an autolink. Both only matter when Jira's visible text
-			// differs from the body, so a lone `]` and an autolink Jira prints
-			// verbatim stay raw and the body stays readable.
+		case jiraHazardLink:
+			// The opening bracket alone is enough to stop Jira recognizing the
+			// link, and only matters when Jira's visible text differs from the
+			// body, so a lone `]` stays raw and the body stays readable. An
+			// autolink of any scheme is never marked: Jira's autolinker leaves
+			// the address visible and a REST read returns the raw markup
+			// unchanged, so nothing is lost by leaving it raw.
 			if hazard.TextChanges {
 				mark(hazard.Start)
 			}
