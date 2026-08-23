@@ -57,6 +57,50 @@ func TestJiraInlineRunEscalatesThroughBoundedModes(t *testing.T) {
 	}
 }
 
+// TestJiraCodePreservedRunKeepsItsSpanAndWarnsAboutPlainText holds the other
+// half of the attribution rule. A verdict that the Monospace Spans read back as
+// their inline code no longer lets a run stand: the run still escalates and
+// still warns, but the fallback keeps the spans and blames the plain text.
+func TestJiraCodePreservedRunKeepsItsSpanAndWarnsAboutPlainText(t *testing.T) {
+	t.Parallel()
+	inlines := []semanticInline{
+		textInline{Span: sourceSpan{Start: 0, End: 4}, Text: "a-b "},
+		codeInline{Span: sourceSpan{Start: 4, End: 9}, Text: "x"},
+	}
+	state := &jiraRenderState{diagnostics: make([]conversionDiagnostic, 0)}
+	verified := make([]string, 0, 2)
+	preserveCode := func(_ context.Context, rendered, _ string, _ []semanticInline, _ jiraRunContext) (jiraVerificationVerdict, error) {
+		verified = append(verified, rendered)
+		return jiraVerificationVerdict{codePreserved: true}, nil
+	}
+
+	output, err := renderJiraInlineRunWith(context.Background(), state, inlines, jiraRunContext{}, preserveCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(verified) != 2 {
+		t.Fatalf("verification calls = %d (%q), want 2", len(verified), verified)
+	}
+	if want := "a-b {{x}}"; verified[0] != want {
+		t.Errorf("predicted render = %q, want %q", verified[0], want)
+	}
+	// The fallback is the fully escaped render, Monospace Span included.
+	if want := `a\-b {{x}}`; output != want || verified[1] != want {
+		t.Errorf("fallback = %q and full-encode render = %q, want %q", output, verified[1], want)
+	}
+	wantDiagnostics := []conversionDiagnostic{{
+		offset: 0,
+		warning: ConversionWarning{
+			Construct: ConstructPlainText,
+			Reason:    "plain text could not be verified to read back as written on Jira; emitted fully escaped",
+		},
+	}}
+	if !reflect.DeepEqual(state.diagnostics, wantDiagnostics) {
+		t.Errorf("diagnostics = %#v, want %#v", state.diagnostics, wantDiagnostics)
+	}
+}
+
 // TestJiraInlineRunSkipsVerificationWithoutHazards holds the cost bound: prose
 // that carries no character any Jira inline rule starts from reads back as
 // itself, so it must not pay for a re-parse.

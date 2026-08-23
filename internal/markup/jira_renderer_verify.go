@@ -119,6 +119,7 @@ func renderJiraInlineRunWith(ctx context.Context, state *jiraRenderState, inline
 		return rendered, err
 	}
 	intended := jiraVerificationKey(inlines, false)
+	var verdict jiraVerificationVerdict
 	for index, mode := range jiraVerifiedEscapeModes {
 		// The first mode is the render already in hand.
 		if index != 0 {
@@ -127,30 +128,37 @@ func renderJiraInlineRunWith(ctx context.Context, state *jiraRenderState, inline
 				return "", err
 			}
 		}
-		verdict, err := verify(ctx, rendered, intended, inlines, run)
-		if err != nil || verdict.accepts() {
-			return rendered, err
+		if verdict, err = verify(ctx, rendered, intended, inlines, run); err != nil {
+			return "", err
+		}
+		if verdict.accepts() {
+			return rendered, nil
 		}
 	}
-	if !inlinesContainCode(inlines) {
-		collectRunFallbackDiagnostic(state, inlines, ConversionWarning{
-			Construct: ConstructPlainText,
-			Reason:    "plain text could not be verified to read back as written on Jira; emitted fully escaped",
+	// Nothing verified. The last verdict says only which fallback answers: a
+	// Monospace Span that did not read back as its inline code is a loss the
+	// span itself caused, so the span goes; a run whose code survived owes the
+	// mismatch to its plain text, which the fully escaped render already carries
+	// as far as this harness can take it.
+	if inlinesContainCode(inlines) && !verdict.codePreserved {
+		render.mode = jiraEscapeAbandoned
+		if rendered, err = renderJiraInlineRunIn(ctx, inlines, render); err != nil {
+			return "", err
+		}
+		forEachInlineCode(inlines, func(code codeInline) {
+			state.diagnostics = append(state.diagnostics, conversionDiagnostic{
+				offset: code.Span.Start,
+				warning: ConversionWarning{
+					Construct: ConstructInlineCode,
+					Reason:    "inline code could not be protected from Jira reinterpretation; emitted as plain text",
+				},
+			})
 		})
 		return rendered, nil
 	}
-	render.mode = jiraEscapeAbandoned
-	if rendered, err = renderJiraInlineRunIn(ctx, inlines, render); err != nil {
-		return "", err
-	}
-	forEachInlineCode(inlines, func(code codeInline) {
-		state.diagnostics = append(state.diagnostics, conversionDiagnostic{
-			offset: code.Span.Start,
-			warning: ConversionWarning{
-				Construct: ConstructInlineCode,
-				Reason:    "inline code could not be protected from Jira reinterpretation; emitted as plain text",
-			},
-		})
+	collectRunFallbackDiagnostic(state, inlines, ConversionWarning{
+		Construct: ConstructPlainText,
+		Reason:    "plain text could not be verified to read back as written on Jira; emitted fully escaped",
 	})
 	return rendered, nil
 }
@@ -219,13 +227,14 @@ func inlinesContainCode(inlines []semanticInline) bool {
 	return found
 }
 
-// jiraVerificationVerdict reports what re-parsing a rendered run proved.
-// matched is the strict result ADR-0018 asks for. codePreserved carries the
-// attribution rule: a mismatch belongs to inline code only when a Monospace
-// Span fails to read back as the inline code it was rendered from. A residual
-// mismatch elsewhere in the run belongs to the plain text around it, and
-// encoding the code further cannot repair it, so accepting the run is the only
-// answer that does not destroy correct code over someone else's defect.
+// jiraVerificationVerdict reports what re-parsing a rendered run proved. Only
+// matched, the strict result ADR-0018 asks for, lets a run stand. codePreserved
+// is the attribution rule, and it decides which fallback a run that never
+// verified takes rather than whether it falls back: a Monospace Span that did
+// not read back as its inline code is a loss the span caused and the span is
+// given up, while a run whose code survived owes its mismatch to the plain text
+// around it, which the fully escaped render already addresses. Both fallbacks
+// warn.
 type jiraVerificationVerdict struct {
 	matched       bool
 	codePreserved bool
@@ -233,14 +242,16 @@ type jiraVerificationVerdict struct {
 
 // accepts reports whether the rendered run may stand as it is.
 func (verdict jiraVerificationVerdict) accepts() bool {
-	return verdict.matched || verdict.codePreserved
+	return verdict.matched
 }
 
 // verifyJiraInlineRun re-parses rendered in its block context. A table cell is
 // verified against the row splitter first, because the block layer splits the
 // row before any inline rule runs. The body comparison behind codePreserved is
 // only reached when the strict comparison has already failed, so a run that
-// verifies pays for one re-parse and one key.
+// verifies pays for one re-parse and one key. A run without inline code has an
+// empty body key on both sides; that is the truthful answer, since there is no
+// code for the plain-text fallback to protect.
 func verifyJiraInlineRun(ctx context.Context, rendered, intended string, inlines []semanticInline, run jiraRunContext) (jiraVerificationVerdict, error) {
 	if run.inTableCell() {
 		bounds, err := jiraTableCellBounds(ctx, rendered, 0, len(rendered), run.cellDelimiter)
