@@ -1,0 +1,9 @@
+-- input.md --
+| a | b |
+| --- | --- |
+| :image[alt]{src="http://x/i.png" width="10"} | c |
+-- want.jira --
+||a||b||
+|!http://x/i.png|alt=alt,width=10!|c|
+-- warnings.json --
+[]

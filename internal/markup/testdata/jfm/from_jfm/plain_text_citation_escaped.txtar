@@ -1,0 +1,6 @@
+-- input.md --
+a ??cite?? b
+-- want.jira --
+a \?\?cite\?\? b
+-- warnings.json --
+[]

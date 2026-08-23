@@ -1,0 +1,6 @@
+-- input.md --
+\+ins\+ \^sup\^ \~sub\~
+-- want.jira --
+\+ins\+ \^sup\^ \~sub\~
+-- warnings.json --
+[]

@@ -1,0 +1,18 @@
+-- input.md --
+a -b- c
+
+y \*x\*
+
+(\_x\_) "\*x\*"
+
+a-b -c- d
+-- want.jira --
+a \-b\- c
+
+y \*x\*
+
+(\_x\_) "\*x\*"
+
+a-b \-c\- d
+-- warnings.json --
+[]

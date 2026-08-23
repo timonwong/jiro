@@ -1,0 +1,14 @@
+-- input.md --
+a **b** c
+
+(**x**)
+
+**x**, y
+-- want.jira --
+a *b* c
+
+(*x*)
+
+*x*, y
+-- warnings.json --
+[]

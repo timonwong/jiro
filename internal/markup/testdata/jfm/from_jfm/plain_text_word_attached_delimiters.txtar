@@ -1,0 +1,6 @@
+-- input.md --
+x\*y\*z 中\*强\*文 2^10 a+b+c x\~y\~z a--b
+-- want.jira --
+x*y*z 中*强*文 2^10 a+b+c x~y~z a--b
+-- warnings.json --
+[]
