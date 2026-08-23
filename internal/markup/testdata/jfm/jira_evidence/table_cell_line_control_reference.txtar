@@ -1,0 +1,22 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A `h1.` prefix opens a heading inside a table cell, and the character reference keeps it cell text there as it does at a paragraph line start.
+-- input.jira --
+||h||
+|h1&#46; x|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+</tr>
+<tr>
+<td class='confluenceTd'>h1&#46; x</td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+| h |
+| --- |
+| h1&#46; x |
+-- warnings.json --
+[]

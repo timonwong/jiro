@@ -252,8 +252,12 @@ ROUND7 = [
     "x\\\\\n* item", "x\\\\\n" + r"\* item", "x\\\\\n- item", "x\\\\\n** item",
     "{{* item}}", "{{** item}}", "h1. * item", "* * item", r"* \* item",
     "* foo\\\\\n* bar", "* foo\\\\\n" + r"\* bar",
-    "||h||\n|* item|", "||h||\n" + r"|\* item|",
     " * item", "*  item", "x\n * item",
+    # --- every table cell is its own line start ---
+    "||h||\n|* item|", "||h||\n" + r"|\* item|",
+    "||h||\n|h1. x|", "||h||\n|bq. x|", "||h||\n|h1&#46; x|",
+    "||h||\n|- item|", "||h||\n| * item|", "||h||\n|x|* item|",
+    "||h||\n|a\\\\\n* item|", "||h||\n|a\\\\\n" + r"\* item|",
 ]
 
 

@@ -616,7 +616,10 @@ func renderJiraTable(ctx context.Context, state *jiraRenderState, table tableBlo
 func renderJiraTableRow(ctx context.Context, state *jiraRenderState, cells []tableCell, delimiter string) (string, error) {
 	values := make([]string, len(cells))
 	for index, cell := range cells {
-		value, err := renderJiraInlineRun(ctx, state, cell.Inlines, jiraRunContext{cellDelimiter: delimiter})
+		// Jira reads every cell of every row from its own line start, so a cell
+		// whose content opens with a list marker or a `h1.` prefix renders a list
+		// or a heading inside the cell rather than the text it was written as.
+		value, err := renderJiraInlineRun(ctx, state, cell.Inlines, jiraRunContext{atLineStart: true, cellDelimiter: delimiter})
 		if err != nil {
 			return "", err
 		}
@@ -651,9 +654,11 @@ func renderJiraCodeBlock(ctx context.Context, block codeBlock) (string, error) {
 	return header + "\n" + block.Body + ensureLiteralClosingSeparation(block.Body) + "{code}", nil
 }
 
-// jiraPlainTextEscapedCharacters are the characters the plain-text escaper
-// backslash-escapes outside any grammar rule, as legacy safety escaping
-// (ADR-0016).
+// jiraLineControlPrefixLength reports the length of the `h1.` through `h6.` or
+// `bq.` prefix that makes Jira read a line start as a heading or a quote, which
+// needs a space or the end of the line after it, and 0 when there is none. The
+// escaper spells the `.` as `&#46;` instead of escaping it, because `.` is not
+// in Jira's escapable set and a backslash before it would stay visible.
 func jiraLineControlPrefixLength(value string) int {
 	if len(value) >= 3 && value[0] == 'h' && value[1] >= '1' && value[1] <= '6' && value[2] == '.' &&
 		(len(value) == 3 || value[3] == ' ') {

@@ -1,0 +1,9 @@
+-- input.md --
+| \* item | h1. x | bq. x |
+| --- | --- | --- |
+| \- item | \*\* item | h2. y |
+-- want.jira --
+||\* item||h1&#46; x||bq&#46; x||
+|\- item|\** item|h2&#46; y|
+-- warnings.json --
+[]
