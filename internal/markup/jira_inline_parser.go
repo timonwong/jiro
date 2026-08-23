@@ -112,7 +112,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 					textEnd -= len("\u200b")
 				}
 				flushText(textEnd)
-				body, err := decodeJiraDelimitedText(ctx, raw)
+				body, err := decodeJiraEscapes(ctx, raw)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -324,6 +324,37 @@ func findUnescaped(ctx context.Context, source string, start, end int, delimiter
 		return -1, err
 	}
 	return -1, nil
+}
+
+// decodeJiraEscapes resolves the backslash escapes Jira consumes wherever it
+// reads inline markup, which is the grammar's escapable set. A backslash before
+// any other character is text Jira shows, so `C:\temp` survives. A delimited
+// value such as a link target or an image parameter is not this: each has its
+// own per-context escape rule and keeps decodeJiraDelimitedText.
+func decodeJiraEscapes(ctx context.Context, value string) (string, error) {
+	if !strings.Contains(value, `\`) {
+		return value, ctx.Err()
+	}
+	var result strings.Builder
+	result.Grow(len(value))
+	for index := 0; index < len(value); {
+		if index&255 == 0 {
+			if err := ctx.Err(); err != nil {
+				return "", err
+			}
+		}
+		if value[index] == '\\' && index+1 < len(value) && isJiraEscapable(value[index+1]) {
+			result.WriteByte(value[index+1])
+			index += 2
+			continue
+		}
+		result.WriteByte(value[index])
+		index++
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return result.String(), nil
 }
 
 func decodeJiraDelimitedText(ctx context.Context, value string) (string, error) {

@@ -231,6 +231,9 @@ ROUND6 = [
     r"a\\b", r"a \\ b", r"\\a", r"a\\", r"C:\\dir\\file", r"a\\\\b",
     r"C:\dir\file", "x\\", r"x\ y", r"C:\{x}", r"C:&#92;\{x\}",
     "C:&#92;dir&#92;file", "a &#92; b",
+    # --- which escapes a Monospace Span body consumes ---
+    r"{{a\?b}}", r"{{a\#b}}", r"{{a\(b\)}}", r"{{a\%b}}", r"{{a\@b}}",
+    r"{{a\!b}}", r"{{a\.b}}", r"{{a\,b}}", r"{{a\\b}}",
 ]
 
 
