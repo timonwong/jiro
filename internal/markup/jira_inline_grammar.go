@@ -682,6 +682,55 @@ func jiraLinkEnd(ctx context.Context, source string, index, end int) (int, bool,
 	return close, jiraAutolinkScheme(body, 0, len(body)) != "", nil
 }
 
+// jiraRowShapeEnd reports the end of the link or image shape starting at offset,
+// or -1 when none does. A table row separator may not split one: Jira reads
+// every `|` inside `[...]` or inside an image `!...!` as part of the construct,
+// so `|[x|http://x]|c|` is two cells while `|{{a|b}}|c|` is three -- a Monospace
+// Span protects nothing at the row level.
+func jiraRowShapeEnd(ctx context.Context, source string, offset, end int) (int, error) {
+	switch source[offset] {
+	case '[':
+		close, _, err := jiraLinkEnd(ctx, source, offset, end)
+		if err != nil || close < 0 {
+			return -1, err
+		}
+		return close + 1, nil
+	case '!':
+		return jiraImageShapeEnd(ctx, source, offset, end)
+	default:
+		return -1, nil
+	}
+}
+
+// jiraImageShapeEnd reports the end of the image shape opened by the `!` at
+// offset. The gates are asymmetric and both observed at the row level: a space
+// directly after the opening `!` refuses the shape (`|! a|b!|c|` is three
+// cells), and a word rune directly after a candidate closing `!` refuses that
+// closer (`|!a.png|b!x|c|` is three cells).
+func jiraImageShapeEnd(ctx context.Context, source string, offset, end int) (int, error) {
+	if next, size := utf8.DecodeRuneInString(source[offset+1 : end]); size == 0 || isJiraEffectSpace(next) {
+		return -1, nil
+	}
+	for scan := offset + 1; scan < end; scan++ {
+		if (scan-offset)&255 == 0 {
+			if err := ctx.Err(); err != nil {
+				return -1, err
+			}
+		}
+		switch source[scan] {
+		case '\\':
+			scan++
+		case '\n', '\r':
+			return -1, nil
+		case '!':
+			if !jiraWordRuneAfter(source, scan+1, end) {
+				return scan + 1, nil
+			}
+		}
+	}
+	return -1, ctx.Err()
+}
+
 // jiraAutolinkTerminators end a bare URL. Brackets and parentheses are absent on
 // purpose: Jira swallows them into the URL (`http://example.com(a` links whole),
 // and a bracketed URL is a link rather than an autolink.

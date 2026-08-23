@@ -1,0 +1,32 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: Image parameters are comma-separated inside the same cell.
+-- input.jira --
+||h1||h2||
+|!http://x/i.png|alt=alt, width=10!|c|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h1</th>
+<th class='confluenceTh'>h2</th>
+</tr>
+<tr>
+<td class='confluenceTd'><span class="image-wrap" style=""><img src="http://x/i.png" alt="alt" width="10" style="border: 0px solid black" /></span></td>
+<td class='confluenceTd'>c</td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+:::table
+||h1||h2||
+|!http://x/i.png|alt=alt, width=10!|c|
+:::
+-- warnings.json --
+[
+  {
+    "Line": 2,
+    "Column": 26,
+    "Construct": "image",
+    "Reason": "Jira image parameter name cannot be represented by JFM attribute grammar; complete image remains literal"
+  }
+]

@@ -1,0 +1,24 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A `[` with no `]` on the row is literal, so the `|` behind it splits the row.
+-- input.jira --
+||h1||h2||
+|[a|c|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h1</th>
+<th class='confluenceTh'>h2</th>
+</tr>
+<tr>
+<td class='confluenceTd'>[a</td>
+<td class='confluenceTd'>c</td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+| h1 | h2 |
+| --- | --- |
+| \[a | c |
+-- warnings.json --
+[]

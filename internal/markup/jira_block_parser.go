@@ -240,21 +240,37 @@ func parseJiraTableRow(ctx context.Context, source string, line sourceLine, head
 // different rules.
 func jiraTableCellBounds(ctx context.Context, text string, innerStart, innerEnd int, delimiter string) ([]sourceSpan, error) {
 	bounds := make([]sourceSpan, 0, 1)
-	for cellStart := innerStart; cellStart <= innerEnd; {
-		next, err := findUnescaped(ctx, text, cellStart, innerEnd, delimiter)
+	cellStart := innerStart
+	for index := innerStart; index < innerEnd; {
+		if (index-innerStart)&255 == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
+		if text[index] == '\\' {
+			index += 2
+			continue
+		}
+		shapeEnd, err := jiraRowShapeEnd(ctx, text, index, innerEnd)
 		if err != nil {
 			return nil, err
 		}
-		if next < 0 {
-			next = innerEnd
+		if shapeEnd > 0 {
+			index = shapeEnd
+			continue
 		}
-		bounds = append(bounds, sourceSpan{Start: cellStart, End: next})
-		if next == innerEnd {
-			break
+		if !strings.HasPrefix(text[index:innerEnd], delimiter) {
+			index++
+			continue
 		}
-		cellStart = next + len(delimiter)
+		bounds = append(bounds, sourceSpan{Start: cellStart, End: index})
+		index += len(delimiter)
+		cellStart = index
 	}
-	return bounds, nil
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return append(bounds, sourceSpan{Start: cellStart, End: innerEnd}), nil
 }
 
 func tableCellSupportsGFM(cell tableCell) bool {
