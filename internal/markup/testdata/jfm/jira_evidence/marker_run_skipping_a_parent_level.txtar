@@ -1,0 +1,36 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: The `*` run of the same length reaches the same fabricated empty level, and jiro answers it with the same escaped line and the same two warnings.
+-- input.jira --
+* a
+*** b
+-- rendered.html --
+<ul>
+	<li>a
+	<ul>
+		<li>
+		<ul>
+			<li>b</li>
+		</ul>
+		</li>
+	</ul>
+	</li>
+</ul>
+-- want.md --
+- a
+
+\*\*\* b
+-- warnings.json --
+[
+  {
+    "Line": 2,
+    "Column": 1,
+    "Construct": "list",
+    "Reason": "list nesting skips an authored parent level"
+  },
+  {
+    "Line": 2,
+    "Column": 1,
+    "Construct": "list",
+    "Reason": "list item has no parent at its authored nesting level"
+  }
+]

@@ -277,6 +277,9 @@ ROUND8 = [
     "* a\n\n-- b", "* a\n-- b", "# a\n-- b", "- a\n-- b", "* a\n-- b\n-- c",
     "- a\n-- b\n--- c", "* a\n-- b\n* c", "* a\n** b\n-- c", "* a\nfoo\n-- b",
     "* a\n--\n* b", "* a\n-- \n* b", "* a\n--- b", "- a\n--- b", "* a\n*-- b",
+    "* a\n*** b",
+    # --- a plain line below a marker stays inside the item ---
+    "* a\nfoo",
     # --- a run that no space or tab follows is text ---
     "##", "*\n", "* \n", "** ",
     # --- the indent Jira skips before a marker run or a line control ---

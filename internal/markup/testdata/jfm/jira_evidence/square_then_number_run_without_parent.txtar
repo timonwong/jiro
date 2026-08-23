@@ -1,5 +1,5 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: A run ending in `#` numbers the level it names whatever the characters before it are.
+observed: A run ending in `#` numbers the level it names whatever the characters before it are, and Jira fabricates the square parent; jiro keeps the line escaped and warns instead.
 -- input.jira --
 -# item
 -- rendered.html --

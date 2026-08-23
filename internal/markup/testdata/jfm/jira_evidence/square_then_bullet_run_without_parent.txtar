@@ -1,5 +1,5 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: Jira opens an empty square item to hold the round one the run's last character asks for; JFM keeps the line visible rather than fabricating that parent.
+observed: Jira opens an empty square item to hold the round one the run's last character asks for; jiro must not fabricate that parent, so the line keeps its markers escaped and warns.
 -- input.jira --
 -* item
 -- rendered.html --

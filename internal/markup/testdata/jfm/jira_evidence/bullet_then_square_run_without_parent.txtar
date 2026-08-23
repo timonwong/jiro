@@ -1,5 +1,5 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: The run's last character picks the square bullet for the level it names, and Jira fabricates the round parent above it.
+observed: The run's last character picks the square bullet for the level it names and Jira fabricates the round parent above it; jiro keeps the line escaped and warns instead.
 -- input.jira --
 *- item
 -- rendered.html --

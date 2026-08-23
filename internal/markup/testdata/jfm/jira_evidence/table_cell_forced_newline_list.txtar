@@ -1,5 +1,5 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: A cell keeps reading past a forced newline, so Jira renders both markers as items of one list inside the cell; jiro reads one physical row per cell and warns that the cell's list is kept as text.
+observed: Jira keeps reading the cell past the forced newline and renders both markers as items of one list inside it. jiro ends the row at the first physical line, keeps that cell's text with one table warning, and reads the continuation line outside the table, which is how it has always read a row.
 -- input.jira --
 ||h||
 |* a\\

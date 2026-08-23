@@ -1,5 +1,5 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: Jira skips the spaces before a marker run and indents the list by none of them.
+observed: Jira skips the spaces before a marker run and indents the list by none of them, so jiro drops the indent too.
 -- input.jira --
  * item
 -- rendered.html --
