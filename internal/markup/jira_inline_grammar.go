@@ -658,4 +658,7 @@ func jiraAutolinkScheme(source string, index, end int) string {
 	return ""
 }
 
-const jiraEscapableCharacters = `\{}[]|!*_-+^~`
+// jiraEscapableCharacters are the characters whose backslash Jira consumes,
+// showing the character alone. A backslash before any other character stays
+// visible, so `a\.b` renders with the backslash and `\h1. x` is not a heading.
+const jiraEscapableCharacters = `\{}[]|!#?()%@*_-+^~`
