@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: Jira reads `h1.` as a heading without a following space, so the protection cannot depend on one.
+-- input.jira --
+h1.x
+-- rendered.html --
+<h1><a name="x"></a>x</h1>
+-- want.md --
+h1.x
+-- warnings.json --
+[]

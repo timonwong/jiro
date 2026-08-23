@@ -1,0 +1,14 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: Every line of a paragraph is a line start, so the protection is per line rather than per block.
+-- input.jira --
+x
+h1. y
+-- rendered.html --
+<p>x</p>
+<h1><a name="y"></a>y</h1>
+-- want.md --
+x
+
+# y
+-- warnings.json --
+[]

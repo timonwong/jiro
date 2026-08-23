@@ -237,13 +237,13 @@ func appendJiraCodeBodyKey(builder *strings.Builder, inlines []semanticInline) {
 // each side scanned its source. Attributes a reader derives from the target
 // rather than reads from the markup (linkInline.Directive and the Dangerous
 // flags) are absent for the same reason.
-func jiraVerificationKey(inlines []semanticInline, decodeSafetyEscapes bool) string {
+func jiraVerificationKey(inlines []semanticInline, reparsed bool) string {
 	var builder strings.Builder
-	appendJiraVerificationKey(&builder, inlines, decodeSafetyEscapes)
+	appendJiraVerificationKey(&builder, inlines, reparsed)
 	return builder.String()
 }
 
-func appendJiraVerificationKey(builder *strings.Builder, inlines []semanticInline, decodeSafetyEscapes bool) {
+func appendJiraVerificationKey(builder *strings.Builder, inlines []semanticInline, reparsed bool) {
 	var text strings.Builder
 	flush := func() {
 		if text.Len() == 0 {
@@ -255,9 +255,9 @@ func appendJiraVerificationKey(builder *strings.Builder, inlines []semanticInlin
 	for _, inline := range inlines {
 		switch typed := inline.(type) {
 		case textInline:
-			text.WriteString(normalizeVerificationText(typed.Text, decodeSafetyEscapes))
+			text.WriteString(normalizeVerificationText(typed.Text, reparsed))
 		case literalInline:
-			text.WriteString(normalizeVerificationText(typed.Text, decodeSafetyEscapes))
+			text.WriteString(normalizeVerificationText(typed.Text, reparsed))
 		case codeInline:
 			flush()
 			appendVerificationScalar(builder, "c", typed.Text)
@@ -275,7 +275,7 @@ func appendJiraVerificationKey(builder *strings.Builder, inlines []semanticInlin
 			appendVerificationScalar(builder, "s", style)
 			appendVerificationScalar(builder, "v", typed.Value)
 			builder.WriteByte('(')
-			appendJiraVerificationKey(builder, children, decodeSafetyEscapes)
+			appendJiraVerificationKey(builder, children, reparsed)
 			builder.WriteByte(')')
 		case linkInline:
 			flush()
@@ -285,7 +285,7 @@ func appendJiraVerificationKey(builder *strings.Builder, inlines []semanticInlin
 			// An unnamed link shows its target, so its label is derived rather
 			// than authored and each side derives it from its own conventions.
 			if !typed.Unnamed {
-				appendJiraVerificationKey(builder, typed.Label, decodeSafetyEscapes)
+				appendJiraVerificationKey(builder, typed.Label, reparsed)
 			}
 			builder.WriteByte(')')
 		case imageInline:
@@ -315,37 +315,33 @@ func appendVerificationScalar(builder *strings.Builder, tag, value string) {
 	builder.WriteByte(';')
 }
 
-// normalizeVerificationText folds the differences that are not the Monospace
-// Span's to answer for. A Jira inline run is one line, so the Jira parser reads
-// a newline inside text as the space that joins the line to the next one. On the
-// re-parsed side it also decodes the plain-text safety escapes below, whose
-// visible backslash belongs to the plain text around the span; a Monospace Span
-// cannot produce one, so decoding it hides no escaping failure of this harness.
-func normalizeVerificationText(value string, decodeSafetyEscapes bool) string {
+// normalizeVerificationText folds the differences that are not an escaping
+// decision. A Jira inline run is one line, so the Jira parser reads a newline
+// inside text as the space that joins the line to the next one. On the re-parsed
+// side it also decodes numeric character references, which the Jira parser keeps
+// verbatim in plain text: the line-control protection at escapeTextForJiraText
+// is the one place this renderer writes one, so `h1&#46; x` has to compare equal
+// to the text `h1. x` it was rendered from.
+func normalizeVerificationText(value string, reparsed bool) string {
 	if strings.Contains(value, "\n") {
 		value = strings.ReplaceAll(value, "\n", " ")
 	}
-	if !decodeSafetyEscapes || !strings.Contains(value, `\`) {
+	if !reparsed || !strings.Contains(value, "&#") {
 		return value
 	}
 	var result strings.Builder
-	for index := 0; index < len(value); index++ {
-		if value[index] == '\\' && index+1 < len(value) && isJiraPlainTextSafetyEscape(value[index+1]) {
+	result.Grow(len(value))
+	for index := 0; index < len(value); {
+		character, referenceEnd := jiraCharacterReference(value, index, len(value))
+		if referenceEnd > 0 && character != utf8.RuneError {
+			result.WriteRune(character)
+			index = referenceEnd
 			continue
 		}
 		result.WriteByte(value[index])
+		index++
 	}
 	return result.String()
-}
-
-// isJiraPlainTextSafetyEscape reports whether the plain-text escaper writes a
-// backslash before character although Jira's escape grammar does not name it, so
-// that Jira shows the backslash instead of consuming it.
-func isJiraPlainTextSafetyEscape(character byte) bool {
-	if strings.IndexByte(jiraEscapableCharacters, character) >= 0 {
-		return false
-	}
-	return strings.IndexByte(jiraPlainTextEscapedCharacters, character) >= 0 || character == jiraLineControlEscapedCharacter
 }
 
 // renderJiraMonospaceSpanBody encodes a Monospace Span body so that Jira renders

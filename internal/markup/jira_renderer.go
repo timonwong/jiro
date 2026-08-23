@@ -294,8 +294,13 @@ func escapeTextForJiraText(ctx context.Context, value string, atLineStart bool) 
 		remaining := value[offset:]
 		if atLineStart {
 			if prefixLength := jiraLineControlPrefixLength(remaining); prefixLength != 0 {
+				// A character reference is the only way to keep `h1.` and `bq.` off
+				// the line start: Jira does not consume a backslash before `.`, so
+				// `h1\. x` renders with the backslash visible. It is the one place
+				// plain text is not written literally, which is why the
+				// verification key decodes a reference on the re-parsed side.
 				result.WriteString(remaining[:prefixLength-1])
-				result.WriteString(`\.`)
+				result.WriteString("&#46;")
 				offset += prefixLength
 				atLineStart = false
 				continue
@@ -549,9 +554,6 @@ func renderJiraCodeBlock(ctx context.Context, block codeBlock) (string, error) {
 // backslash-escapes outside any grammar rule, as legacy safety escaping
 // (ADR-0016).
 const jiraPlainTextEscapedCharacters = `\{}[]!?|#`
-
-// jiraLineControlEscapedCharacter closes a line-control prefix such as `h1.`.
-const jiraLineControlEscapedCharacter = '.'
 
 func jiraLineControlPrefixLength(value string) int {
 	if len(value) >= 3 && value[0] == 'h' && value[1] >= '1' && value[1] <= '6' && value[2] == '.' &&
