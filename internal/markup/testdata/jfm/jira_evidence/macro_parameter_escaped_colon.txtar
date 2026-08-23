@@ -1,5 +1,5 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: The pair rule applies to any character, including a `:` that means nothing to the parameter list.
+observed: The pair rule consumes the backslash of `\:` too, although a `:` splits nothing in a parameter list.
 -- input.jira --
 {code:title=a\:b}
 code

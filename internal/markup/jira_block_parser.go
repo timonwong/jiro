@@ -474,7 +474,7 @@ func parseJiraCodeAttributes(ctx context.Context, opening string, base int) ([]d
 	prefixOffset := base + len("{code:")
 	for _, part := range parts {
 		name, attributeValue := "language", part.Value
-		if equals := jiraUnprotectedSplit(part.Value, '='); equals >= 0 {
+		if equals := jiraUnprotectedSplit(part.Value, 0, '='); equals >= 0 {
 			value, err := decodeJiraMacroParameterValue(ctx, part.Value[equals+1:])
 			if err != nil {
 				return nil, err
@@ -535,7 +535,7 @@ func parseJiraNamedAttributes(ctx context.Context, opening, name string, base in
 	prefixOffset := base + len(prefix)
 	for _, part := range parts {
 		attributeName, attributeValue, bare := part.Value, "", true
-		if equals := jiraUnprotectedSplit(part.Value, '='); equals >= 0 {
+		if equals := jiraUnprotectedSplit(part.Value, 0, '='); equals >= 0 {
 			value, err := decodeJiraMacroParameterValue(ctx, part.Value[equals+1:])
 			if err != nil {
 				return nil, err
@@ -561,11 +561,9 @@ func splitJiraParameterParts(ctx context.Context, value string) ([]jiraParameter
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		end := jiraUnprotectedSplit(value[start:], '|')
+		end := jiraUnprotectedSplit(value, start, '|')
 		if end < 0 {
 			end = len(value)
-		} else {
-			end += start
 		}
 		parts = append(parts, jiraParameterPart{Start: start, End: end, Value: value[start:end]})
 		if end == len(value) {

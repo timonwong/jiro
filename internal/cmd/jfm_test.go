@@ -143,10 +143,10 @@ func TestJFMConversionJSONMapsWarningsInSourceOrder(t *testing.T) {
 		if index == 1 {
 			line = 3
 		}
-		wantMessage := fmt.Sprintf("JFM to Jira conversion at line %d, column 1 (link): Markdown link title was discarded because Jira Markup has no equivalent", line)
+		wantMessage := fmt.Sprintf("JFM to Jira conversion at line %d, column 1 (link): Markdown link title is dropped; jiro carries no link title (#104)", line)
 		if warning.Code != "jfm_conversion" || warning.Message != wantMessage ||
 			warning.Details.Direction != "jfm_to_jira" || warning.Details.Line != line || warning.Details.Column != 1 ||
-			warning.Details.Construct != "link" || warning.Details.Reason != "Markdown link title was discarded because Jira Markup has no equivalent" {
+			warning.Details.Construct != "link" || warning.Details.Reason != "Markdown link title is dropped; jiro carries no link title (#104)" {
 			t.Fatalf("warning[%d] = %#v", index, warning)
 		}
 	}
@@ -212,7 +212,7 @@ func TestJFMQuietSuppressesTextButNotWarnings(t *testing.T) {
 	if code != 0 || stdout.Len() != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	want := "warning: JFM to Jira conversion at line 1, column 1 (link): Markdown link title was discarded because Jira Markup has no equivalent\n"
+	want := "warning: JFM to Jira conversion at line 1, column 1 (link): Markdown link title is dropped; jiro carries no link title (#104)\n"
 	if stderr.String() != want {
 		t.Fatalf("stderr=%q, want %q", stderr.String(), want)
 	}

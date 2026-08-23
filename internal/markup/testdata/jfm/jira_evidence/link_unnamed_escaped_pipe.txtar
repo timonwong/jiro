@@ -1,11 +1,11 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: A backslash before the separator protects nothing: the split leaves the target `b`, Jira resolves nothing and shows an error span, so jiro keeps the bracket text literal and warns.
+observed: The same split runs without a visible text part, and Jira shows the error span for the target the backslash left behind; jiro keeps the bracket text literal and warns.
 -- input.jira --
-[a\|b|http://x]
+[http://x/a\|b]
 -- rendered.html --
-<p><span class="error">&#91;a\|b|http://x&#93;</span></p>
+<p><span class="error">&#91;http://x/a\|b&#93;</span></p>
 -- want.md --
-\[a\\|b|http://x\]
+\[http://x/a\\|b\]
 -- warnings.json --
 [
  {

@@ -47,8 +47,11 @@ var jiraLinkTargetEncoding = jiraValueEncodingOf("", map[byte]string{
 	'[':  `\[`,
 })
 
-// jiraImageSourceEncoding writes an image source, where Jira consumes no
-// backslash at all: every hazard has to leave as a character reference.
+// jiraImageSourceEncoding writes an image source. Jira consumes no backslash
+// here, so one would survive as itself, but what a backslash run does to the
+// closing `!` and to the source separator depends on where it stands: a run
+// before either is read as a forced newline or leaves the construct without a
+// closer. Encoding every backslash keeps the rule free of that position test.
 var jiraImageSourceEncoding = jiraValueEncodingOf("", map[byte]string{
 	'|':  "&#124;",
 	'!':  "&#33;",
@@ -110,7 +113,7 @@ func encodeJiraDelimitedValue(ctx context.Context, value string, encoding *jiraV
 		case value[offset] == '&':
 			// Only a `&` that a reader decodes back into another character has
 			// to move out of the way; every other one stays readable.
-			if !jiraCharacterReferenceStart(value, offset, len(value)) {
+			if !startsCharacterReference(value, offset, len(value)) {
 				continue
 			}
 			replacement = "&#38;"
@@ -209,13 +212,18 @@ func decodeJiraMacroParameterValue(ctx context.Context, value string) (string, e
 	return decodeJiraEntities(result.String()), nil
 }
 
-// jiraUnprotectedSplit reports where value's first separator is. Every split
-// around a delimited value is this one: the parts of a bracket body and of a
-// macro parameter list, the image source and its parameter list, and the `=`
-// inside one parameter. A backslash protects none of them, so `[x|http://x/a\|b]`
-// links to `http://x/a` under the title `b` and `alt=a\,b` is the alt text `a\`.
-func jiraUnprotectedSplit(value string, separator byte) int {
-	return strings.IndexByte(value, separator)
+// jiraUnprotectedSplit reports the offset in value of the first separator at or
+// after start, or -1. Every split around a delimited value is this one: the parts
+// of a bracket body and of a macro parameter list, the image source and its
+// parameter list, and the `=` inside one parameter. A backslash protects none of
+// them, so `[x|http://x/a\|b]` links to `http://x/a` under the title `b` and
+// `alt=a\,b` is the alt text `a\`.
+func jiraUnprotectedSplit(value string, start int, separator byte) int {
+	offset := strings.IndexByte(value[start:], separator)
+	if offset < 0 {
+		return -1
+	}
+	return start + offset
 }
 
 // jiraValueEndsInBackslash reports the rule that refuses a construct outright: a

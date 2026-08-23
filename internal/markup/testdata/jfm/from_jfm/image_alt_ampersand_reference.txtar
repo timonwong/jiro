@@ -1,0 +1,6 @@
+-- input.md --
+![a&amp;#44;b](u.png)
+-- want.jira --
+!u.png|alt=a&#38;#44;b!
+-- warnings.json --
+[]

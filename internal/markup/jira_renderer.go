@@ -129,7 +129,7 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 		return offset
 	}
 	writeText := func(value string) error {
-		content, offsets, err := escapeTextForJiraText(ctx, value, render.atLineStart, render.inLinkLabel)
+		content, offsets, err := escapeTextForJiraText(ctx, value, render)
 		if err != nil {
 			return err
 		}
@@ -350,7 +350,7 @@ func jiraNeedsMonospaceSeparatorAfter(value string) bool {
 }
 
 func escapeTextForJira(ctx context.Context, value string, atLineStart bool) (string, error) {
-	content, plainEffectOffsets, err := escapeTextForJiraText(ctx, value, atLineStart, false)
+	content, plainEffectOffsets, err := escapeTextForJiraText(ctx, value, jiraInlineRender{atLineStart: atLineStart})
 	if err != nil {
 		return "", err
 	}
@@ -361,9 +361,10 @@ func escapeTextForJira(ctx context.Context, value string, atLineStart bool) (str
 // of the characters that may still become markup, which the run-level escaper
 // decides on. Only ASCII can carry a Jira rule, so the scan runs over bytes and
 // copies the stretches between two of them whole.
-func escapeTextForJiraText(ctx context.Context, value string, atLineStart, inLinkLabel bool) (string, []int, error) {
+func escapeTextForJiraText(ctx context.Context, value string, render jiraInlineRender) (string, []int, error) {
 	var result strings.Builder
 	var plainEffectOffsets []int
+	atLineStart := render.atLineStart
 	pending, changed := 0, false
 	flush := func(upto int) {
 		if upto > pending {
@@ -408,7 +409,7 @@ func escapeTextForJiraText(ctx context.Context, value string, atLineStart, inLin
 			// nothing: Jira splits the bracket body on every `|` and renders an
 			// error span for the target it is left with, so a character
 			// reference goes in instead.
-			if character == '|' && inLinkLabel {
+			if character == '|' && render.inLinkLabel {
 				flush(offset)
 				result.WriteString("&#124;")
 				pending, changed = offset+1, true

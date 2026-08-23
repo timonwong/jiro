@@ -1,10 +1,17 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: A third bracket part is a link title Jira reads separately; JFM has no link title, so jiro keeps it in the target rather than dropping it.
+observed: A third bracket part is Jira's link title; jiro carries no link title and drops it with a warning.
 -- input.jira --
 [x|http://x|t]
 -- rendered.html --
 <p><a href="http://x" title="t" class="external-link" target="_blank" rel="nofollow noopener">x</a></p>
 -- want.md --
-[x](http://x|t)
+[x](http://x)
 -- warnings.json --
-[]
+[
+ {
+  "Line": 1,
+  "Column": 1,
+  "Construct": "link",
+  "Reason": "Jira link title is dropped; jiro carries no link title (#104)"
+ }
+]

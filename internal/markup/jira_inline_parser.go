@@ -151,16 +151,33 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 			if close >= 0 && !jiraValueEndsInBackslash(source[offset+1:close]) {
 				flushText(offset)
 				body := source[offset+1 : close]
-				separator := jiraUnprotectedSplit(body, '|')
-				labelEnd, target, unnamed := close, body, true
+				// Jira splits the body on every `|`: the first part is the
+				// visible text, the second the target, and everything after it
+				// the link title.
+				separator := jiraUnprotectedSplit(body, 0, '|')
+				labelEnd, labelPart, targetPart, unnamed, titled := close, "", body, true, false
 				if separator >= 0 {
-					labelEnd, target, unnamed = offset+1+separator, body[separator+1:], false
+					labelEnd, labelPart, targetPart, unnamed = offset+1+separator, body[:separator], body[separator+1:], false
+					if titleStart := jiraUnprotectedSplit(targetPart, 0, '|'); titleStart >= 0 {
+						targetPart, titled = targetPart[:titleStart], true
+					}
 				}
-				// A third part is a link title Jira reads separately, which JFM
-				// cannot express; it stays in the target rather than vanishing.
-				target, err = decodeJiraLinkTarget(ctx, target)
+				target, err := decodeJiraLinkTarget(ctx, targetPart)
 				if err != nil {
 					return nil, nil, err
+				}
+				// A backslash before one of those separators protects nothing
+				// and Jira splits there anyway. Where the target it is left with
+				// is not one Markdown can carry, Jira resolves nothing and shows
+				// an error span, so the bracket stays the text Jira shows.
+				if (jiraValueEndsInBackslash(labelPart) || jiraValueEndsInBackslash(targetPart)) && linkNeedsDirective(target) {
+					result = append(result, literalInline{Span: sourceSpan{Start: offset, End: close + 1}, Text: source[offset : close+1]})
+					diagnostics = append(diagnostics, conversionDiagnostic{offset: offset, warning: ConversionWarning{Construct: ConstructLink, Reason: "backslash before a Jira link separator leaves a target Jira cannot resolve; complete link remains literal"}})
+					offset, textStart = close+1, close+1
+					continue
+				}
+				if titled {
+					diagnostics = append(diagnostics, conversionDiagnostic{offset: offset, warning: ConversionWarning{Construct: ConstructLink, Reason: "Jira link title is dropped; jiro carries no link title (#104)"}})
 				}
 				// The label is parsed from the source rather than from a decoded
 				// copy: Jira shows an escaped delimiter in link text as the
@@ -193,13 +210,13 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 			if err != nil {
 				return nil, nil, err
 			}
-			destination, attributes, forms := "", []directiveAttribute(nil), false
+			destination, attributes, isImage := "", []directiveAttribute(nil), false
 			if close >= 0 {
-				destination, attributes, forms = parseJiraImageBody(source[offset+1:close], offset+1)
+				destination, attributes, isImage = parseJiraImageBody(source[offset+1:close], offset+1)
 			}
 			// An image body Jira refuses is not an image at all: the run stays
 			// text, which is what Jira renders there.
-			if forms {
+			if isImage {
 				flushText(offset)
 				alt, preservedAttributes, attributeDiagnostics, invalid := validateJiraImageAttributes(attributes)
 				diagnostics = append(diagnostics, attributeDiagnostics...)
@@ -399,22 +416,20 @@ func parseJiraImageBody(body string, base int) (string, []directiveAttribute, bo
 	if jiraValueEndsInBackslash(body) {
 		return "", nil, false
 	}
-	separator := jiraUnprotectedSplit(body, '|')
+	separator := jiraUnprotectedSplit(body, 0, '|')
 	if separator < 0 {
 		return decodeJiraImageValue(body), nil, true
 	}
 	destination := decodeJiraImageValue(body[:separator])
 	attributes := make([]directiveAttribute, 0)
 	for attributeStart := separator + 1; attributeStart <= len(body); {
-		next := jiraUnprotectedSplit(body[attributeStart:], ',')
+		next := jiraUnprotectedSplit(body, attributeStart, ',')
 		if next < 0 {
 			next = len(body)
-		} else {
-			next += attributeStart
 		}
 		part := body[attributeStart:next]
 		name, value, bare := part, "", true
-		if equals := jiraUnprotectedSplit(part, '='); equals >= 0 {
+		if equals := jiraUnprotectedSplit(part, 0, '='); equals >= 0 {
 			if jiraImageParameterValueRefused(part[equals+1:]) {
 				return "", nil, false
 			}

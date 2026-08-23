@@ -100,6 +100,7 @@ Escaping is interpreted in the source notation before target escaping is applied
 - In text, a Jira backslash before a non-delimiter remains literal, including Windows paths such as `C:\temp`.
 - A value Jira reads between its own delimiters follows the rule of its place rather than the text rule. A link target drops one backslash from every run, whatever character follows it. An image source and an image parameter value keep every backslash. A macro parameter value drops the backslash of every pair. In all of them a character reference names the character the value carries, because Jira passes the reference on to the reader.
 - Jira splits these values on the raw character and a backslash protects none of them: every `|` splits a bracket body and a macro parameter list, the first `|` ends an image source, and every `,` splits an image parameter list. JFM-to-Jira conversion therefore writes a character that would split, close, or vanish as a character reference, and uses a backslash escape only where the value's own rule consumes one. A `|` inside a link's visible text is written the same way, because a backslash there would split the link instead of protecting it.
+- A character reference an author writes inside one of these values stays that reference. Conversion keeps it visible as itself in both notations rather than resolving it into the character it names, so such a value survives a round trip unchanged.
 - An escape that truncates or prevents closure of a recognized construct produces a warning; an otherwise unnecessary escape does not.
 - Valid CommonMark named and numeric character references decode to their Unicode characters.
 - Invalid character references remain visible text without a warning.
@@ -603,7 +604,7 @@ Bare `http://` and `https://` URLs map to unnamed Jira links `[target]`. A `www.
 
 Jira-only targets such as issue keys, attachments, and users use `:link[content]{target="..."}` when ordinary Markdown cannot represent the target safely. The `:link` directive requires exactly one quoted `target` attribute and accepts supported inline JFM in its content. It has no location for extra Jira parameters, so unknown or duplicate attributes make the complete directive malformed and invoke literal fallback.
 
-JFM has no link-title semantic. A Markdown link title is therefore discarded, while the label, target, and label formatting are converted normally. This is a lossy conversion and produces a warning. Jira reads a third bracket part as its own link title, which conversion keeps in the target rather than dropping.
+Both notations have a link title: Markdown writes it after the destination, and Jira Markup reads a third bracket part, `[label|target|title]`. JFM carries neither, so a title is dropped in whichever direction it was authored, while the label, target, and label formatting are converted normally. Each of those is a lossy conversion and produces a warning.
 
 Jira link labels cannot contain a physical hard break. A hard break inside a Markdown link label becomes one space, the link remains structural, and a warning records the discarded break semantic.
 
@@ -705,7 +706,7 @@ Output:
 Warnings:
 ~~~json
 [
-  {"Line":1,"Column":1,"Construct":"link","Reason":"Markdown link title was discarded because Jira Markup has no equivalent"}
+  {"Line":1,"Column":1,"Construct":"link","Reason":"Markdown link title is dropped; jiro carries no link title (#104)"}
 ]
 ~~~
 

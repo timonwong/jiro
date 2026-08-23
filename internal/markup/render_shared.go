@@ -2,6 +2,7 @@ package markup
 
 import (
 	"context"
+	"html"
 	"strings"
 )
 
@@ -86,4 +87,31 @@ func inlineEndsAtLineStart(inline semanticInline) bool {
 	default:
 		return false
 	}
+}
+
+// startsCharacterReference reports whether the `&` at offset begins something a
+// reader decodes back into a different character: the reference syntax itself,
+// or one of the legacy named references Go's html.UnescapeString resolves
+// without a terminating semicolon. Jira and Markdown both resolve references, so
+// one test serves every renderer that has to keep an authored `&` visible; a `&`
+// that begins neither stays raw, so `a & b` keeps its ampersand.
+func startsCharacterReference(value string, offset, end int) bool {
+	if offset >= end || value[offset] != '&' {
+		return false
+	}
+	if _, referenceEnd := jiraCharacterReference(value, offset, end); referenceEnd > 0 {
+		return true
+	}
+	scan := offset + 1
+	if scan < end && value[scan] == '#' {
+		scan++
+	}
+	for scan < end && isASCIIAlphanumeric(value[scan]) {
+		scan++
+	}
+	if scan < end && value[scan] == ';' {
+		scan++
+	}
+	candidate := value[offset:scan]
+	return html.UnescapeString(candidate) != candidate
 }

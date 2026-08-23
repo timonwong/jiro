@@ -2,7 +2,6 @@ package markup
 
 import (
 	"context"
-	"html"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -516,7 +515,7 @@ func markPredictedMonospaceSpanEncoding(ctx context.Context, body string, encode
 	marked := false
 	for offset := 0; offset < len(body); {
 		character, size := utf8.DecodeRuneInString(body[offset:])
-		if strings.ContainsRune(jiraMonospaceAlwaysEncoded, character) || jiraCharacterReferenceStart(body, offset, len(body)) {
+		if strings.ContainsRune(jiraMonospaceAlwaysEncoded, character) || startsCharacterReference(body, offset, len(body)) {
 			encoded[offset], marked = true, true
 		}
 		offset += size
@@ -556,30 +555,4 @@ func markPredictedMonospaceSpanEncoding(ctx context.Context, body string, encode
 		}
 	}
 	return marked, nil
-}
-
-// jiraCharacterReferenceStart reports whether a `&` at offset begins something a
-// reader decodes back into a different character: Jira's own reference syntax,
-// or one of the legacy named references Go's html.UnescapeString resolves
-// without a terminating semicolon. A `&` that begins neither stays raw, so
-// `a & b` keeps its ampersand.
-func jiraCharacterReferenceStart(body string, offset, end int) bool {
-	if offset >= end || body[offset] != '&' {
-		return false
-	}
-	if _, referenceEnd := jiraCharacterReference(body, offset, end); referenceEnd > 0 {
-		return true
-	}
-	scan := offset + 1
-	if scan < end && body[scan] == '#' {
-		scan++
-	}
-	for scan < end && isASCIIAlphanumeric(body[scan]) {
-		scan++
-	}
-	if scan < end && body[scan] == ';' {
-		scan++
-	}
-	candidate := body[offset:scan]
-	return html.UnescapeString(candidate) != candidate
 }

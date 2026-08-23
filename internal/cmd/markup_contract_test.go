@@ -129,7 +129,7 @@ func textMutationCommands() []textMutationCommand {
 func TestJFMConversionWarningsRemainStructuredAndDoNotStopMutations(t *testing.T) {
 	const input = `[Title](https://example.com "Read")`
 	const converted = `[Title|https://example.com]`
-	const message = "JFM to Jira conversion at line 1, column 1 (link): Markdown link title was discarded because Jira Markup has no equivalent"
+	const message = "JFM to Jira conversion at line 1, column 1 (link): Markdown link title is dropped; jiro carries no link title (#104)"
 
 	for _, format := range []string{"jfm", "markdown"} {
 		for _, command := range textMutationCommands() {
@@ -177,7 +177,7 @@ func TestJFMConversionWarningsRemainStructuredAndDoNotStopMutations(t *testing.T
 					}
 					if warning.Code != "jfm_conversion" || warning.Message != message || warning.Details.Direction != "jfm_to_jira" ||
 						warning.Details.Field != wantField || warning.Details.Line != 1 || warning.Details.Column != 1 ||
-						warning.Details.Construct != "link" || warning.Details.Reason != "Markdown link title was discarded because Jira Markup has no equivalent" {
+						warning.Details.Construct != "link" || warning.Details.Reason != "Markdown link title is dropped; jiro carries no link title (#104)" {
 						t.Fatalf("warning = %+v", warning)
 					}
 				})
