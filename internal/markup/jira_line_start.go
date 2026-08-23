@@ -34,12 +34,30 @@ func jiraLineControlPrefix(line string) (level int, quote bool, end int) {
 	return 0, false, 0
 }
 
-// jiraLineControlPrefixLength reports the length of the indent and the `h1.`
-// through `h6.` or `bq.` prefix that makes Jira read a line start as a heading
-// or a quote, and 0 when there is none.
-func jiraLineControlPrefixLength(value string) int {
-	_, _, end := jiraLineControlPrefix(value)
-	return end
+// jiraLineControlLikePrefix reports the line starts that spell a heading or a
+// quote the rule above rejects. malformedHeading is `h`, digits and a `.` at a
+// level Jira has none of, which jiro keeps literal with a warning rather than
+// guessing. blockStart also covers a `bq.` that no space follows: Jira opens a
+// block there, so the line cannot be folded into the paragraph above it even
+// though jiro converts neither shape.
+func jiraLineControlLikePrefix(line string) (malformedHeading, blockStart bool) {
+	if strings.HasPrefix(line, "bq.") {
+		return false, true
+	}
+	if len(line) == 0 || line[0] != 'h' {
+		return false, false
+	}
+	end := 1
+	for end < len(line) && line[end] >= '0' && line[end] <= '9' {
+		end++
+	}
+	if end == 1 || end == len(line) || line[end] != '.' {
+		return false, false
+	}
+	if end+1 != len(line) && line[end+1] != ' ' {
+		return false, false
+	}
+	return true, true
 }
 
 // jiraLineThematicBreak reports whether Jira draws a horizontal rule for the

@@ -2,11 +2,8 @@ package markup
 
 import (
 	"context"
-	"regexp"
 	"strings"
 )
-
-var jiraHeadingLikePattern = regexp.MustCompile(`^h[0-9]+\.(?: |$)`)
 
 func parseJiraMarkup(ctx context.Context, source string) (semanticDocument, []conversionDiagnostic, error) {
 	return parseJiraMarkupAtQuoteDepth(ctx, source, 0)
@@ -47,7 +44,7 @@ func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, quoteDepth 
 			index++
 			continue
 		}
-		if jiraHeadingLikePattern.MatchString(line.Text) {
+		if malformedHeading, _ := jiraLineControlLikePrefix(line.Text); malformedHeading {
 			document.Blocks = append(document.Blocks, literalBlock{Span: sourceSpan{Start: line.Start, End: line.End}, Text: line.Text})
 			diagnostics = append(diagnostics, conversionDiagnostic{offset: line.Start, warning: ConversionWarning{Construct: ConstructHeading, Reason: "malformed Jira heading remains literal"}})
 			index++

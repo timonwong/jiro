@@ -291,7 +291,7 @@ func jiraLineStartsReadAsText(rendered string, atLineStart bool) bool {
 			if _, markerEnd := jiraListMarkerPrefix(rendered[offset:]); markerEnd != 0 {
 				return false
 			}
-			if jiraLineControlPrefixLength(rendered[offset:]) != 0 {
+			if _, _, controlEnd := jiraLineControlPrefix(rendered[offset:]); controlEnd != 0 {
 				return false
 			}
 		}

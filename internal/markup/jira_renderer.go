@@ -379,7 +379,7 @@ func escapeTextForJiraText(ctx context.Context, value string, render jiraInlineR
 			}
 		}
 		if atLineStart {
-			if prefixLength := jiraLineControlPrefixLength(value[offset:]); prefixLength != 0 {
+			if _, _, prefixLength := jiraLineControlPrefix(value[offset:]); prefixLength != 0 {
 				// A character reference is the only way to keep `h1.` and `bq.` off
 				// the line start: Jira does not consume a backslash before `.`, so
 				// `h1\. x` renders with the backslash visible.

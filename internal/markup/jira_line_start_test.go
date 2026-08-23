@@ -62,25 +62,31 @@ func TestJiraListMarkerPrefixMatchesRenderer(t *testing.T) {
 	}
 }
 
-// TestJiraLineControlPrefixLengthMatchesRenderer holds the other line-start rule
-// on the same indent: Jira reads `h1.` and `bq.` past leading spaces and tabs
-// too, and the reported length reaches one past the `.` the escaper rewrites.
-func TestJiraLineControlPrefixLengthMatchesRenderer(t *testing.T) {
+// TestJiraLineControlPrefixMatchesRenderer holds the other line-start rule on
+// the same indent: Jira reads `h1.` and `bq.` past leading spaces and tabs too.
+// The reported end reaches one past the `.` the escaper rewrites, and the level
+// and quote flag are what the block parser opens the block from.
+func TestJiraLineControlPrefixMatchesRenderer(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name string
-		line string
-		want int
+		name  string
+		line  string
+		level int
+		quote bool
+		end   int
 	}{
-		{name: "heading", line: "h1. x", want: 3},
-		{name: "deepest heading", line: "h6. x", want: 3},
-		{name: "quote", line: "bq. x", want: 3},
-		{name: "heading alone", line: "h1.", want: 3},
-		{name: "indented heading", line: " h1. x", want: 4},
-		{name: "twice indented heading", line: "  h1. x", want: 5},
-		{name: "tab indented heading", line: "\th1. x", want: 4},
-		{name: "indented quote", line: " bq. x", want: 4},
+		{name: "heading", line: "h1. x", level: 1, end: 3},
+		{name: "deepest heading", line: "h6. x", level: 6, end: 3},
+		{name: "quote", line: "bq. x", quote: true, end: 3},
+		{name: "heading alone", line: "h1.", level: 1, end: 3},
+		{name: "indented heading", line: " h2. x", level: 2, end: 4},
+		{name: "twice indented heading", line: "  h1. x", level: 1, end: 5},
+		{name: "tab indented heading", line: "\th1. x", level: 1, end: 4},
+		{name: "twice tab indented heading", line: "\t\th1. x", level: 1, end: 5},
+		{name: "indented quote", line: " bq. x", quote: true, end: 4},
+		{name: "twice indented quote", line: "  bq. x", quote: true, end: 5},
 		{name: "heading without a space", line: "h1.x"},
+		{name: "quote without a space", line: "bq.x"},
 		{name: "protected heading", line: "h1&#46; x"},
 		{name: "indented protected heading", line: " h1&#46; x"},
 		{name: "heading level Jira has none of", line: "h7. x"},
@@ -89,8 +95,43 @@ func TestJiraLineControlPrefixLengthMatchesRenderer(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			if got := jiraLineControlPrefixLength(test.line); got != test.want {
-				t.Fatalf("jiraLineControlPrefixLength(%q) = %d, want %d", test.line, got, test.want)
+			level, quote, end := jiraLineControlPrefix(test.line)
+			if level != test.level || quote != test.quote || end != test.end {
+				t.Fatalf("jiraLineControlPrefix(%q) = %d, %t, %d; want %d, %t, %d", test.line, level, quote, end, test.level, test.quote, test.end)
+			}
+		})
+	}
+}
+
+// TestJiraLineControlLikePrefixKeepsTheLineVisible covers the shapes jiro reads
+// as an attempt at a line control it does not convert: a heading level Jira has
+// none of stays literal with a warning, and both shapes still end the paragraph
+// above them because Jira opens a block where jiro keeps text.
+func TestJiraLineControlLikePrefixKeepsTheLineVisible(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name             string
+		line             string
+		malformedHeading bool
+		blockStart       bool
+	}{
+		{name: "heading level Jira has none of", line: "h7. x", malformedHeading: true, blockStart: true},
+		{name: "two digit heading level", line: "h12. x", malformedHeading: true, blockStart: true},
+		{name: "heading level alone", line: "h7.", malformedHeading: true, blockStart: true},
+		{name: "heading jiro converts", line: "h1. x", malformedHeading: true, blockStart: true},
+		{name: "heading without a space", line: "h7.x"},
+		{name: "quote without a space", line: "bq.x", blockStart: true},
+		{name: "quote jiro converts", line: "bq. x", blockStart: true},
+		{name: "letter after the h", line: "hx. y"},
+		{name: "no period", line: "h1 x"},
+		{name: "indented heading level Jira has none of", line: " h7. x"},
+		{name: "empty", line: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			malformedHeading, blockStart := jiraLineControlLikePrefix(test.line)
+			if malformedHeading != test.malformedHeading || blockStart != test.blockStart {
+				t.Fatalf("jiraLineControlLikePrefix(%q) = %t, %t; want %t, %t", test.line, malformedHeading, blockStart, test.malformedHeading, test.blockStart)
 			}
 		})
 	}
@@ -174,37 +215,6 @@ func TestJiraLineMarkerRunMatchesRenderer(t *testing.T) {
 			run, content, dashRun := jiraLineMarkerRun(test.line)
 			if run != test.run || content != test.content || dashRun != test.dashRun {
 				t.Fatalf("jiraLineMarkerRun(%q) = %q, %d, %t; want %q, %d, %t", test.line, run, content, dashRun, test.run, test.content, test.dashRun)
-			}
-		})
-	}
-}
-
-// TestJiraLineControlPrefixReportsTheBlockItOpens holds the part of the line
-// control the block parser reads that the escaper does not: which of the two
-// blocks Jira opens there, and at which heading level.
-func TestJiraLineControlPrefixReportsTheBlockItOpens(t *testing.T) {
-	t.Parallel()
-	for _, test := range []struct {
-		name  string
-		line  string
-		level int
-		quote bool
-		end   int
-	}{
-		{name: "heading", line: "h1. x", level: 1, end: 3},
-		{name: "deepest heading", line: "h6. x", level: 6, end: 3},
-		{name: "indented heading", line: " h2. x", level: 2, end: 4},
-		{name: "twice tab indented heading", line: "\t\th1. x", level: 1, end: 5},
-		{name: "quote", line: "bq. x", quote: true, end: 3},
-		{name: "indented quote", line: "  bq. x", quote: true, end: 5},
-		{name: "heading level Jira has none of", line: "h7. x"},
-		{name: "quote without a space", line: "bq.x"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			level, quote, end := jiraLineControlPrefix(test.line)
-			if level != test.level || quote != test.quote || end != test.end {
-				t.Fatalf("jiraLineControlPrefix(%q) = %d, %t, %d; want %d, %t, %d", test.line, level, quote, end, test.level, test.quote, test.end)
 			}
 		})
 	}

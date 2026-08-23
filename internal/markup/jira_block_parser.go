@@ -11,8 +11,19 @@ func isJiraBlockStart(line string) bool {
 	if _, markerEnd := jiraListMarkerPrefix(line); markerEnd != 0 {
 		return true
 	}
-	if jiraHeadingLikePattern.MatchString(line) || jiraLineControlPrefixLength(line) != 0 || jiraLineThematicBreak(line) ||
-		strings.HasPrefix(line, "||") || strings.HasPrefix(line, "|") || strings.HasPrefix(line, "bq.") {
+	return isJiraBlockStartBesidesList(line)
+}
+
+// isJiraBlockStartBesidesList reports every block start but the list, for the
+// callers that have already read the line's marker run themselves.
+func isJiraBlockStartBesidesList(line string) bool {
+	if _, _, controlEnd := jiraLineControlPrefix(line); controlEnd != 0 {
+		return true
+	}
+	if _, controlLike := jiraLineControlLikePrefix(line); controlLike {
+		return true
+	}
+	if jiraLineThematicBreak(line) || strings.HasPrefix(line, "||") || strings.HasPrefix(line, "|") {
 		return true
 	}
 	return line == "{quote}" || line == "{noformat}" || strings.HasPrefix(line, "{code}") || strings.HasPrefix(line, "{code:") ||
@@ -142,38 +153,18 @@ func parseJiraLists(ctx context.Context, source string, lines []sourceLine, star
 			stack = append(stack, jiraListFrame{marker: marker, start: line.Start, end: line.End})
 		}
 		item := listItem{Span: sourceSpan{Start: line.Start, End: line.End}}
-		itemStart := line.Start + contentStart
 		index++
 		continuation := index
 		for continuation < len(lines) && jiraListItemContinues(lines[continuation].Text) {
 			continuation++
 		}
-		var inlines []semanticInline
-		var inlineDiagnostics []conversionDiagnostic
-		var err error
-		if continuation == index {
-			inlines, inlineDiagnostics, err = parseJiraInlines(ctx, source, itemStart, line.End)
-		} else {
-			// A plain line below a marker stays inside the item it follows, so the
-			// item content is read from the joined lines the way a paragraph is.
-			var raw strings.Builder
-			raw.WriteString(source[itemStart:line.End])
-			for _, next := range lines[index:continuation] {
-				raw.WriteByte('\n')
-				raw.WriteString(next.Text)
-			}
-			inlines, inlineDiagnostics, err = parseJiraInlines(ctx, raw.String(), 0, raw.Len())
-			for inlineIndex, inline := range inlines {
-				inlines[inlineIndex] = shiftSemanticInline(inline, itemStart)
-			}
-			for diagnosticIndex := range inlineDiagnostics {
-				inlineDiagnostics[diagnosticIndex].offset += itemStart
-			}
-			item.Span.End = lines[continuation-1].End
-			index = continuation
-		}
+		inlines, inlineDiagnostics, err := parseJiraListItemContent(ctx, source, line, contentStart, lines[index:continuation])
 		if err != nil {
 			return nil, 0, nil, err
+		}
+		if continuation != index {
+			item.Span.End = lines[continuation-1].End
+			index = continuation
 		}
 		diagnostics = append(diagnostics, inlineDiagnostics...)
 		item.Inlines = inlines
@@ -190,13 +181,41 @@ func parseJiraLists(ctx context.Context, source string, lines []sourceLine, star
 // run of any spelling ends the item, dash runs included: the open list gives
 // them a level to nest at.
 func jiraListItemContinues(line string) bool {
-	if line == "" || jiraLineThematicBreak(line) {
+	if line == "" {
 		return false
 	}
 	if run, _, _ := jiraLineMarkerRun(line); run != "" {
 		return false
 	}
-	return !isJiraBlockStart(line)
+	return !isJiraBlockStartBesidesList(line)
+}
+
+// parseJiraListItemContent reads one item's inlines from the marker's own line
+// and the plain lines Jira keeps inside the item below it. Joining those lines
+// is the only span the inline parser can read them from, so every position it
+// reports inside them is an offset from the item's own start.
+func parseJiraListItemContent(ctx context.Context, source string, marker sourceLine, contentStart int, continuations []sourceLine) ([]semanticInline, []conversionDiagnostic, error) {
+	itemStart := marker.Start + contentStart
+	if len(continuations) == 0 {
+		return parseJiraInlines(ctx, source, itemStart, marker.End)
+	}
+	var raw strings.Builder
+	raw.WriteString(source[itemStart:marker.End])
+	for _, line := range continuations {
+		raw.WriteByte('\n')
+		raw.WriteString(line.Text)
+	}
+	inlines, diagnostics, err := parseJiraInlines(ctx, raw.String(), 0, raw.Len())
+	if err != nil {
+		return nil, nil, err
+	}
+	for index, inline := range inlines {
+		inlines[index] = shiftSemanticInline(inline, itemStart)
+	}
+	for index := range diagnostics {
+		diagnostics[index].offset += itemStart
+	}
+	return inlines, diagnostics, nil
 }
 
 func parseJiraTable(ctx context.Context, source string, lines []sourceLine, start int) (tableBlock, int, []conversionDiagnostic, error) {
@@ -213,12 +232,12 @@ func parseJiraTable(ctx context.Context, source string, lines []sourceLine, star
 		line := lines[rowIndex]
 		rawRows = append(rawRows, line.Text)
 		header := strings.HasPrefix(line.Text, "||")
-		cells, cellDiagnostics, cellBlocks, edgeWhitespace, err := parseJiraTableRow(ctx, source, line, header)
+		cells, cellDiagnostics, cellBlockWarnings, edgeWhitespace, err := parseJiraTableRow(ctx, source, line, header)
 		if err != nil {
 			return tableBlock{}, 0, nil, err
 		}
 		diagnostics = append(diagnostics, cellDiagnostics...)
-		cellBlockDiagnostics = append(cellBlockDiagnostics, cellBlocks...)
+		cellBlockDiagnostics = append(cellBlockDiagnostics, cellBlockWarnings...)
 		if edgeWhitespace || columnCount >= 0 && len(cells) != columnCount || rowIndex != start && header {
 			block.Directive = true
 		}
@@ -268,7 +287,7 @@ func parseJiraTableRow(ctx context.Context, source string, line sourceLine, head
 	}
 	cells := make([]tableCell, 0, len(bounds))
 	diagnostics := make([]conversionDiagnostic, 0)
-	cellBlocks := make([]conversionDiagnostic, 0)
+	cellBlockWarnings := make([]conversionDiagnostic, 0)
 	edgeWhitespace := false
 	for _, bound := range bounds {
 		value := text[bound.Start:bound.End]
@@ -281,10 +300,10 @@ func parseJiraTableRow(ctx context.Context, source string, line sourceLine, head
 			return nil, nil, nil, false, err
 		}
 		diagnostics = append(diagnostics, inlineDiagnostics...)
-		cellBlocks = append(cellBlocks, jiraTableCellBlockDiagnostics(value, span.Start)...)
+		cellBlockWarnings = append(cellBlockWarnings, jiraTableCellBlockDiagnostics(value, span.Start)...)
 		cells = append(cells, tableCell{Span: span, Inlines: inlines})
 	}
-	return cells, diagnostics, cellBlocks, edgeWhitespace, nil
+	return cells, diagnostics, cellBlockWarnings, edgeWhitespace, nil
 }
 
 // jiraTableCellBlockDiagnostics reports the warning a cell earns when Jira reads
