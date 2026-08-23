@@ -77,7 +77,7 @@ An inline style that Jira Markup expresses with a matched pair of effect delimit
 _Avoid_: Style, formatting, emphasis
 
 **Effect Delimiter**:
-A character that opens or closes one Text Effect when Jira's word-boundary rules allow it; the same character elsewhere is literal text.
+A character that opens or closes one Text Effect when Jira's word-boundary rules allow it; the same character elsewhere is literal text. It has a brace form, `{*}` or `{??}`, which waives the word-boundary rule on the delimiter's outer side and pairs with the bare form.
 _Avoid_: Special character, markup character
 
 **Monospace Span**:

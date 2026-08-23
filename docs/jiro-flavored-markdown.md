@@ -76,7 +76,7 @@ A warning contains:
 - `Construct`: a stable lowercase kebab-case identifier.
 - `Reason`: a human-readable explanation of the loss or fallback.
 
-`Construct` is an open vocabulary. New identifiers may be added without changing the warning shape. Defined identifiers include `blockquote`, `code-block`, `directive`, `escape`, `heading`, `html`, `image`, `jira-macro`, `link`, `list`, `reference-definition`, `table`, and `utf-8`. Consumers MUST NOT treat this set as closed. `Reason` is explanatory prose and is not a machine-stable identifier.
+`Construct` is an open vocabulary. New identifiers may be added without changing the warning shape. Defined identifiers include `blockquote`, `code-block`, `directive`, `escape`, `heading`, `html`, `image`, `inline-code`, `jira-macro`, `link`, `list`, `plain-text`, `reference-definition`, `table`, and `utf-8`. Consumers MUST NOT treat this set as closed. `Reason` is explanatory prose and is not a machine-stable identifier.
 
 Warnings remain in source occurrence order. Multiple warnings at the same position retain discovery order. Warnings are not merged or deduplicated, and every unsupported or malformed occurrence produces its own warning.
 
@@ -101,7 +101,9 @@ Escaping is interpreted in the source notation before target escaping is applied
 - An escape that truncates or prevents closure of a recognized construct produces a warning; an otherwise unnecessary escape does not.
 - Valid CommonMark named and numeric character references decode to their Unicode characters.
 - Invalid character references remain visible text without a warning.
-- Plain-text Jira effect delimiters (`*`, `_`, `-`, `+`, `^`, and `~`) are escaped in Jira output only when they participate in a complete formatting span. Unmatched effect delimiters and word-internal punctuation that Jira cannot tokenize as formatting remain unescaped. Jira structural delimiters and line controls retain their safety escaping.
+- Plain-text Jira effect delimiters (`*`, `_`, `-`, `+`, `^`, and `~`) are escaped in Jira output only when they participate in a complete formatting span. Unmatched effect delimiters and word-internal punctuation that Jira cannot tokenize as formatting remain unescaped. `?` is escaped only as part of a complete `??…??` citation, so `what??` stays readable. Jira structural delimiters (`\`, `{`, `}`, `[`, `]`, `!`, `|`, and `#`) retain their safety escaping.
+- A `h1.` through `h6.` or `bq.` prefix at the start of a Jira output line is protected with the character reference `&#46;`, because Jira shows a backslash before `.` instead of consuming it. This is the only place plain text is not written literally.
+- Escaping decisions are proven by re-parsing the rendered inline run. Plain text that cannot be verified is emitted fully escaped with a `plain-text` warning rather than changed in silence.
 - Plain-text characters that would start unintended Markdown formatting are escaped in JFM output.
 - Directive attribute escapes are interpreted only inside directive attributes. Unknown escape sequences remain visible and produce warnings.
 
@@ -182,6 +184,8 @@ Formatting nesting follows source nesting order. Controlled HTML tags are case-i
 
 JFM accepts `*` or `_` for emphasis and `**` or `__` for strong emphasis. Canonical output uses the spellings in the table above. A single span carrying both bold and italic uses `***...***`; distinct nested spans remain distinct and are not merged merely because delimiters touch. Jira effect delimiters must form a complete span, and every delimiter (`*`, `_`, `-`, `+`, `^`, and `~`) honors the same word boundaries. An opening delimiter must not follow a letter or digit of any script and must be followed by a character that is not ASCII whitespace; a closing delimiter must follow a character that is not ASCII whitespace and must not be followed by a letter or digit. Underscores, hyphens, and other punctuation are not letters or digits, so `foo_bar_baz`, `x*y* z`, `中*强*文`, and ordinary hyphenated text such as `release-note` all remain text. JFM-to-Jira conversion escapes only those plain-text delimiters that would otherwise form a complete Jira effect span.
 
+Jira accepts a brace form of every effect delimiter, written `{*}`, `{_}`, `{-}`, `{+}`, `{^}`, `{~}`, and `{??}`. The brace form waives the word-boundary rule on the delimiter's outer side but still requires a non-space character beside its content, and it pairs with the bare form. Canonical Jira Markup uses the bare form wherever it opens and closes, and the brace form where a neighbouring letter or digit would otherwise leave the delimiters as literal text: `a**b**c` becomes `a{*}b{*}c` and `*i*t` becomes `_i{_}t`.
+
 <!-- jfm-spec-example: jira-effect-token-boundaries; direction: jfm-to-jira -->
 Input:
 ~~~jfm
@@ -227,6 +231,70 @@ Output:
 foo_bar_baz x*y* z 中*强*文
 
 (\_x\_) "\*x\*"
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: jira-plain-text-readable; direction: jfm-to-jira -->
+Input:
+~~~jfm
+release-note café_中_x 2^10 what?? a??cite??b
+~~~
+
+Output:
+~~~jira
+release-note café_中_x 2^10 what?? a??cite??b
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: jira-plain-text-complete-pair; direction: jfm-to-jira -->
+Input:
+~~~jfm
+a -b- c and a ??cite?? b
+~~~
+
+Output:
+~~~jira
+a \-b\- c and a \?\?cite\?\? b
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: jira-effect-brace-form; direction: jfm-to-jira -->
+Input:
+~~~jfm
+a**b**c and a **b** c
+~~~
+
+Output:
+~~~jira
+a{*}b{*}c and a *b* c
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: jira-effect-brace-form-read; direction: jira-to-jfm -->
+Input:
+~~~jira
+a{*}b{*}c
+~~~
+
+Output:
+~~~jfm
+a**b**c
 ~~~
 
 Warnings:
