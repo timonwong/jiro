@@ -118,7 +118,8 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 		if content == "" {
 			return result.Len()
 		}
-		if opensWithCode && jiraWordRuneAtEnd(result.String()) || output.endsWithCode && jiraWordRuneAtStart(content) {
+		if opensWithCode && jiraNeedsMonospaceSeparatorBefore(result.String()) ||
+			output.endsWithCode && jiraNeedsMonospaceSeparatorAfter(content) {
 			result.WriteString("\u200b")
 		} else if !written {
 			output.opensWithCode = opensWithCode
@@ -149,13 +150,13 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 				return jiraInlineOutput{}, err
 			}
 		case codeInline:
-			if render.mode == jiraCodePlainText {
+			if render.mode == jiraMonospaceAbandoned {
 				if err := writeText(typed.Text); err != nil {
 					return jiraInlineOutput{}, err
 				}
 				break
 			}
-			body, err := renderJiraCodeSpanBody(ctx, typed.Text, render)
+			body, err := renderJiraMonospaceSpanBody(ctx, typed.Text, render)
 			if err != nil {
 				return jiraInlineOutput{}, err
 			}
@@ -256,17 +257,21 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 	return output, nil
 }
 
-// jiraWordRuneAtEnd and jiraWordRuneAtStart read the rendered bytes that will
-// sit next to a Monospace Span brace, which is where Jira decides whether the
-// span forms at all.
-func jiraWordRuneAtEnd(value string) bool {
+// jiraNeedsMonospaceSeparatorBefore and jiraNeedsMonospaceSeparatorAfter read
+// the rendered runes that will sit next to a Monospace Span brace, which is
+// where Jira decides whether the span forms at all. A word rune refuses the
+// span. An authored U+200B needs the separator for the opposite reason: Jira
+// already reads it as the boundary, but Jira-to-JFM conversion strips exactly
+// one U+200B touching the outside of the braces, so without a second one the
+// authored character would not survive the round trip.
+func jiraNeedsMonospaceSeparatorBefore(value string) bool {
 	character, size := utf8.DecodeLastRuneInString(value)
-	return size != 0 && isJiraWordRune(character)
+	return size != 0 && (isJiraWordRune(character) || character == '\u200b')
 }
 
-func jiraWordRuneAtStart(value string) bool {
+func jiraNeedsMonospaceSeparatorAfter(value string) bool {
 	character, size := utf8.DecodeRuneInString(value)
-	return size != 0 && isJiraWordRune(character)
+	return size != 0 && (isJiraWordRune(character) || character == '\u200b')
 }
 
 func escapeTextForJira(ctx context.Context, value string, atLineStart bool) (string, error) {

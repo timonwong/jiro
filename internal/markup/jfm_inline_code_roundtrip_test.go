@@ -132,20 +132,10 @@ func parseSourceAsJFM(t *testing.T, source string) semanticDocument {
 func codeSpanBodies(t *testing.T, document semanticDocument) []string {
 	t.Helper()
 	bodies := make([]string, 0)
-	var walkBlocks func([]semanticBlock)
-	var walkInlines func([]semanticInline)
-	walkInlines = func(inlines []semanticInline) {
-		for _, inline := range inlines {
-			switch typed := inline.(type) {
-			case codeInline:
-				bodies = append(bodies, typed.Text)
-			case styledInline:
-				walkInlines(typed.Children)
-			case linkInline:
-				walkInlines(typed.Label)
-			}
-		}
+	walkInlines := func(inlines []semanticInline) {
+		forEachInlineCode(inlines, func(code codeInline) { bodies = append(bodies, code.Text) })
 	}
+	var walkBlocks func([]semanticBlock)
 	walkBlocks = func(blocks []semanticBlock) {
 		for _, block := range blocks {
 			switch typed := block.(type) {
