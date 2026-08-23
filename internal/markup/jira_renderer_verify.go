@@ -64,10 +64,18 @@ type jiraInlineRender struct {
 	inTableCell bool
 	mode        jiraEscapeMode
 	atLineStart bool
+	// inLinkLabel marks a run rendered inside a link's visible text, which is
+	// the one plain-text context where a `|` may not be backslash-escaped.
+	inLinkLabel bool
 }
 
 func (render jiraInlineRender) nested() jiraInlineRender {
 	render.atLineStart = false
+	return render
+}
+
+func (render jiraInlineRender) linkLabel() jiraInlineRender {
+	render.inLinkLabel = true
 	return render
 }
 

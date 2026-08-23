@@ -474,16 +474,12 @@ func parseJiraCodeAttributes(ctx context.Context, opening string, base int) ([]d
 	prefixOffset := base + len("{code:")
 	for _, part := range parts {
 		name, attributeValue := "language", part.Value
-		equals, err := findUnescaped(ctx, part.Value, 0, len(part.Value), "=")
-		if err != nil {
-			return nil, err
-		}
-		if equals >= 0 {
-			attributeValue, err = decodeJiraDelimitedText(ctx, part.Value[equals+1:])
+		if equals := jiraUnprotectedSplit(part.Value, '='); equals >= 0 {
+			value, err := decodeJiraMacroParameterValue(ctx, part.Value[equals+1:])
 			if err != nil {
 				return nil, err
 			}
-			name = part.Value[:equals]
+			name, attributeValue = part.Value[:equals], value
 		}
 		if strings.EqualFold(name, "language") {
 			attributeValue = normalizeCodeLanguage(attributeValue)
@@ -539,16 +535,12 @@ func parseJiraNamedAttributes(ctx context.Context, opening, name string, base in
 	prefixOffset := base + len(prefix)
 	for _, part := range parts {
 		attributeName, attributeValue, bare := part.Value, "", true
-		equals, err := findUnescaped(ctx, part.Value, 0, len(part.Value), "=")
-		if err != nil {
-			return nil, err
-		}
-		if equals >= 0 {
-			attributeValue, err = decodeJiraDelimitedText(ctx, part.Value[equals+1:])
+		if equals := jiraUnprotectedSplit(part.Value, '='); equals >= 0 {
+			value, err := decodeJiraMacroParameterValue(ctx, part.Value[equals+1:])
 			if err != nil {
 				return nil, err
 			}
-			attributeName, bare = part.Value[:equals], false
+			attributeName, attributeValue, bare = part.Value[:equals], value, false
 		}
 		attributes = append(attributes, directiveAttribute{Span: sourceSpan{Start: prefixOffset + part.Start, End: prefixOffset + part.End}, Name: canonicalPanelAttributeName(attributeName), Value: attributeValue, Bare: bare})
 	}
@@ -561,15 +553,19 @@ type jiraParameterPart struct {
 	Value string
 }
 
+// splitJiraParameterParts splits a macro header into its parameters. A
+// backslash protects no separator here: `{code:title=a\|b}` is titled `a`.
 func splitJiraParameterParts(ctx context.Context, value string) ([]jiraParameterPart, error) {
 	parts := make([]jiraParameterPart, 0)
 	for start := 0; start <= len(value); {
-		end, err := findUnescaped(ctx, value, start, len(value), "|")
-		if err != nil {
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		end := jiraUnprotectedSplit(value[start:], '|')
 		if end < 0 {
 			end = len(value)
+		} else {
+			end += start
 		}
 		parts = append(parts, jiraParameterPart{Start: start, End: end, Value: value[start:end]})
 		if end == len(value) {

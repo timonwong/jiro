@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: Jira splits the bracket body on every `|`, escaped or not, and reads what follows as the link title; jiro has no link title and keeps the remainder in the target.
+-- input.jira --
+[x|http://x/a\|b]
+-- rendered.html --
+<p><a href="http://x/a" title="b" class="external-link" target="_blank" rel="nofollow noopener">x</a></p>
+-- want.md --
+[x](http://x/a|b)
+-- warnings.json --
+[]

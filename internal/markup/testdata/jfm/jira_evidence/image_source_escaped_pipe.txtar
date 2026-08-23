@@ -1,0 +1,17 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: The first `|` ends the image source even directly after a backslash, so the source keeps the backslash and the rest becomes a parameter.
+-- input.jira --
+!http://x/i\|b.png!
+-- rendered.html --
+<p><span class="image-wrap" style=""><img src="http://x/i\" style="border: 0px solid black" /></span></p>
+-- want.md --
+!http://x/i\\|b.png!
+-- warnings.json --
+[
+ {
+  "Line": 1,
+  "Column": 14,
+  "Construct": "image",
+  "Reason": "Jira image parameter name cannot be represented by JFM attribute grammar; complete image remains literal"
+ }
+]

@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A backslash before a `|` in the visible text protects nothing: the split leaves a target Jira cannot resolve and it renders an error span, which jiro reproduces as a link to that target.
+-- input.jira --
+[a\|b|http://x]
+-- rendered.html --
+<p><span class="error">&#91;a\|b|http://x&#93;</span></p>
+-- want.md --
+:link[a\\\\]{target="b|http://x"}
+-- warnings.json --
+[]

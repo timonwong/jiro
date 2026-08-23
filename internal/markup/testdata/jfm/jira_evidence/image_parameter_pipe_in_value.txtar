@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A `|` inside the parameter list is part of the value it stands in rather than a second separator.
+-- input.jira --
+!http://x/i.png|alt=a|title=b!
+-- rendered.html --
+<p><span class="image-wrap" style=""><img src="http://x/i.png" alt="a|title=b" style="border: 0px solid black" /></span></p>
+-- want.md --
+![a|title=b](http://x/i.png)
+-- warnings.json --
+[]

@@ -84,6 +84,10 @@ _Avoid_: Special character, markup character
 The Jira Markup inline construct written as `{{...}}`. It corresponds one-to-one with Jiro Flavored Markdown inline code, but Jira still applies Text Effects, links, and other inline rules inside it.
 _Avoid_: Code span, inline code (when referring to the Jira side)
 
+**Delimited Value**:
+A value Jira Markup reads between its own delimiters: a link target, an image source, an image parameter value, or a macro parameter value. Each context consumes backslashes by its own rule and splits on its separator whether or not a backslash precedes it, so a character reference is what carries a delimiter into one.
+_Avoid_: Attribute value, escaped value
+
 **Board**:
 A Jira Software planning view whose Sprint endpoint defines one queryable relationship between that Board and each returned Sprint.
 _Avoid_: Project, Sprint container

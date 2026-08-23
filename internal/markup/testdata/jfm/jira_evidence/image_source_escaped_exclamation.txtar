@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A backslash protects the image closer and stays in the source: Jira consumes no backslash inside an image.
+-- input.jira --
+!http://x/i\!b.png!
+-- rendered.html --
+<p><span class="image-wrap" style=""><img src="http://x/i\!b.png" style="border: 0px solid black" /></span></p>
+-- want.md --
+![](http://x/i\\!b.png)
+-- warnings.json --
+[]

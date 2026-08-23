@@ -1,0 +1,6 @@
+-- input.md --
+![](http://x/i|b.png) ![](http://x/i!b.png) ![](http://x/i\\b.png)
+-- want.jira --
+!http://x/i&#124;b.png! !http://x/i&#33;b.png! !http://x/i&#92;b.png!
+-- warnings.json --
+[]

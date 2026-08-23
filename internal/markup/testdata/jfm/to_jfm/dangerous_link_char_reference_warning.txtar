@@ -1,0 +1,8 @@
+-- input.jira --
+[Click|&#106;avascript:alert(1)]
+-- want.md --
+:link[Click]{target="javascript:alert(1)"}
+-- warnings.json --
+[
+  {"Line":1,"Column":1,"Construct":"link","Reason":"dangerous destination scheme requires a reversible link directive"}
+]

@@ -1,0 +1,10 @@
+-- input.md --
+:::panel{title="a|b" borderStyle="a,b"}
+text
+:::
+-- want.jira --
+{panel:title=a&#124;b|borderStyle=a\,b}
+text
+{panel}
+-- warnings.json --
+[]
