@@ -1,0 +1,9 @@
+-- input.md --
+| a | b |
+| --- | --- |
+| C:\\dir\\file | C:\\{x} |
+-- want.jira --
+||a||b||
+|C:\dir\file|C:&#92;\{x\}|
+-- warnings.json --
+[]

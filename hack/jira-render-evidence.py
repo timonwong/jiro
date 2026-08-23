@@ -227,6 +227,10 @@ ROUND6 = [
     "a{??}b??c", "a??b{??}c", "{??}b{??}",
     # --- mixed runs the renderer has to spell two ways at once ---
     "a{*}b{*}c and x*y*z", "{*}a{*} {*}b{*}",
+    # --- an authored backslash: which ones Jira reads as a forced newline ---
+    r"a\\b", r"a \\ b", r"\\a", r"a\\", r"C:\\dir\\file", r"a\\\\b",
+    r"C:\dir\file", "x\\", r"x\ y", r"C:\{x}", r"C:&#92;\{x\}",
+    "C:&#92;dir&#92;file", "a &#92; b",
 ]
 
 

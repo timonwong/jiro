@@ -3,6 +3,8 @@ package markup
 import (
 	"context"
 	"reflect"
+	"sort"
+	"strings"
 	"testing"
 )
 
@@ -148,4 +150,26 @@ func TestJiraCodeBodyKeySeparatesNestingLevels(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestJiraPlainTextHazardBytesStayNarrow holds both halves of the cost bound:
+// every byte the plain-text escaper can write differently must force a re-parse,
+// and nothing else may. The emoticon and dash characters are the ones that would
+// silently widen it, because plain text keeps them as Jira semantics.
+func TestJiraPlainTextHazardBytesStayNarrow(t *testing.T) {
+	t.Parallel()
+	if want := `&{}[]!|#*_-+^~?\`; sortedBytes(jiraPlainTextHazardBytes) != sortedBytes(want) {
+		t.Fatalf("hazard bytes = %q, want the characters of %q", jiraPlainTextHazardBytes, want)
+	}
+	for _, character := range "()%@:;" {
+		if strings.ContainsRune(jiraPlainTextHazardBytes, character) {
+			t.Errorf("%q forces a re-parse although plain text never escapes it", character)
+		}
+	}
+}
+
+func sortedBytes(value string) string {
+	bytes := []byte(value)
+	sort.Slice(bytes, func(left, right int) bool { return bytes[left] < bytes[right] })
+	return string(bytes)
 }

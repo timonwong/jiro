@@ -184,7 +184,11 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 				writeNested("{color:"+value+"}", content, "{color}")
 				break
 			}
-			children, delimiters := typed.Children, string(jiraStyleDelimiter(typed.Style))
+			delimiter, ok := jiraEffectDelimiter(typed.Style)
+			if !ok {
+				return jiraInlineOutput{}, fmt.Errorf("%w: Text Effect %q has no Jira Effect Delimiter", ErrConversion, typed.Style)
+			}
+			children, delimiters := typed.Children, string(delimiter)
 			if combined, ok := combinedBoldItalic(typed); ok {
 				children, delimiters = combined, "*_"
 			}
@@ -192,8 +196,12 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 			if err != nil {
 				return jiraInlineOutput{}, err
 			}
+			// The rune before the opener is read from the output so far, which is
+			// where Jira will see it; an empty buffer decodes to RuneError, which
+			// is not a word rune and so gates nothing.
+			before, _ := utf8.DecodeLastRuneInString(result.String())
 			opener, closer := jiraEffectDelimiterForms(delimiters, render.mode,
-				jiraLastRuneOfOutput(result.String()), jiraFirstRuneOfInlines(inlines[index+1:]))
+				before, jiraFirstRuneOfInlines(inlines[index+1:]))
 			writeNested(opener, content, closer)
 		case linkInline:
 			label, err := renderJiraInlines(ctx, typed.Label, render.nested())
@@ -251,23 +259,6 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 	return output, ctx.Err()
 }
 
-func jiraStyleDelimiter(style inlineStyle) byte {
-	switch style {
-	case styleItalic:
-		return '_'
-	case styleStrike:
-		return '-'
-	case styleInserted:
-		return '+'
-	case styleSuper:
-		return '^'
-	case styleSub:
-		return '~'
-	default:
-		return '*'
-	}
-}
-
 // jiraEffectDelimiterForms spells the delimiters of one Text Effect. Jira gates
 // a bare delimiter by the word rune beside it, so an effect that touches a word
 // on that side is written in the brace form `{X}`, which waives the gate:
@@ -306,19 +297,11 @@ func jiraReversedDelimiters(delimiters string) string {
 	return string(reversed)
 }
 
-// jiraLastRuneOfOutput and jiraFirstRuneOfInlines report the runes that will sit
-// beside a Text Effect's delimiters in the rendered run, which is where Jira
-// decides whether a bare delimiter opens or closes at all. Only a text inline
-// can begin with a word rune: every other inline begins with `{`, `[`, `!`, `\`
-// or an Effect Delimiter of its own.
-func jiraLastRuneOfOutput(value string) rune {
-	character, size := utf8.DecodeLastRuneInString(value)
-	if size == 0 {
-		return 0
-	}
-	return character
-}
-
+// jiraFirstRuneOfInlines reports the rune that will sit after a Text Effect's
+// closing delimiter in the rendered run, which is where Jira decides whether a
+// bare delimiter closes at all. Only a text inline can begin with a word rune:
+// every other inline begins with `{`, `[`, `!`, `\` or an Effect Delimiter of
+// its own.
 func jiraFirstRuneOfInlines(inlines []semanticInline) rune {
 	for _, inline := range inlines {
 		switch typed := inline.(type) {
@@ -339,10 +322,11 @@ func jiraFirstRuneOfInlines(inlines []semanticInline) rune {
 		case hardBreakInline:
 			return '\\'
 		case styledInline:
-			if typed.Style == styleColor {
-				return '{'
+			if delimiter, ok := jiraEffectDelimiter(typed.Style); ok {
+				return rune(delimiter)
 			}
-			return rune(jiraStyleDelimiter(typed.Style))
+			// A color is written as a macro, so its run begins with a brace.
+			return '{'
 		}
 	}
 	return 0
@@ -387,7 +371,7 @@ func escapeTextForJiraText(ctx context.Context, value string, atLineStart bool) 
 			pending = upto
 		}
 	}
-	for offset := 0; offset < len(value); offset++ {
+	for offset := 0; offset < len(value); {
 		if offset&255 == 0 {
 			if err := ctx.Err(); err != nil {
 				return "", nil, err
@@ -397,28 +381,36 @@ func escapeTextForJiraText(ctx context.Context, value string, atLineStart bool) 
 			if prefixLength := jiraLineControlPrefixLength(value[offset:]); prefixLength != 0 {
 				// A character reference is the only way to keep `h1.` and `bq.` off
 				// the line start: Jira does not consume a backslash before `.`, so
-				// `h1\. x` renders with the backslash visible. It is the one place
-				// plain text is not written literally, which is why the
-				// verification key decodes a reference on the re-parsed side.
+				// `h1\. x` renders with the backslash visible.
 				flush(offset + prefixLength - 1)
 				result.WriteString("&#46;")
 				pending, changed = offset+prefixLength, true
-				offset = pending - 1
-				atLineStart = false
+				offset, atLineStart = pending, false
 				continue
 			}
 		}
 		character := value[offset]
 		atLineStart = character == '\n'
 		switch jiraPlainTextByteClasses[character] {
-		case jiraPlainTextByteEscaped:
+		case jiraPlainTextByteStructural:
 			flush(offset)
 			result.WriteByte('\\')
 			changed = true
-		case jiraPlainTextByteEffect:
+		case jiraPlainTextByteDelimiter:
 			flush(offset)
 			plainEffectOffsets = append(plainEffectOffsets, result.Len())
+		case jiraPlainTextByteBackslash:
+			// An authored backslash may not become one of Jira's own. Jira reads
+			// `\\` as a forced newline and `\X` as an escape, so a backslash that
+			// would start either is written as a character reference; every other
+			// one Jira shows as itself, which keeps `C:\dir\file` readable.
+			if offset+1 < len(value) && isJiraEscapable(value[offset+1]) {
+				flush(offset)
+				result.WriteString("&#92;")
+				pending, changed = offset+1, true
+			}
 		}
+		offset++
 	}
 	if err := ctx.Err(); err != nil {
 		return "", nil, err
@@ -651,33 +643,6 @@ func renderJiraCodeBlock(ctx context.Context, block codeBlock) (string, error) {
 // jiraPlainTextEscapedCharacters are the characters the plain-text escaper
 // backslash-escapes outside any grammar rule, as legacy safety escaping
 // (ADR-0016).
-const jiraPlainTextEscapedCharacters = `\{}[]!|#`
-
-// jiraPlainTextEffectCharacters are the plain-text characters that may become
-// markup, which the escaper backslashes only where the grammar reads them as one
-// delimiter of a complete pair. `?` is here rather than in the structural set
-// above because a lone `?` is never markup: only `??...??` is a citation.
-const jiraPlainTextEffectCharacters = `*_-+^~?`
-
-const (
-	jiraPlainTextBytePlain uint8 = iota
-	jiraPlainTextByteEscaped
-	jiraPlainTextByteEffect
-)
-
-// jiraPlainTextByteClasses answers both plain-text questions in one lookup. Only
-// ASCII carries a Jira rule, so every byte of a multi-byte rune classifies as
-// plain and the escaper can scan bytes.
-var jiraPlainTextByteClasses = func() (classes [256]uint8) {
-	for _, character := range jiraPlainTextEscapedCharacters {
-		classes[character] = jiraPlainTextByteEscaped
-	}
-	for _, character := range jiraPlainTextEffectCharacters {
-		classes[character] = jiraPlainTextByteEffect
-	}
-	return classes
-}()
-
 func jiraLineControlPrefixLength(value string) int {
 	if len(value) >= 3 && value[0] == 'h' && value[1] >= '1' && value[1] <= '6' && value[2] == '.' &&
 		(len(value) == 3 || value[3] == ' ') {

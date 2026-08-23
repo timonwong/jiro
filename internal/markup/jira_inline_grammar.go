@@ -13,23 +13,105 @@ import (
 // evidence. Every rule below has a checked-in render in
 // testdata/jfm/jira_evidence, named after the topic it settles.
 
-func jiraInlineStyle(delimiter byte) (inlineStyle, bool) {
-	switch delimiter {
-	case '*':
-		return styleBold, true
-	case '_':
-		return styleItalic, true
-	case '-':
-		return styleStrike, true
-	case '+':
-		return styleInserted, true
-	case '^':
-		return styleSuper, true
-	case '~':
-		return styleSub, true
-	default:
-		return "", false
+// jiraEffectDelimiters pairs each Effect Delimiter with the Text Effect it
+// carries. Both directions are read from this one table so that a delimiter
+// cannot mean one thing to the Jira parser and another to the Jira renderer.
+var jiraEffectDelimiters = [...]struct {
+	Delimiter byte
+	Style     inlineStyle
+}{
+	{'*', styleBold},
+	{'_', styleItalic},
+	{'-', styleStrike},
+	{'+', styleInserted},
+	{'^', styleSuper},
+	{'~', styleSub},
+}
+
+var jiraInlineStyles = func() (styles [256]inlineStyle) {
+	for _, entry := range jiraEffectDelimiters {
+		styles[entry.Delimiter] = entry.Style
 	}
+	return styles
+}()
+
+func jiraInlineStyle(delimiter byte) (inlineStyle, bool) {
+	style := jiraInlineStyles[delimiter]
+	return style, style != ""
+}
+
+// jiraEffectDelimiter reports the Effect Delimiter carrying style. A Text Effect
+// Jira writes as a macro rather than as a delimiter pair, such as a color, has
+// none.
+func jiraEffectDelimiter(style inlineStyle) (byte, bool) {
+	for _, entry := range jiraEffectDelimiters {
+		if entry.Style == style {
+			return entry.Delimiter, true
+		}
+	}
+	return 0, false
+}
+
+// jiraPlainTextByteClass names what one byte can do to plain text on Jira. The
+// classes are the whole plain-text escaping vocabulary: the renderer's escaper
+// reads them to decide what to write, and its verification reads them to decide
+// whether a rendered run can differ from the text it came from at all.
+type jiraPlainTextByteClass uint8
+
+const (
+	// jiraPlainTextByteLiteral is a byte Jira shows as itself.
+	jiraPlainTextByteLiteral jiraPlainTextByteClass = iota
+	// jiraPlainTextByteStructural is a byte Jira reads as structure wherever it
+	// stands, so plain text always backslash-escapes it (ADR-0016).
+	jiraPlainTextByteStructural
+	// jiraPlainTextByteDelimiter is a byte Jira reads as markup only where it
+	// pairs, so plain text escapes it only where the grammar reads a complete
+	// pair.
+	jiraPlainTextByteDelimiter
+	// jiraPlainTextByteBackslash is the byte that starts Jira's own escapes, so
+	// plain text has to stop it from doing so without hiding it.
+	jiraPlainTextByteBackslash
+)
+
+// jiraPlainTextStructuralCharacters are the characters plain text escapes
+// outside any grammar rule, as legacy safety escaping (ADR-0016).
+const jiraPlainTextStructuralCharacters = "{}[]!|#"
+
+// jiraPlainTextByteClasses classifies every byte plain text cannot pass through
+// unexamined. Emoticon and dash characters are absent on purpose: a Jira
+// emoticon or dash in prose is Jira-flavored semantics jiro keeps, so plain text
+// never escapes one and reading a run back over it would be pure cost.
+var jiraPlainTextByteClasses = func() (classes [256]jiraPlainTextByteClass) {
+	for _, character := range jiraPlainTextStructuralCharacters {
+		classes[character] = jiraPlainTextByteStructural
+	}
+	for _, entry := range jiraEffectDelimiters {
+		classes[entry.Delimiter] = jiraPlainTextByteDelimiter
+	}
+	// A lone `?` is never markup; only a complete `??...??` is a citation.
+	classes['?'] = jiraPlainTextByteDelimiter
+	classes['\\'] = jiraPlainTextByteBackslash
+	return classes
+}()
+
+// jiraPlainTextHazardBytes are the bytes a rendered run must be re-parsed over,
+// which is every byte plain text may write differently plus the `&` that begins
+// the escaper's two character-reference protections.
+var jiraPlainTextHazardBytes = func() string {
+	hazards := []byte{'&'}
+	for character := 0; character < 256; character++ {
+		if jiraPlainTextByteClasses[character] != jiraPlainTextByteLiteral {
+			hazards = append(hazards, byte(character))
+		}
+	}
+	return string(hazards)
+}()
+
+// isJiraEscapable reports whether Jira consumes a backslash written before
+// character, which is what makes an authored backslash before one of them
+// unwritable as itself.
+func isJiraEscapable(character byte) bool {
+	return strings.IndexByte(jiraEscapableCharacters, character) >= 0
 }
 
 // isJiraWordRune reports whether value blocks an Effect Delimiter from opening

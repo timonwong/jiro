@@ -1,0 +1,10 @@
+-- input.md --
+# C:\\dir\\file
+
+# C:\\{x}
+-- want.jira --
+h1. C:\dir\file
+
+h1. C:&#92;\{x\}
+-- warnings.json --
+[]

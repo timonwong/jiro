@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A backslash before a space is shown as itself; only a second backslash makes a forced newline.
+-- input.jira --
+x\ y
+-- rendered.html --
+<p>x\ y</p>
+-- want.md --
+x\\ y
+-- warnings.json --
+[]

@@ -114,11 +114,7 @@ func renderJiraInlineRun(ctx context.Context, state *jiraRenderState, inlines []
 // exercise the later modes without an input Jira actually misreads.
 func renderJiraInlineRunWith(ctx context.Context, state *jiraRenderState, inlines []semanticInline, run jiraRunContext, verify jiraInlineRunVerifier) (string, error) {
 	render := jiraInlineRender{inTableCell: run.inTableCell(), atLineStart: run.atLineStart}
-	output, err := renderJiraInlines(ctx, inlines, render)
-	if err != nil {
-		return "", err
-	}
-	rendered, err := escapePlainJiraEffects(ctx, output.text, output.plainOffsets, render.mode)
+	rendered, err := renderJiraInlineRunIn(ctx, inlines, render)
 	if err != nil || !jiraRunNeedsVerification(inlines, rendered) {
 		return rendered, err
 	}
@@ -127,10 +123,7 @@ func renderJiraInlineRunWith(ctx context.Context, state *jiraRenderState, inline
 		// The first mode is the render already in hand.
 		if index != 0 {
 			render.mode = mode
-			if output, err = renderJiraInlines(ctx, inlines, render); err != nil {
-				return "", err
-			}
-			if rendered, err = escapePlainJiraEffects(ctx, output.text, output.plainOffsets, mode); err != nil {
+			if rendered, err = renderJiraInlineRunIn(ctx, inlines, render); err != nil {
 				return "", err
 			}
 		}
@@ -147,10 +140,7 @@ func renderJiraInlineRunWith(ctx context.Context, state *jiraRenderState, inline
 		return rendered, nil
 	}
 	render.mode = jiraEscapeAbandoned
-	if output, err = renderJiraInlines(ctx, inlines, render); err != nil {
-		return "", err
-	}
-	if rendered, err = escapePlainJiraEffects(ctx, output.text, output.plainOffsets, jiraEscapeAbandoned); err != nil {
+	if rendered, err = renderJiraInlineRunIn(ctx, inlines, render); err != nil {
 		return "", err
 	}
 	forEachInlineCode(inlines, func(code codeInline) {
@@ -165,12 +155,23 @@ func renderJiraInlineRunWith(ctx context.Context, state *jiraRenderState, inline
 	return rendered, nil
 }
 
+// renderJiraInlineRunIn renders one run in one escape mode. Plain-text escaping
+// is decided over the finished run rather than per fragment, so rendering and
+// escaping are one step and no caller may take only half of it.
+func renderJiraInlineRunIn(ctx context.Context, inlines []semanticInline, render jiraInlineRender) (string, error) {
+	output, err := renderJiraInlines(ctx, inlines, render)
+	if err != nil {
+		return "", err
+	}
+	return escapePlainJiraEffects(ctx, output.text, output.plainOffsets, render.mode)
+}
+
 // jiraRunNeedsVerification reports whether re-parsing the rendered run can tell
 // the renderer anything. A run of nothing but text and hard breaks whose bytes
 // hold no Jira delimiter reads back as itself, and skipping the parse there is
 // what keeps the harness off the cost of ordinary prose.
 func jiraRunNeedsVerification(inlines []semanticInline, rendered string) bool {
-	if strings.ContainsAny(rendered, jiraVerificationTriggers) {
+	if strings.ContainsAny(rendered, jiraPlainTextHazardBytes) {
 		return true
 	}
 	for _, inline := range inlines {
@@ -182,10 +183,6 @@ func jiraRunNeedsVerification(inlines []semanticInline, rendered string) bool {
 	}
 	return false
 }
-
-// jiraVerificationTriggers are every character a Jira inline rule can start
-// from, plus the `&` of the line-control protection.
-const jiraVerificationTriggers = "\\{}[]|!#?*_-+^~&"
 
 func collectRunFallbackDiagnostic(state *jiraRenderState, inlines []semanticInline, warning ConversionWarning) {
 	offset := 0
@@ -388,9 +385,10 @@ func appendVerificationScalar(builder *strings.Builder, tag, value string) {
 // decision. A Jira inline run is one line, so the Jira parser reads a newline
 // inside text as the space that joins the line to the next one. On the re-parsed
 // side it also decodes numeric character references, which the Jira parser keeps
-// verbatim in plain text: the line-control protection at escapeTextForJiraText
-// is the one place this renderer writes one, so `h1&#46; x` has to compare equal
-// to the text `h1. x` it was rendered from.
+// verbatim in plain text: the line-control and backslash protections at
+// escapeTextForJiraText are the only places this renderer writes one, so
+// `h1&#46; x` and `C:&#92;\{x\}` have to compare equal to the text they were
+// rendered from.
 func normalizeVerificationText(value string, reparsed bool) string {
 	if strings.Contains(value, "\n") {
 		value = strings.ReplaceAll(value, "\n", " ")
