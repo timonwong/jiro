@@ -1,0 +1,10 @@
+-- input.md --
+# foo_bar_baz x\*y\*z a--b 中\*强\*文
+
+# x*y*z 中**强**文
+-- want.jira --
+h1. foo_bar_baz x*y*z a--b 中*强*文
+
+h1. x{_}y{_}z 中{*}强{*}文
+-- warnings.json --
+[]
