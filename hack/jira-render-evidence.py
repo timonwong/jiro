@@ -253,6 +253,9 @@ ROUND7 = [
     "{{* item}}", "{{** item}}", "h1. * item", "* * item", r"* \* item",
     "* foo\\\\\n* bar", "* foo\\\\\n" + r"\* bar",
     " * item", "*  item", "x\n * item",
+    # --- Jira skips leading spaces and tabs before either line-start rule ---
+    "\t* item", " \\* item", " h1. x", "  h1. x", "\th1. x", " bq. x",
+    " h1&#46; x",
     # --- every table cell is its own line start ---
     "||h||\n|* item|", "||h||\n" + r"|\* item|",
     "||h||\n|h1. x|", "||h||\n|bq. x|", "||h||\n|h1&#46; x|",

@@ -247,13 +247,15 @@ func (verdict jiraVerificationVerdict) accepts() bool {
 
 // verifyJiraInlineRun re-parses rendered in its block context. A table cell is
 // verified against the row splitter first, because the block layer splits the
-// row before any inline rule runs, and every line start is read against the
+// row before any inline rule runs. Every line start is then read against the
 // block layer's list-marker and line-control rules, which the inline re-parse
-// cannot report. The body comparison behind codePreserved is
-// only reached when the strict comparison has already failed, so a run that
-// verifies pays for one re-parse and one key. A run without inline code has an
-// empty body key on both sides; that is the truthful answer, since there is no
-// code for the plain-text fallback to protect.
+// cannot report; that reading only withholds the match, because a run whose
+// line start Jira would misread still says the truth about its Monospace Spans
+// and must keep them. The body comparison behind codePreserved is only reached
+// when the strict comparison has already failed, so a run that verifies pays
+// for one re-parse and one key. A run without inline code has an empty body key
+// on both sides; that is the truthful answer, since there is no code for the
+// plain-text fallback to protect.
 func verifyJiraInlineRun(ctx context.Context, rendered, intended string, inlines []semanticInline, run jiraRunContext) (jiraVerificationVerdict, error) {
 	if run.inTableCell() {
 		bounds, err := jiraTableCellBounds(ctx, rendered, 0, len(rendered), run.cellDelimiter)
@@ -261,14 +263,12 @@ func verifyJiraInlineRun(ctx context.Context, rendered, intended string, inlines
 			return jiraVerificationVerdict{}, err
 		}
 	}
-	if !jiraLineStartsReadAsText(rendered, run.atLineStart) {
-		return jiraVerificationVerdict{}, nil
-	}
 	parsed, _, err := parseJiraInlines(ctx, rendered, 0, len(rendered))
 	if err != nil {
 		return jiraVerificationVerdict{}, err
 	}
-	if jiraVerificationKey(parsed, true) == intended {
+	matched := jiraVerificationKey(parsed, true) == intended && jiraLineStartsReadAsText(rendered, run.atLineStart)
+	if matched {
 		return jiraVerificationVerdict{matched: true}, nil
 	}
 	return jiraVerificationVerdict{codePreserved: jiraCodeBodyKey(parsed) == jiraCodeBodyKey(inlines)}, nil
