@@ -1,6 +1,6 @@
 -- input.md --
-Run `a|b`.
+中`代码`文
 -- want.jira --
-Run {{a|b}}.
+中​{{代码}}​文
 -- warnings.json --
 []

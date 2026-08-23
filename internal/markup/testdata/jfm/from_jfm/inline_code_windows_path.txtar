@@ -1,6 +1,6 @@
 -- input.md --
-Run `a|b`.
+`C:\path\-x`
 -- want.jira --
-Run {{a|b}}.
+{{C:&#92;path&#92;-x}}
 -- warnings.json --
 []

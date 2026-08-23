@@ -1,6 +1,6 @@
 -- input.md --
-Run `a|b`.
+`http://x`
 -- want.jira --
-Run {{a|b}}.
+{{http://x}}
 -- warnings.json --
 []

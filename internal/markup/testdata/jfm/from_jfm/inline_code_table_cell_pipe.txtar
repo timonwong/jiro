@@ -1,6 +1,9 @@
 -- input.md --
-Run `a|b`.
+| h |
+| --- |
+| `a\|b` |
 -- want.jira --
-Run {{a|b}}.
+||h||
+|{{a&#124;b}}|
 -- warnings.json --
 []

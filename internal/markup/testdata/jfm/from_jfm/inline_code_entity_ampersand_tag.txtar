@@ -1,6 +1,6 @@
 -- input.md --
-Run `a|b`.
+`&amp; <tag> x\-y`
 -- want.jira --
-Run {{a|b}}.
+{{&#38;amp; <tag> x&#92;-y}}
 -- warnings.json --
 []

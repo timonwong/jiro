@@ -1,6 +1,6 @@
 -- input.md --
-Run `a|b`.
+`[text|http://x]`
 -- want.jira --
-Run {{a|b}}.
+{{&#91;text|http://x]}}
 -- warnings.json --
 []

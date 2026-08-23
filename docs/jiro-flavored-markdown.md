@@ -234,7 +234,7 @@ Warnings:
 []
 ~~~
 
-Inline code uses a delimiter one backtick longer than the longest backtick run in its body, with a minimum length of one. Only CommonMark-required padding spaces may be added. Literal body content is otherwise preserved. Jira's `{{...}}` container is not an opaque literal boundary, so canonical Jira Markup uses the smallest escaping set validated against Jira's renderer: complete HTTP(S) URL bodies, simple bracketed literal text such as `[x]`, identifier-internal `-` and `_`, literal `&<>`, and Jira backslash escapes remain readable; effect delimiter spans and Jira-active structure characters that would be reinterpreted are encoded as decimal character references. `}}` is protected in the wire representation, but Jira's own close-boundary behavior remains renderer-specific and is not reported as a conversion warning. Jira-to-JFM conversion resolves character references once. Legacy Jira backslash escapes remain accepted, and delimiter-protection U+200B characters are removed only when they match the legacy inline-code safety patterns; unrelated U+200B characters remain content.
+Inline code uses a delimiter one backtick longer than the longest backtick run in its body, with a minimum length of one. Only CommonMark-required padding spaces may be added. Literal body content is otherwise preserved. Jira's `{{...}}` container is not an opaque literal boundary, so canonical Jira Markup encodes a body character as a decimal character reference exactly when the shared Jira inline grammar reports that Jira would reinterpret it there, and proves the decision by re-parsing the rendered inline run in its block context. Anything the grammar leaves alone stays readable, including complete `http`, `https` and `ftp` URLs, identifier-internal `-` and `_`, an effect delimiter that no word boundary lets pair, bracketed literal text such as `[x]`, and a literal `&<>|!`. A `mailto:` URL is the one autolink that is encoded, because Jira hides the scheme and shows only the address. A Monospace Span that would touch a word rune is separated from it with U+200B. When a rendered run cannot be made to re-parse to the inline code it came from, the body is emitted as plain text with a conversion warning rather than silently changed. Jira-to-JFM conversion resolves character references once. Legacy Jira backslash escapes remain accepted, and delimiter-protection U+200B characters are removed only when they touch the outside of `{{` or `}}`; unrelated U+200B characters remain content.
 
 <!-- jfm-spec-example: inline-code-literal-punctuation; direction: jfm-to-jira -->
 Input:
@@ -244,7 +244,7 @@ Input:
 
 Output:
 ~~~jira
-{{https&#58;//registry-mirror.alauda.io&#58;60070/v2/ &#45;literal&#45;}}
+{{https://registry-mirror.alauda.io:60070/v2/ &#45;literal&#45;}}
 ~~~
 
 Warnings:

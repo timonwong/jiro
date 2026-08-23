@@ -1,6 +1,6 @@
 -- input.md --
-Run `a|b`.
+`??cite??`
 -- want.jira --
-Run {{a|b}}.
+{{&#63;?cite&#63;?}}
 -- warnings.json --
 []

@@ -29,7 +29,7 @@ Keep inline and file inputs mutually exclusive. Use `-` as the file value to rea
 
 JFM conversion is best-effort. Conversion warnings retain every target-representable semantic, keep the mutation successful, and use code `jfm_conversion`. In JSON output, inspect `warnings[].details.direction`, `field`, `line`, `column`, `construct`, and `reason`; in text output, preserve stderr alongside the successful result. A fatal conversion failure stops before the Jira write and returns no successful mutation result.
 
-JFM inline code follows Jira renderer behavior rather than treating `{{...}}` as an opaque literal container. Canonical output keeps complete HTTP(S) URLs, simple bracketed literal text, identifier-internal `-` and `_`, literal `&<>`, and Jira backslash escapes readable, while protecting effect spans and Jira structure characters that would be reinterpreted. Jira-specific rendering behavior around a `}}` boundary is not by itself a `jfm_conversion` warning.
+JFM inline code follows Jira renderer behavior rather than treating `{{...}}` as an opaque literal container. Canonical output encodes a body character as a decimal character reference exactly when Jira would reinterpret it there, and verifies that by re-parsing the rendered run, so complete `http`, `https` and `ftp` URLs, identifier-internal `-` and `_`, bracketed literal text, and a literal `&<>|!` stay readable while a body that Jira would read as markup round-trips byte-for-byte. A `mailto:` URL is encoded because Jira shows only the address. Jira-specific rendering behavior around a `}}` boundary is not by itself a `jfm_conversion` warning.
 
 ## Convert documents offline
 
