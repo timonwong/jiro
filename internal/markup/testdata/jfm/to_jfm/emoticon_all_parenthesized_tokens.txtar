@@ -1,0 +1,6 @@
+-- input.jira --
+(y) (n) (i) (/) (x) (!) (?) (+) (-) (on) (off)
+-- want.md --
+:emoticon[(y)] :emoticon[(n)] :emoticon[(i)] :emoticon[(/)] :emoticon[(x)] :emoticon[(!)] :emoticon[(?)] :emoticon[(+)] :emoticon[(-)] :emoticon[(on)] :emoticon[(off)]
+-- warnings.json --
+[]

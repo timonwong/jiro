@@ -1,0 +1,9 @@
+-- input.md --
+| h |
+| --- |
+| :emoticon[(x)] |
+-- want.jira --
+||h||
+|(x)|
+-- warnings.json --
+[]

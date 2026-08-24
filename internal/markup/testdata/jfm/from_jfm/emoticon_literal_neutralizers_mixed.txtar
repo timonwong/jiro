@@ -1,0 +1,6 @@
+-- input.md --
+sad :( and (*) and (flag) here
+-- want.jira --
+sad &#58;( and \(*\) and \(flag\) here
+-- warnings.json --
+[]

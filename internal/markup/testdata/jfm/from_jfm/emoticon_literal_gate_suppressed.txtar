@@ -1,0 +1,6 @@
+-- input.md --
+print(x)foo and (flag)off and (y)bar
+-- want.jira --
+print(x)foo and (flag)off and (y)bar
+-- warnings.json --
+[]

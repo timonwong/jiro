@@ -1017,6 +1017,18 @@ func adaptInlineDirective(source []byte, node *jfmInlineDirective, next ast.Node
 			diagnostics = append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructImage, Reason: "dangerous destination scheme remains reversible through the image directive"}})
 		}
 		return imageInline{Span: span, Alt: decodeInlineDirectiveContent(string(node.Content.Value(source))), Source: destination.Value, Attributes: canonical, Directive: true, Dangerous: dangerous}, diagnostics, next, nil
+	case "emoticon":
+		// The content is one raw token rather than inline JFM, and the
+		// directive carries no attributes at all, so anything else is a
+		// semantics jiro will not guess and the source stays visible.
+		if node.HasAttrs {
+			return literalInline{Span: span, Text: raw}, append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructEmoticon, Reason: "emoticon directive takes no attribute list"}}), next, nil
+		}
+		token, supported := canonicalJiraEmoticonToken(decodeInlineDirectiveContent(string(node.Content.Value(source))))
+		if !supported {
+			return literalInline{Span: span, Text: raw}, append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructEmoticon, Reason: "emoticon directive content is not one supported Jira emoticon token"}}), next, nil
+		}
+		return emoticonInline{Span: span, Token: token}, diagnostics, next, nil
 	default:
 		return literalInline{Span: span, Text: raw}, []conversionDiagnostic{{offset: span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "unknown JFM directive remains literal"}}}, next, nil
 	}

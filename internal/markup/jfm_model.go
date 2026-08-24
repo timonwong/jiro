@@ -176,6 +176,16 @@ type imageInline struct {
 
 func (imageInline) semanticInline() {}
 
+// emoticonInline is one Jira emoticon, written in JFM as `:emoticon[token]`.
+// Token is the canonical spelling of a token the shared Jira inline grammar
+// verifies, so `(*y)` and `(*)` are both carried as `(*)`.
+type emoticonInline struct {
+	Span  sourceSpan
+	Token string
+}
+
+func (emoticonInline) semanticInline() {}
+
 type hardBreakInline struct {
 	Span sourceSpan
 }

@@ -1,0 +1,6 @@
+-- input.jira --
+!image.png|alt=(x)!
+-- want.md --
+![(x)](image.png)
+-- warnings.json --
+[]

@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A link target is a delimited value, so a token inside one stays part of the target.
+-- input.jira --
+[a|http://example.com/(x)]
+-- rendered.html --
+<p><a href="http://example.com/(x)" class="external-link" target="_blank" rel="nofollow noopener">a</a></p>
+-- want.md --
+[a](http://example.com/\(x\))
+-- warnings.json --
+[]

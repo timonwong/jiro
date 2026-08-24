@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Both parentheses carry a Jira escape, so the token is not one and Jira shows its characters.
+-- input.jira --
+\(x\)
+-- rendered.html --
+<p>&#40;x&#41;</p>
+-- want.md --
+(x)
+-- warnings.json --
+[]

@@ -1,0 +1,6 @@
+-- input.md --
+[:emoticon[(x)]](https://example.com)
+-- want.jira --
+[(x)|https://example.com]
+-- warnings.json --
+[]

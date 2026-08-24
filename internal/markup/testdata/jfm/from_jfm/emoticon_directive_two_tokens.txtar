@@ -1,0 +1,6 @@
+-- input.md --
+:emoticon[(x)(y)]
+-- want.jira --
+:emoticon\[\(x\)\(y\)\]
+-- warnings.json --
+[{"Line":1,"Column":1,"Construct":"emoticon","Reason":"emoticon directive content is not one supported Jira emoticon token"}]

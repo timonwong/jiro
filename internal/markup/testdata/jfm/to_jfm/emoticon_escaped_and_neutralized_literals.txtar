@@ -1,0 +1,6 @@
+-- input.jira --
+\(x\) and &#58;) and &#59;) and \\:) and a\:)b
+-- want.md --
+(x) and :) and ;) and \\:) and a\\:)b
+-- warnings.json --
+[]

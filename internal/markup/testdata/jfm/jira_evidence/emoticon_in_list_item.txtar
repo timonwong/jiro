@@ -1,0 +1,12 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A token in a list item renders as an icon.
+-- input.jira --
+* (x)
+-- rendered.html --
+<ul>
+	<li><img class="emoticon" src="/jira/images/icons/emoticons/error.png" height="16" width="16" align="absmiddle" alt="" border="0"/></li>
+</ul>
+-- want.md --
+- :emoticon[(x)]
+-- warnings.json --
+[]

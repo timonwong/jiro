@@ -1,0 +1,6 @@
+-- input.jira --
+(y)foo
+-- want.md --
+(y)foo
+-- warnings.json --
+[]

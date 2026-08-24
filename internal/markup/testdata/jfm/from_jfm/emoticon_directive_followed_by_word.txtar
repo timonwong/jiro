@@ -1,0 +1,6 @@
+-- input.md --
+:emoticon[(x)]foo
+-- want.jira --
+(x)foo
+-- warnings.json --
+[{"Line":1,"Column":1,"Construct":"emoticon","Reason":"Jira emoticon token is followed by a word character and cannot be guaranteed to render as an icon"}]

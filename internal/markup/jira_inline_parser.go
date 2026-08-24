@@ -83,6 +83,39 @@ func parseJiraInlines(ctx context.Context, source string, start, end int, domain
 		}
 		if source[offset] == '\\' {
 			runEnd := jiraBackslashRunEnd(source, offset, end)
+			// Jira's emoticon escape consumes exactly one backslash directly in
+			// front of a token the gate fires on and shows the token's
+			// characters. It runs before every other backslash rule, so the run
+			// left in front of it is one backslash shorter than it looks:
+			// `\\(x)` shows one backslash and no icon, while `\\\(x)` still
+			// breaks the line. A gate the following word rune suppresses
+			// consumes nothing, which is why `a\:)b` keeps its backslash.
+			if tokenLength := jiraEmoticonAt(source, runEnd, end); tokenLength != 0 {
+				tokenEnd := runEnd + tokenLength
+				// The backslashes in front of the consumed one keep their
+				// ordinary meaning, so they are decided here and the loop
+				// re-enters on the escape itself.
+				if leadEnd := runEnd - 1; leadEnd > offset {
+					if jiraForcedNewlineRunFrom(source, offset, leadEnd, tokenEnd, domain.End) {
+						if name, unbreakable := jiraUnbreakableConstructNames[domain.Unbreakable]; unbreakable {
+							diagnostics = append(diagnostics, conversionDiagnostic{offset: offset, warning: ConversionWarning{Construct: domain.Unbreakable, Reason: "Jira would render a forced newline inside this " + name + "; a JFM " + name + " cannot carry one, so the characters stay literal"}})
+							offset = leadEnd
+							continue
+						}
+						flushText(offset)
+						result = append(result, hardBreakInline{Span: sourceSpan{Start: offset, End: leadEnd}})
+						offset, textStart = leadEnd, leadEnd
+						continue
+					}
+					// Every remaining backslash is a character Jira shows.
+					offset = leadEnd
+					continue
+				}
+				flushText(offset)
+				result = append(result, textInline{Span: sourceSpan{Start: offset, End: tokenEnd}, Text: source[runEnd:tokenEnd]})
+				offset, textStart = tokenEnd, tokenEnd
+				continue
+			}
 			if jiraForcedNewlineRun(source, offset, runEnd, domain.End) {
 				if name, unbreakable := jiraUnbreakableConstructNames[domain.Unbreakable]; unbreakable {
 					// The construct around this run has no JFM spelling that
@@ -118,6 +151,31 @@ func parseJiraInlines(ctx context.Context, source string, start, end int, domain
 			// Every remaining backslash is a character Jira shows, so the run
 			// stays in the flushed text and escapes nothing behind it.
 			offset = runEnd
+			continue
+		}
+
+		// An unescaped token the gate fires on is the icon Jira renders, and JFM
+		// spells it as a directive so that the icon and the prose that merely
+		// looks like one stay apart (ADR-0019). None of `(`, `:` and `;` opens
+		// any other construct, so the branch may stand wherever the scan can
+		// reach the token's first byte.
+		if tokenLength := jiraEmoticonAt(source, offset, end); tokenLength != 0 && !jiraBackslashPrecedes(source, offset) {
+			if token, supported := canonicalJiraEmoticonToken(source[offset : offset+tokenLength]); supported {
+				flushText(offset)
+				result = append(result, emoticonInline{Span: sourceSpan{Start: offset, End: offset + tokenLength}, Token: token})
+				offset, textStart = offset+tokenLength, offset+tokenLength
+				continue
+			}
+		}
+
+		// The character references jiro writes to keep an emoticon-shaped
+		// literal visible read back as the characters they stand for, so that
+		// ordinary text survives a JFM round trip as ordinary text. No other
+		// reference is decoded in plain text.
+		if token, encodedLength := jiraNeutralizedEmoticonAt(source, offset, end); encodedLength != 0 {
+			flushText(offset)
+			result = append(result, textInline{Span: sourceSpan{Start: offset, End: offset + encodedLength}, Text: token})
+			offset, textStart = offset+encodedLength, offset+encodedLength
 			continue
 		}
 
@@ -525,6 +583,10 @@ func shiftSemanticInline(inline semanticInline, delta int) semanticInline {
 		}
 		return typed
 	case imageInline:
+		typed.Span.Start += delta
+		typed.Span.End += delta
+		return typed
+	case emoticonInline:
 		typed.Span.Start += delta
 		typed.Span.End += delta
 		return typed

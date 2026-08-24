@@ -18,6 +18,7 @@ const (
 	ConstructCodeBlock           = "code-block"
 	ConstructBlockquote          = "blockquote"
 	ConstructDirective           = "directive"
+	ConstructEmoticon            = "emoticon"
 	ConstructEscape              = "escape"
 	ConstructHeading             = "heading"
 	ConstructHTML                = "html"
