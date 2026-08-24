@@ -7,6 +7,54 @@ import (
 
 type jiraValueCase struct{ markup, value string }
 
+// TestJiraLinkTitleSpellingReadsBack pins the one delimited value with no
+// encoding of its own: what jiro writes for a title, what Jira reads back from
+// it, and which parts of an authored title that spelling cannot carry.
+func TestJiraLinkTitleSpellingReadsBack(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		title    string
+		spelled  string
+		readBack string
+		spelling jiraLinkTitleSpelling
+	}{
+		{title: "t", spelled: "t", readBack: "t"},
+		{title: "t|u|v", spelled: "t|u|v", readBack: "t|u|v"},
+		{title: `t\|u`, spelled: `t\|u`, readBack: `t\|u`},
+		{title: "t&#124;u", spelled: "t&#124;u", readBack: "t&#124;u"},
+		{title: `t\`, spelled: `t\ `, readBack: `t\`},
+		{title: " t ", spelled: "t", readBack: "t", spelling: jiraLinkTitleSpelling{EdgeWhitespaceTrimmed: true}},
+		{title: "\tt\t", spelled: "t", readBack: "t", spelling: jiraLinkTitleSpelling{EdgeWhitespaceTrimmed: true}},
+		{title: "  ", spelled: "", readBack: "", spelling: jiraLinkTitleSpelling{EdgeWhitespaceTrimmed: true}},
+		{title: "a]b", spelled: "", readBack: "", spelling: jiraLinkTitleSpelling{BracketDropped: true}},
+		{title: "a\nb", spelled: "a b", readBack: "a b", spelling: jiraLinkTitleSpelling{LineBreakFlattened: true}},
+		{title: "\na", spelled: "a", readBack: "a", spelling: jiraLinkTitleSpelling{LineBreakFlattened: true, EdgeWhitespaceTrimmed: true}},
+	} {
+		spelling := spellJiraLinkTitle(test.title)
+		want := test.spelling
+		want.Text = test.spelled
+		if spelling != want {
+			t.Errorf("spellJiraLinkTitle(%q) = %#v, want %#v", test.title, spelling, want)
+		}
+		if got := jiraLinkTitleReadBack(test.title); got != test.readBack {
+			t.Errorf("jiraLinkTitleReadBack(%q) = %q, want %q", test.title, got, test.readBack)
+		}
+	}
+	// What the reader takes out of the markup, including the newline no title
+	// Jira reads can hold and that jiro's own scan can still hand it.
+	for _, test := range []jiraValueCase{
+		{markup: `t\|u`, value: `t\|u`},
+		{markup: `t\]u`, value: `t\]u`},
+		{markup: "t&#124;u", value: "t&#124;u"},
+		{markup: " t\t", value: "t"},
+		{markup: "a\nb", value: "a b"},
+	} {
+		if got := decodeJiraLinkTitle(test.markup); got != test.value {
+			t.Errorf("decodeJiraLinkTitle(%q) = %q, want %q", test.markup, got, test.value)
+		}
+	}
+}
+
 // TestJiraDelimitedValueRoundTrips pins each delimited-value context to the
 // renders in testdata/jfm/jira_evidence: what the decoder reads out of Jira's
 // markup, and that the encoder beside it writes a value the same decoder gives

@@ -651,9 +651,11 @@ Bare URLs, `www.` addresses, and email addresses follow the GFM autolink-literal
 
 Bare `http://` and `https://` URLs map to unnamed Jira links `[target]`. A `www.` autolink keeps its authored label and uses the GFM-supplied `http://` target, producing `[label|target]`. Bare email addresses and bare `mailto:` URIs map to `[mailto:address]`. Canonical JFM uses an angle-bracket URI or email autolink for unnamed Jira links; a labeled `www.` link becomes an ordinary inline Markdown link.
 
-Jira-only targets such as issue keys, attachments, and users use `:link[content]{target="..."}` when ordinary Markdown cannot represent the target safely. The `:link` directive requires exactly one quoted `target` attribute and accepts supported inline JFM in its content. It has no location for extra Jira parameters, so unknown or duplicate attributes make the complete directive malformed and invoke literal fallback.
+Jira-only targets such as issue keys, attachments, and users use `:link[content]{target="..."}` when ordinary Markdown cannot represent the target safely. The `:link` directive requires exactly one quoted `target` attribute and accepts one optional quoted `title` attribute beside it, plus supported inline JFM in its content. It has no location for extra Jira parameters, so unknown or duplicate attributes make the complete directive malformed and invoke literal fallback.
 
-Both notations have a link title: Markdown writes it after the destination, and Jira Markup reads a third bracket part, `[label|target|title]`. JFM carries neither, so a title is dropped in whichever direction it was authored, while the label, target, and label formatting are converted normally. Each of those is a lossy conversion and produces a warning.
+Both notations have a link title and it is reversible: Markdown writes it after the destination, and Jira Markup reads it as a third bracket part, `[label|target|title]`. Jira reads that part verbatim, so a backslash and a character reference inside a title stand for themselves, and every further `|` belongs to the title. An unnamed link has no third part, so a link that keeps a title is always written `[label|target|title]`; a title on a Jira-only or dangerous target rides the `:link` directive's `title` attribute.
+
+Jira trims the spaces and tabs around a title it reads, and a title cannot hold a closing bracket or span lines. Writing a link title to Jira therefore trims it, replaces its line breaks with spaces, and drops it entirely when it holds a `]`; each of those is a lossy conversion and produces a warning.
 
 Jira link labels cannot contain a physical hard break. A hard break inside a Markdown link label becomes one space, the link remains structural, and a warning records the discarded break semantic.
 
@@ -741,10 +743,42 @@ Warnings:
 []
 ~~~
 
-<!-- jfm-spec-example: link-title-loss; direction: jfm-to-jira -->
+<!-- jfm-spec-example: link-title; direction: jfm-to-jira -->
 Input:
 ~~~jfm
 [Title](https://example.com "Read")
+~~~
+
+Output:
+~~~jira
+[Title|https://example.com|Read]
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: link-title-reverse; direction: jira-to-jfm -->
+Input:
+~~~jira
+[Title|https://example.com|Read]
+~~~
+
+Output:
+~~~jfm
+[Title](https://example.com "Read")
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: link-title-bracket-loss; direction: jfm-to-jira -->
+Input:
+~~~jfm
+[Title](https://example.com "Read]")
 ~~~
 
 Output:
@@ -755,7 +789,7 @@ Output:
 Warnings:
 ~~~json
 [
-  {"Line":1,"Column":1,"Construct":"link","Reason":"Markdown link title is dropped; jiro carries no link title (#104)"}
+  {"Line":1,"Column":1,"Construct":"link","Reason":"link title was dropped; a Jira link title cannot carry a closing bracket"}
 ]
 ~~~
 

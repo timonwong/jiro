@@ -1,0 +1,8 @@
+-- input.md --
+[x](http://x " a ")
+-- want.jira --
+[x|http://x|a]
+-- warnings.json --
+[
+  {"Line":1,"Column":1,"Construct":"link","Reason":"surrounding whitespace in link title was removed; Jira trims every title it reads"}
+]

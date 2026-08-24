@@ -166,24 +166,38 @@ func renderJFMInlines(ctx context.Context, inlines []semanticInline, lineStart s
 				if err != nil {
 					return "", err
 				}
-				target, err := quoteDirectiveAttributeValue(ctx, typed.Target)
+				attributes := []directiveAttribute{{Name: "target", Value: typed.Target}}
+				if typed.Title != "" {
+					attributes = append(attributes, directiveAttribute{Name: "title", Value: typed.Title})
+				}
+				serialized, err := serializeDirectiveAttributes(ctx, attributes, nil)
 				if err != nil {
 					return "", err
 				}
-				result.WriteString(":link[" + content + "]{target=" + target + "}")
+				result.WriteString(":link[" + content + "]{" + serialized + "}")
 				break
 			}
+			title := ""
+			if typed.Title != "" {
+				escaped, err := escapeMarkdownLinkTitle(ctx, typed.Title)
+				if err != nil {
+					return "", err
+				}
+				title = ` "` + escaped + `"`
+			}
 			lowerTarget := strings.ToLower(typed.Target)
-			if typed.Unnamed && (strings.HasPrefix(lowerTarget, "http://") || strings.HasPrefix(lowerTarget, "https://")) {
+			// An autolink has no room for a title, so a titled link takes the
+			// inline form even where its target is its own visible text.
+			if typed.Unnamed && title == "" && (strings.HasPrefix(lowerTarget, "http://") || strings.HasPrefix(lowerTarget, "https://")) {
 				result.WriteString("<" + typed.Target + ">")
-			} else if typed.Unnamed && strings.HasPrefix(lowerTarget, "mailto:") {
+			} else if typed.Unnamed && title == "" && strings.HasPrefix(lowerTarget, "mailto:") {
 				result.WriteString("<" + strings.TrimPrefix(typed.Target, typed.Target[:len("mailto:")]) + ">")
 			} else {
 				target, err := escapeMarkdownDestination(ctx, typed.Target)
 				if err != nil {
 					return "", err
 				}
-				result.WriteString("[" + label + "](" + target + ")")
+				result.WriteString("[" + label + "](" + target + title + ")")
 			}
 		case imageInline:
 			if !typed.Directive && !typed.Dangerous {
@@ -311,6 +325,18 @@ func escapeMarkdownDestination(ctx context.Context, value string) (string, error
 // that begins one leaves as `&amp;` for the same reason as in a destination.
 func escapeMarkdownLabelText(ctx context.Context, value string) (string, error) {
 	escaped, err := escapeSelectedRunes(ctx, value, `\[]`)
+	if err != nil {
+		return "", err
+	}
+	return escapeMarkdownCharacterReferences(escaped), nil
+}
+
+// escapeMarkdownLinkTitle writes a link title inside the double quotes that
+// follow a destination. A Markdown reader resolves both a backslash escape and a
+// character reference there, while the Jira title jiro carries is verbatim, so
+// each of them has to leave as the escape that reads back as itself.
+func escapeMarkdownLinkTitle(ctx context.Context, value string) (string, error) {
+	escaped, err := escapeSelectedRunes(ctx, value, `\"`)
 	if err != nil {
 		return "", err
 	}

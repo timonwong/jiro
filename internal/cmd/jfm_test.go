@@ -104,7 +104,7 @@ func TestJFMCommandHelpDocumentsTheOfflineInputContract(t *testing.T) {
 
 func TestJFMConversionJSONMapsWarningsInSourceOrder(t *testing.T) {
 	clearCommandEnv(t)
-	input := "[one](https://one.example \"One\")\n\n[two](https://two.example \"Two\")"
+	input := "[one](https://one.example \"One]\")\n\n[two](https://two.example \"Two]\")"
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 
 	code := Execute([]string{"--output=json", "jfm", "to-jira"}, strings.NewReader(input), stdout, stderr)
@@ -143,10 +143,10 @@ func TestJFMConversionJSONMapsWarningsInSourceOrder(t *testing.T) {
 		if index == 1 {
 			line = 3
 		}
-		wantMessage := fmt.Sprintf("JFM to Jira conversion at line %d, column 1 (link): Markdown link title is dropped; jiro carries no link title (#104)", line)
+		wantMessage := fmt.Sprintf("JFM to Jira conversion at line %d, column 1 (link): link title was dropped; a Jira link title cannot carry a closing bracket", line)
 		if warning.Code != "jfm_conversion" || warning.Message != wantMessage ||
 			warning.Details.Direction != "jfm_to_jira" || warning.Details.Line != line || warning.Details.Column != 1 ||
-			warning.Details.Construct != "link" || warning.Details.Reason != "Markdown link title is dropped; jiro carries no link title (#104)" {
+			warning.Details.Construct != "link" || warning.Details.Reason != "link title was dropped; a Jira link title cannot carry a closing bracket" {
 			t.Fatalf("warning[%d] = %#v", index, warning)
 		}
 	}
@@ -207,12 +207,12 @@ func TestJFMQuietSuppressesTextButNotWarnings(t *testing.T) {
 	clearCommandEnv(t)
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 
-	code := Execute([]string{"--quiet", "jfm", "to-jira"}, strings.NewReader("[Title](https://example.com \"Read\")"), stdout, stderr)
+	code := Execute([]string{"--quiet", "jfm", "to-jira"}, strings.NewReader("[Title](https://example.com \"Read]\")"), stdout, stderr)
 
 	if code != 0 || stdout.Len() != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	want := "warning: JFM to Jira conversion at line 1, column 1 (link): Markdown link title is dropped; jiro carries no link title (#104)\n"
+	want := "warning: JFM to Jira conversion at line 1, column 1 (link): link title was dropped; a Jira link title cannot carry a closing bracket\n"
 	if stderr.String() != want {
 		t.Fatalf("stderr=%q, want %q", stderr.String(), want)
 	}
@@ -244,7 +244,7 @@ func TestJFMRejectsInvalidInputWithoutPartialOutput(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
-			code := Execute(test.args, strings.NewReader("[Title](https://example.com \"Read\")"), stdout, stderr)
+			code := Execute(test.args, strings.NewReader("[Title](https://example.com \"Read]\")"), stdout, stderr)
 			if code != 2 || stdout.Len() != 0 || stderr.Len() == 0 {
 				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 			}

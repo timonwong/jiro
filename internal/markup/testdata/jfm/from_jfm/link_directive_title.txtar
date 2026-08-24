@@ -1,0 +1,6 @@
+-- input.md --
+:link[OPS-42]{target="OPS-42" title="Epic"}
+-- want.jira --
+[OPS-42|OPS-42|Epic]
+-- warnings.json --
+[]

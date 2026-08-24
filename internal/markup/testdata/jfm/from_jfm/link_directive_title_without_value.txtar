@@ -1,0 +1,8 @@
+-- input.md --
+:link[Issue]{target="PROJ-1" title}
+-- want.jira --
+:link\[Issue\]\{target="PROJ-1" title\}
+-- warnings.json --
+[
+  {"Line":1,"Column":30,"Construct":"directive","Reason":"link directive title requires a value"}
+]

@@ -1,0 +1,6 @@
+-- input.md --
+[Title](https://example.com "Read")
+-- want.jira --
+[Title|https://example.com|Read]
+-- warnings.json --
+[]

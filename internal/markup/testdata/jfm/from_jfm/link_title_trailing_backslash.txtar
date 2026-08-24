@@ -1,0 +1,6 @@
+-- input.md --
+[x](http://x "a\\")
+-- want.jira --
+[x|http://x|a\ ]
+-- warnings.json --
+[]

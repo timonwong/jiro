@@ -196,6 +196,26 @@ func TestJiraCodeBodyKeySeparatesNestingLevels(t *testing.T) {
 	}
 }
 
+// TestJiraVerificationKeySeesTheLinkTitle holds what makes a title mismatch
+// visible to the re-parse: two links that differ only in the title the reader
+// ends up with must key differently, while a title the writer trims must key as
+// the trimmed one, because that is what the rendered markup reads back as.
+func TestJiraVerificationKeySeesTheLinkTitle(t *testing.T) {
+	t.Parallel()
+	key := func(title string, reparsed bool) string {
+		return jiraVerificationKey([]semanticInline{linkInline{Target: "u", Title: title}}, reparsed)
+	}
+	if key("t", false) == key("other", false) {
+		t.Error("two different link titles share one verification key")
+	}
+	if key("t", false) == key("", false) {
+		t.Error("a titled link and an untitled one share one verification key")
+	}
+	if key(" t ", false) != key("t", true) {
+		t.Errorf("intended key %q does not match the re-parsed key of the trimmed title %q", key(" t ", false), key("t", true))
+	}
+}
+
 // TestJiraPlainTextHazardBytesStayNarrow holds both halves of the cost bound:
 // every byte the plain-text escaper can write differently must force a re-parse,
 // and nothing else may. The emoticon and dash characters are the ones that would
