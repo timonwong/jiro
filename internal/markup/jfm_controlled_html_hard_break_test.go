@@ -40,6 +40,42 @@ func TestControlledHTMLKeepsTextBeforeHardBreak(t *testing.T) {
 	}
 }
 
+// TestUnclosedControlledHTMLKeepsItsContent pins #118: a controlled tag that is
+// never closed keeps the tag as the literal text its warning promises and keeps
+// everything the tag opened around, so the conversion accounts for every
+// authored byte instead of ending at the tag. The remaining tags and the
+// warnings are covered by testdata/jfm/from_jfm/unclosed_controlled_html.txtar.
+func TestUnclosedControlledHTMLKeepsItsContent(t *testing.T) {
+	t.Parallel()
+	for _, testCase := range []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "font color before hard break", input: "<font color=\"red\">a\\\nb", want: "<font color=\"red\">a\\\\\nb"},
+		{name: "inserted before following inlines", input: "<ins>c *d* e", want: "<ins>c _d_ e"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			result, err := markup.FromJFM(context.Background(), testCase.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Markup != testCase.want {
+				t.Fatalf("FromJFM(%q) = %q, want %q", testCase.input, result.Markup, testCase.want)
+			}
+			want := []markup.ConversionWarning{{
+				Line: 1, Column: 1,
+				Construct: markup.ConstructHTML,
+				Reason:    "unclosed controlled HTML remains literal",
+			}}
+			if !reflect.DeepEqual(result.Warnings, want) {
+				t.Fatalf("warnings = %#v, want %#v", result.Warnings, want)
+			}
+		})
+	}
+}
+
 // TestTableCellBreakStaysLiteralHTML pins the constraint the Jira renderer's
 // hardBreakInline arm rests on. A GFM cell is one line and carries no hard
 // break, and `<br>` is not controlled HTML in JFM, so no table cell can reach
