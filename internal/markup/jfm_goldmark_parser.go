@@ -3,6 +3,7 @@ package markup
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"regexp"
@@ -41,95 +42,58 @@ func parseJFM(ctx context.Context, source string) (semanticDocument, []conversio
 		if err := ctx.Err(); err != nil {
 			return semanticDocument{}, nil, err
 		}
-		switch typed := node.(type) {
-		case *ast.Heading:
-			inlines, inlineDiagnostics, err := adaptGoldmarkInlines(sourceBytes, typed)
-			if err != nil {
-				return semanticDocument{}, nil, err
-			}
-			diagnostics = append(diagnostics, inlineDiagnostics...)
-			document.Blocks = append(document.Blocks, headingBlock{
-				Span:    goldmarkNodeSpan(typed),
-				Level:   typed.Level,
-				Inlines: inlines,
-			})
-		case *ast.Paragraph:
-			inlines, inlineDiagnostics, err := adaptGoldmarkInlines(sourceBytes, typed)
-			if err != nil {
-				return semanticDocument{}, nil, err
-			}
-			diagnostics = append(diagnostics, inlineDiagnostics...)
-			document.Blocks = append(document.Blocks, paragraphBlock{Span: goldmarkNodeSpan(typed), Inlines: inlines})
-		case *ast.ThematicBreak:
-			document.Blocks = append(document.Blocks, thematicBreakBlock{Span: goldmarkNodeSpan(typed)})
-		case *ast.Blockquote:
-			quote, quoteDiagnostics, err := adaptGoldmarkBlockquote(sourceBytes, typed)
-			if err != nil {
-				block, warning := literalGoldmarkBlock(sourceBytes, typed, ConstructDirective, "unsupported complex blockquote remains literal")
-				document.Blocks = append(document.Blocks, block)
-				diagnostics = append(diagnostics, warning)
-				continue
-			}
-			document.Blocks = append(document.Blocks, quote)
-			diagnostics = append(diagnostics, quoteDiagnostics...)
-		case *ast.List:
-			list, listDiagnostics, err := adaptGoldmarkList(sourceBytes, typed)
-			if err != nil {
-				block, warning := literalGoldmarkBlock(sourceBytes, typed, ConstructList, "unsupported complex list item remains literal")
-				document.Blocks = append(document.Blocks, block)
-				diagnostics = append(diagnostics, warning)
-				continue
-			}
-			document.Blocks = append(document.Blocks, list)
-			diagnostics = append(diagnostics, listDiagnostics...)
-		case *extensionast.Table:
-			table, tableDiagnostics, err := adaptGoldmarkTable(sourceBytes, typed)
-			if err != nil {
-				block, warning := literalGoldmarkBlock(sourceBytes, typed, ConstructTable, "unsupported GFM table content remains literal")
-				document.Blocks = append(document.Blocks, block)
-				diagnostics = append(diagnostics, warning)
-				continue
-			}
-			document.Blocks = append(document.Blocks, table)
-			diagnostics = append(diagnostics, tableDiagnostics...)
-		case *ast.CodeBlock:
-			document.Blocks = append(document.Blocks, codeBlock{Span: goldmarkNodeSpan(typed), Body: goldmarkBlockText(sourceBytes, typed.Lines()), NoFormat: true})
-		case *ast.FencedCodeBlock:
-			block, blockDiagnostics := adaptGoldmarkFencedCodeBlock(sourceBytes, typed)
-			document.Blocks = append(document.Blocks, block)
-			diagnostics = append(diagnostics, blockDiagnostics...)
-		case *jfmContainerDirective:
-			block, containerDiagnostics, err := adaptContainerDirective(sourceBytes, typed)
-			if err != nil {
-				block, warning := literalGoldmarkBlock(sourceBytes, typed, ConstructDirective, "malformed container directive remains literal")
-				document.Blocks = append(document.Blocks, block)
-				diagnostics = append(diagnostics, warning)
-				continue
-			}
-			document.Blocks = append(document.Blocks, block)
-			diagnostics = append(diagnostics, containerDiagnostics...)
-		case *ast.LinkReferenceDefinition:
-			label := normalizeReferenceLabel(string(typed.Label))
+		if definition, ok := node.(*ast.LinkReferenceDefinition); ok {
+			label := normalizeReferenceLabel(string(definition.Label))
 			occurrence := seenReferences[label]
 			seenReferences[label] = occurrence + 1
 			definitions := references.definitions[label]
 			if occurrence < len(definitions) && occurrence == 0 && references.used[label] {
 				continue
 			}
-			span, text := referenceDefinitionSource(source, typed.Pos())
+			span, text := referenceDefinitionSource(source, definition.Pos())
 			reason := "unused reference definition remains literal"
 			if occurrence > 0 {
 				reason = "duplicate reference definition shadowed by an earlier definition remains literal"
 			}
 			document.Blocks = append(document.Blocks, literalBlock{Span: span, Text: text})
 			diagnostics = append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructReferenceDefinition, Reason: reason}})
-		default:
-			block, warning := literalGoldmarkBlock(sourceBytes, node, ConstructDirective, "unsupported Markdown block remains literal")
-			document.Blocks = append(document.Blocks, block)
-			diagnostics = append(diagnostics, warning)
+			continue
 		}
+		block, blockDiagnostics, err := adaptGoldmarkBlock(sourceBytes, node)
+		if err != nil {
+			construct, reason, recoverable := topLevelLiteralFallback(node, err)
+			if !recoverable {
+				return semanticDocument{}, nil, err
+			}
+			literal, warning := literalGoldmarkBlock(sourceBytes, node, construct, reason)
+			document.Blocks = append(document.Blocks, literal)
+			diagnostics = append(diagnostics, warning)
+			continue
+		}
+		document.Blocks = append(document.Blocks, block)
+		diagnostics = append(diagnostics, blockDiagnostics...)
 	}
 	return document, diagnostics, nil
+}
+
+// topLevelLiteralFallback names the literal wording for the kinds a top-level failure may
+// degrade instead of aborting the document; anything else propagates the error.
+func topLevelLiteralFallback(node ast.Node, err error) (construct, reason string, recoverable bool) {
+	if errors.Is(err, errUnsupportedGoldmarkBlock) {
+		return ConstructDirective, "unsupported Markdown block remains literal", true
+	}
+	switch node.(type) {
+	case *ast.Blockquote:
+		return ConstructDirective, "unsupported complex blockquote remains literal", true
+	case *ast.List:
+		return ConstructList, "unsupported complex list item remains literal", true
+	case *extensionast.Table:
+		return ConstructTable, "unsupported GFM table content remains literal", true
+	case *jfmContainerDirective:
+		return ConstructDirective, "malformed container directive remains literal", true
+	default:
+		return "", "", false
+	}
 }
 
 func literalGoldmarkBlock(source []byte, node ast.Node, construct, reason string) (literalBlock, conversionDiagnostic) {
@@ -312,7 +276,20 @@ func adaptContainerDirective(source []byte, node *jfmContainerDirective) (semant
 	}
 }
 
+// errUnsupportedGoldmarkBlock lets each caller pick its own literal fallback for an
+// unhandled kind: the top level slices whole authored lines, nested blocks their own span.
+var errUnsupportedGoldmarkBlock = errors.New("unsupported goldmark block")
+
 func adaptGoldmarkChildBlock(source []byte, node ast.Node) (semanticBlock, []conversionDiagnostic, error) {
+	block, diagnostics, err := adaptGoldmarkBlock(source, node)
+	if errors.Is(err, errUnsupportedGoldmarkBlock) {
+		literal, warning := literalGoldmarkChildBlock(source, node, ConstructDirective, "unsupported Markdown block remains literal")
+		return literal, []conversionDiagnostic{warning}, nil
+	}
+	return block, diagnostics, err
+}
+
+func adaptGoldmarkBlock(source []byte, node ast.Node) (semanticBlock, []conversionDiagnostic, error) {
 	switch typed := node.(type) {
 	case *ast.Heading:
 		inlines, diagnostics, err := adaptGoldmarkInlines(source, typed)
@@ -343,8 +320,7 @@ func adaptGoldmarkChildBlock(source []byte, node ast.Node) (semanticBlock, []con
 	case *jfmContainerDirective:
 		return adaptContainerDirective(source, typed)
 	default:
-		block, warning := literalGoldmarkChildBlock(source, node, ConstructDirective, "unsupported Markdown block remains literal")
-		return block, []conversionDiagnostic{warning}, nil
+		return nil, nil, errUnsupportedGoldmarkBlock
 	}
 }
 
@@ -472,44 +448,20 @@ func adaptGoldmarkList(source []byte, node *ast.List) (listBlock, []conversionDi
 		tailInterrupted := false
 		for block := itemNode.FirstChild(); block != nil; block = block.NextSibling() {
 			switch typed := block.(type) {
-			case *ast.TextBlock:
+			case *ast.TextBlock, *ast.Paragraph:
+				inlines, inlineDiagnostics, err := adaptGoldmarkInlines(source, block)
+				if err != nil {
+					return listBlock{}, nil, err
+				}
+				diagnostics = append(diagnostics, inlineDiagnostics...)
 				if len(item.Inlines) != 0 {
-					inlines, inlineDiagnostics, err := adaptGoldmarkInlines(source, typed)
-					if err != nil {
-						return listBlock{}, nil, err
-					}
-					item.Blocks = append(item.Blocks, paragraphBlock{Span: goldmarkNodeSpan(typed), Inlines: inlines})
-					diagnostics = append(diagnostics, inlineDiagnostics...)
+					item.Blocks = append(item.Blocks, paragraphBlock{Span: goldmarkNodeSpan(block), Inlines: inlines})
 					flattened = true
 					tailInterrupted = true
 					continue
 				}
-				inlines, inlineDiagnostics, err := adaptGoldmarkInlines(source, typed)
-				if err != nil {
-					return listBlock{}, nil, err
-				}
-				item.Inlines, item.Blocks, tailInterrupted = splitListItemHardBreaks(inlines, goldmarkNodeSpan(typed), item.Blocks)
+				item.Inlines, item.Blocks, tailInterrupted = splitListItemHardBreaks(inlines, goldmarkNodeSpan(block), item.Blocks)
 				flattened = flattened || tailInterrupted
-				diagnostics = append(diagnostics, inlineDiagnostics...)
-			case *ast.Paragraph:
-				if len(item.Inlines) != 0 {
-					inlines, inlineDiagnostics, err := adaptGoldmarkInlines(source, typed)
-					if err != nil {
-						return listBlock{}, nil, err
-					}
-					item.Blocks = append(item.Blocks, paragraphBlock{Span: goldmarkNodeSpan(typed), Inlines: inlines})
-					diagnostics = append(diagnostics, inlineDiagnostics...)
-					flattened = true
-					tailInterrupted = true
-					continue
-				}
-				inlines, inlineDiagnostics, err := adaptGoldmarkInlines(source, typed)
-				if err != nil {
-					return listBlock{}, nil, err
-				}
-				item.Inlines, item.Blocks, tailInterrupted = splitListItemHardBreaks(inlines, goldmarkNodeSpan(typed), item.Blocks)
-				flattened = flattened || tailInterrupted
-				diagnostics = append(diagnostics, inlineDiagnostics...)
 			case *ast.List:
 				childList, childDiagnostics, err := adaptGoldmarkList(source, typed)
 				if err != nil {
