@@ -593,8 +593,8 @@ ROUND12 = [
     ":)", ":(", ":P", ":D", ";)",
     "x:)", "x;)", ":)y", ";)y", ":)x", "a;)b", "x(y)", "(flag)off", "(*y)x",
     # --- case and shape variants: `(a)` names no icon, every parenthesized
-    #     token is lower case only, and of the colon forms `:p` and `:-)` render
-    #     although they are outside the token set jiro's evidence established ---
+    #     token is lower case only, and the hyphenated aliases are covered in
+    #     round15 after the dedicated #120 probe pass ---
     "(a)", "(X)", "(Y)", "(N)", "(I)", "(ON)", "(OFF)", "(*R)", "(*Y)",
     "(FLAG)", "(Flag)", ":p", ":d", ";p", ";P", ":-)", "=)",
     "(x)" + ZWSP + "foo", "(x) ", " (x)", "((x))", "(:))", "(x)(y)",
@@ -725,7 +725,9 @@ ROUND14 = [
 # write, and which targets carry one. ROUND9 already holds `[x|http://x|t]`,
 # `t|u`, `t|u|v`, `t\|u`, `t\]u`, `t\=u` and `[x|http://x/a\|b]`.
 ROUND15 = [
-    # --- the title decodes nothing: no backslash and no character reference ---
+	# --- emoticon aliases added from the 2026-08-24 renderer probes (#120) ---
+	":p", ":P", ":-)", ":)", ":-(", ":(", ";-)", ";)", ":-P", ":-D", ":-p",
+	# --- the title decodes nothing: no backslash and no character reference ---
     r"[x|http://x|t\\u]", r"[x|http://x|t\u]",
     "[x|http://x|t&#124;u]", "[x|http://x|t&#93;u]", "[x|http://x|t&#92;u]",
     # --- and no markup runs inside it; Jira escapes it into the attribute ---

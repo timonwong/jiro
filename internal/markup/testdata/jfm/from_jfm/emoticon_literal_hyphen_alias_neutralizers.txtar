@@ -1,0 +1,14 @@
+-- input.md --
+smile :-)
+
+sad :-(
+
+wink ;-)
+-- want.jira --
+smile &#58;-)
+
+sad &#58;-(
+
+wink &#59;-)
+-- warnings.json --
+[]

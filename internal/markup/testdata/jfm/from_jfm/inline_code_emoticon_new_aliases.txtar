@@ -1,0 +1,6 @@
+-- input.md --
+`:p` and `:-)` and `:-(` and `;-)`
+-- want.jira --
+{{&#58;p}} and {{&#58;-)}} and {{&#58;-(}} and {{&#59;-)}}
+-- warnings.json --
+[]
