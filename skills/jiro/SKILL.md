@@ -26,7 +26,7 @@ Load each conditional branch before using it:
 - For a single or bulk Issue Type change, read [Issue Type changes](references/issue-types.md).
 - For `issue clone SOURCE`, read [Issue Clone workflow](references/issue-clone.md) before mutation.
 - For Board or Sprint discovery, or any `--sprint` selector, read [Boards and Sprints](references/agile.md).
-- For JFM authoring, conversion, mutation input, reuse of typed Issue or Comment text, or `jfm_conversion` warnings, read [JFM workflows](references/jfm.md). Standalone `jiro jfm` conversion is offline and skips the Jira mutation loop.
+- For JFM authoring, conversion, any Description or Comment body input, reuse of typed Issue or Comment text, or `jfm_conversion` warnings, read [JFM workflows](references/jfm.md). Standalone `jiro jfm` conversion is offline and skips the Jira mutation loop.
 - For any `issue bulk` operation, read [Bulk workflows](references/bulk.md) before dry-run.
 - When the required operation is unavailable in typed commands (confirmed by `schema` and `--help`), read [REST API fallback](references/rest-api-fallback.md).
 
@@ -55,6 +55,7 @@ Before a write, confirm the Jira Instance, every target Issue Key, and every cur
 
 Resolve Jira-owned names and write semantics before mutating:
 
+- Classify each Description or Comment body by source: newly authored Markdown is `--input-format=jfm`; text reused from a typed read is Jira Markup (`jira` or omitted).
 - Match a transition by the exact ID, unique name, or unique destination status returned by `issue list-transitions`.
 - Resolve a Link Type with `issue link types`; preserve the outward direction from `FROM` to `--to`.
 - Use a file or `-` for stdin for long descriptions and Comment Bodies, keeping inline and file forms mutually exclusive. `issue move --comment` is inline-only.
@@ -62,7 +63,8 @@ Resolve Jira-owned names and write semantics before mutating:
 - Treat `--component` and `--fix-version` updates as full replacements. Use the single value `none` only for an empty final field.
 
 Preflight is complete when the exact Jira Instance, target Issues, current values,
-Jira-owned selectors, and final payload are resolved with no remaining ambiguity.
+every text body's input-format classification, Jira-owned selectors, and final
+payload are resolved with no remaining ambiguity.
 
 ## Mutate
 
