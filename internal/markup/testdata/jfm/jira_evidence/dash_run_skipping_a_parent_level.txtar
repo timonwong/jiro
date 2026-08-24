@@ -1,0 +1,36 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A dash run two levels below the open item makes Jira fabricate the empty level between them; jiro keeps the line escaped and warns, exactly as it does for the `*` run of the same length.
+-- input.jira --
+* a
+--- b
+-- rendered.html --
+<ul>
+	<li>a
+	<ul class="alternate" type="square">
+		<li>
+		<ul class="alternate" type="square">
+			<li>b</li>
+		</ul>
+		</li>
+	</ul>
+	</li>
+</ul>
+-- want.md --
+- a
+
+\--- b
+-- warnings.json --
+[
+  {
+    "Line": 2,
+    "Column": 1,
+    "Construct": "list",
+    "Reason": "list nesting skips an authored parent level"
+  },
+  {
+    "Line": 2,
+    "Column": 1,
+    "Construct": "list",
+    "Reason": "list item has no parent at its authored nesting level"
+  }
+]

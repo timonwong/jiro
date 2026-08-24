@@ -7,12 +7,23 @@ import (
 	"unicode"
 )
 
-var jiraListLinePattern = regexp.MustCompile(`^([*#]+)(?: (.*))?$`)
-
 func isJiraBlockStart(line string) bool {
-	if jiraHeadingPattern.MatchString(line) || jiraHeadingLikePattern.MatchString(line) || line == "----" || jiraListLinePattern.MatchString(line) ||
-		strings.HasPrefix(line, "||") || strings.HasPrefix(line, "|") ||
-		strings.HasPrefix(line, "bq.") {
+	if _, markerEnd := jiraListMarkerPrefix(line); markerEnd != 0 {
+		return true
+	}
+	return isJiraBlockStartBesidesList(line)
+}
+
+// isJiraBlockStartBesidesList reports every block start but the list, for the
+// callers that have already read the line's marker run themselves.
+func isJiraBlockStartBesidesList(line string) bool {
+	if _, _, controlEnd := jiraLineControlPrefix(line); controlEnd != 0 {
+		return true
+	}
+	if _, controlLike := jiraLineControlLikePrefix(line); controlLike {
+		return true
+	}
+	if jiraLineThematicBreak(line) || strings.HasPrefix(line, "||") || strings.HasPrefix(line, "|") {
 		return true
 	}
 	return line == "{quote}" || line == "{noformat}" || strings.HasPrefix(line, "{code}") || strings.HasPrefix(line, "{code:") ||
@@ -74,89 +85,137 @@ func parseUnsupportedJiraBlockMacro(ctx context.Context, source string, lines []
 	}, true
 }
 
+// jiraListFrame is one Jira list level the block reader has open. Jira names a
+// level by the length of the marker run and its type by the run's last
+// character alone, so the characters before that one never decide where a line
+// nests and a deeper line joins whatever item is open however its run is spelled.
+type jiraListFrame struct {
+	marker byte
+	items  []listItem
+	start  int
+	end    int
+}
+
 func parseJiraLists(ctx context.Context, source string, lines []sourceLine, start int) ([]semanticBlock, int, []conversionDiagnostic, error) {
 	blocks := make([]semanticBlock, 0)
 	diagnostics := make([]conversionDiagnostic, 0)
+	stack := make([]jiraListFrame, 0, 4)
+	closeTo := func(depth int) {
+		for len(stack) > depth {
+			frame := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			list := listBlock{Span: sourceSpan{Start: frame.start, End: frame.end}, Ordered: frame.marker == '#', Items: frame.items}
+			if len(stack) == 0 {
+				blocks = append(blocks, list)
+				continue
+			}
+			parent := &stack[len(stack)-1]
+			item := &parent.items[len(parent.items)-1]
+			item.Blocks = append(item.Blocks, list)
+			item.Span.End = list.Span.End
+			parent.end = list.Span.End
+		}
+	}
 	index := start
 	for index < len(lines) {
-		match := jiraListLinePattern.FindStringSubmatch(lines[index].Text)
-		if match == nil {
+		if err := ctx.Err(); err != nil {
+			return nil, 0, nil, err
+		}
+		line := lines[index]
+		if jiraLineThematicBreak(line.Text) {
 			break
 		}
-		if len(match[1]) != 1 {
-			line := lines[index]
+		run, contentStart, dashRun := jiraLineMarkerRun(line.Text)
+		if run == "" || dashRun && len(stack) == 0 {
+			break
+		}
+		depth := len(run)
+		if depth > len(stack)+1 {
+			if len(stack) != 0 {
+				// Jira opens an empty item for every level the run skips over; JFM
+				// forbids fabricating those parents, so the line stays visible.
+				diagnostics = append(diagnostics, conversionDiagnostic{offset: line.Start, warning: ConversionWarning{Construct: ConstructList, Reason: "list nesting skips an authored parent level"}})
+				closeTo(0)
+			}
 			blocks = append(blocks, literalBlock{Span: sourceSpan{Start: line.Start, End: line.End}, Text: line.Text})
 			diagnostics = append(diagnostics, conversionDiagnostic{offset: line.Start, warning: ConversionWarning{Construct: ConstructList, Reason: "list item has no parent at its authored nesting level"}})
 			index++
 			continue
 		}
-		block, next, blockDiagnostics, err := parseJiraListLevel(ctx, source, lines, index, "")
+		marker := run[depth-1]
+		if depth <= len(stack) {
+			closeTo(depth)
+			if stack[depth-1].marker != marker {
+				closeTo(depth - 1)
+			}
+		}
+		if depth == len(stack)+1 {
+			stack = append(stack, jiraListFrame{marker: marker, start: line.Start, end: line.End})
+		}
+		item := listItem{Span: sourceSpan{Start: line.Start, End: line.End}}
+		index++
+		continuation := index
+		for continuation < len(lines) && jiraListItemContinues(lines[continuation].Text) {
+			continuation++
+		}
+		inlines, inlineDiagnostics, err := parseJiraListItemContent(ctx, source, line, contentStart, lines[index:continuation])
 		if err != nil {
 			return nil, 0, nil, err
 		}
-		blocks = append(blocks, block)
-		diagnostics = append(diagnostics, blockDiagnostics...)
-		index = next
+		if continuation != index {
+			item.Span.End = lines[continuation-1].End
+			index = continuation
+		}
+		diagnostics = append(diagnostics, inlineDiagnostics...)
+		item.Inlines = inlines
+		frame := &stack[depth-1]
+		frame.items = append(frame.items, item)
+		frame.end = item.Span.End
 	}
+	closeTo(0)
 	return blocks, index, diagnostics, nil
 }
 
-func parseJiraListLevel(ctx context.Context, source string, lines []sourceLine, start int, parentMarkers string) (listBlock, int, []conversionDiagnostic, error) {
-	first := jiraListLinePattern.FindStringSubmatch(lines[start].Text)
-	level := len(parentMarkers)
-	marker := first[1][level]
-	expectedPrefix := parentMarkers + string(marker)
-	block := listBlock{Ordered: marker == '#', Span: sourceSpan{Start: lines[start].Start}}
-	diagnostics := make([]conversionDiagnostic, 0)
-	index := start
-	for index < len(lines) {
-		match := jiraListLinePattern.FindStringSubmatch(lines[index].Text)
-		if match == nil || len(match[1]) < len(expectedPrefix) || match[1][:len(expectedPrefix)] != expectedPrefix {
-			break
-		}
-		if len(match[1]) == len(expectedPrefix) && match[1][level] != marker {
-			break
-		}
-		if len(match[1]) != len(expectedPrefix) {
-			break
-		}
-		line := lines[index]
-		contentStart := line.Start + len(match[1])
-		if match[2] != "" {
-			contentStart++
-		}
-		inlines, inlineDiagnostics, err := parseJiraInlines(ctx, source, contentStart, line.End)
-		if err != nil {
-			return listBlock{}, 0, nil, err
-		}
-		diagnostics = append(diagnostics, inlineDiagnostics...)
-		item := listItem{Span: sourceSpan{Start: line.Start, End: line.End}, Inlines: inlines}
-		index++
-		for index < len(lines) {
-			nextMatch := jiraListLinePattern.FindStringSubmatch(lines[index].Text)
-			if nextMatch == nil || len(nextMatch[1]) <= len(expectedPrefix) || !strings.HasPrefix(nextMatch[1], expectedPrefix) {
-				break
-			}
-			if len(nextMatch[1]) != len(expectedPrefix)+1 {
-				diagnostics = append(diagnostics, conversionDiagnostic{offset: lines[index].Start, warning: ConversionWarning{Construct: ConstructList, Reason: "list nesting skips an authored parent level"}})
-				break
-			}
-			child, next, childDiagnostics, err := parseJiraListLevel(ctx, source, lines, index, expectedPrefix)
-			if err != nil {
-				return listBlock{}, 0, nil, err
-			}
-			item.Blocks = append(item.Blocks, child)
-			diagnostics = append(diagnostics, childDiagnostics...)
-			index = next
-		}
-		item.Span.End = lines[index-1].End
-		block.Items = append(block.Items, item)
+// jiraListItemContinues reports whether the line is one Jira keeps inside the
+// list item above it rather than one that opens a block of its own. A marker
+// run of any spelling ends the item, dash runs included: the open list gives
+// them a level to nest at.
+func jiraListItemContinues(line string) bool {
+	if line == "" {
+		return false
 	}
-	if index == start {
-		index++
+	if run, _, _ := jiraLineMarkerRun(line); run != "" {
+		return false
 	}
-	block.Span.End = lines[index-1].End
-	return block, index, diagnostics, nil
+	return !isJiraBlockStartBesidesList(line)
+}
+
+// parseJiraListItemContent reads one item's inlines from the marker's own line
+// and the plain lines Jira keeps inside the item below it. Joining those lines
+// is the only span the inline parser can read them from, so every position it
+// reports inside them is an offset from the item's own start.
+func parseJiraListItemContent(ctx context.Context, source string, marker sourceLine, contentStart int, continuations []sourceLine) ([]semanticInline, []conversionDiagnostic, error) {
+	itemStart := marker.Start + contentStart
+	if len(continuations) == 0 {
+		return parseJiraInlines(ctx, source, itemStart, marker.End)
+	}
+	var raw strings.Builder
+	raw.WriteString(source[itemStart:marker.End])
+	for _, line := range continuations {
+		raw.WriteByte('\n')
+		raw.WriteString(line.Text)
+	}
+	inlines, diagnostics, err := parseJiraInlines(ctx, raw.String(), 0, raw.Len())
+	if err != nil {
+		return nil, nil, err
+	}
+	for index, inline := range inlines {
+		inlines[index] = shiftSemanticInline(inline, itemStart)
+	}
+	for index := range diagnostics {
+		diagnostics[index].offset += itemStart
+	}
+	return inlines, diagnostics, nil
 }
 
 func parseJiraTable(ctx context.Context, source string, lines []sourceLine, start int) (tableBlock, int, []conversionDiagnostic, error) {
@@ -167,16 +226,18 @@ func parseJiraTable(ctx context.Context, source string, lines []sourceLine, star
 	block := tableBlock{Span: sourceSpan{Start: lines[start].Start, End: lines[index-1].End}}
 	rawRows := make([]string, 0, index-start)
 	diagnostics := make([]conversionDiagnostic, 0)
+	cellBlockDiagnostics := make([]conversionDiagnostic, 0)
 	columnCount := -1
 	for rowIndex := start; rowIndex < index; rowIndex++ {
 		line := lines[rowIndex]
 		rawRows = append(rawRows, line.Text)
 		header := strings.HasPrefix(line.Text, "||")
-		cells, cellDiagnostics, edgeWhitespace, err := parseJiraTableRow(ctx, source, line, header)
+		cells, cellDiagnostics, cellBlockWarnings, edgeWhitespace, err := parseJiraTableRow(ctx, source, line, header)
 		if err != nil {
 			return tableBlock{}, 0, nil, err
 		}
 		diagnostics = append(diagnostics, cellDiagnostics...)
+		cellBlockDiagnostics = append(cellBlockDiagnostics, cellBlockWarnings...)
 		if edgeWhitespace || columnCount >= 0 && len(cells) != columnCount || rowIndex != start && header {
 			block.Directive = true
 		}
@@ -197,11 +258,17 @@ func parseJiraTable(ctx context.Context, source string, lines []sourceLine, star
 	if len(block.Header) == 0 {
 		block.Directive = true
 	}
+	// A directive table keeps its rows verbatim, so nothing a cell would have
+	// rendered as a block is lost there; only a GFM table flattens the cell to
+	// text and owes the reader a warning.
+	if !block.Directive {
+		diagnostics = append(diagnostics, cellBlockDiagnostics...)
+	}
 	block.Raw = strings.Join(rawRows, "\n")
 	return block, index, diagnostics, nil
 }
 
-func parseJiraTableRow(ctx context.Context, source string, line sourceLine, header bool) ([]tableCell, []conversionDiagnostic, bool, error) {
+func parseJiraTableRow(ctx context.Context, source string, line sourceLine, header bool) ([]tableCell, []conversionDiagnostic, []conversionDiagnostic, bool, error) {
 	delimiter := "|"
 	if header {
 		delimiter = "||"
@@ -209,14 +276,18 @@ func parseJiraTableRow(ctx context.Context, source string, line sourceLine, head
 	text := line.Text
 	innerStart, innerEnd := len(delimiter), len(text)-len(delimiter)
 	if innerEnd < innerStart || !strings.HasSuffix(text, delimiter) {
-		return []tableCell{{Span: sourceSpan{Start: line.Start, End: line.End}, Inlines: []semanticInline{textInline{Span: sourceSpan{Start: line.Start, End: line.End}, Text: text}}}}, nil, false, nil
+		// The cell Jira reads here runs past the end of the row, so its content
+		// still begins where the row's opening delimiter ends.
+		return []tableCell{{Span: sourceSpan{Start: line.Start, End: line.End}, Inlines: []semanticInline{textInline{Span: sourceSpan{Start: line.Start, End: line.End}, Text: text}}}},
+			nil, jiraTableCellBlockDiagnostics(text[min(innerStart, len(text)):], line.Start), false, nil
 	}
 	bounds, err := jiraTableCellBounds(ctx, text, innerStart, innerEnd, delimiter)
 	if err != nil {
-		return nil, nil, false, err
+		return nil, nil, nil, false, err
 	}
 	cells := make([]tableCell, 0, len(bounds))
 	diagnostics := make([]conversionDiagnostic, 0)
+	cellBlockWarnings := make([]conversionDiagnostic, 0)
 	edgeWhitespace := false
 	for _, bound := range bounds {
 		value := text[bound.Start:bound.End]
@@ -226,12 +297,27 @@ func parseJiraTableRow(ctx context.Context, source string, line sourceLine, head
 		span := sourceSpan{Start: line.Start + bound.Start, End: line.Start + bound.End}
 		inlines, inlineDiagnostics, err := parseJiraInlines(ctx, source, span.Start, span.End)
 		if err != nil {
-			return nil, nil, false, err
+			return nil, nil, nil, false, err
 		}
 		diagnostics = append(diagnostics, inlineDiagnostics...)
+		cellBlockWarnings = append(cellBlockWarnings, jiraTableCellBlockDiagnostics(value, span.Start)...)
 		cells = append(cells, tableCell{Span: span, Inlines: inlines})
 	}
-	return cells, diagnostics, edgeWhitespace, nil
+	return cells, diagnostics, cellBlockWarnings, edgeWhitespace, nil
+}
+
+// jiraTableCellBlockDiagnostics reports the warning a cell earns when Jira reads
+// a block at its start. Every cell is a line start to Jira and it renders the
+// block inside the cell, while a GFM cell holds inline content only.
+func jiraTableCellBlockDiagnostics(value string, offset int) []conversionDiagnostic {
+	name := jiraLineStartBlockName(value)
+	if name == "" {
+		return nil
+	}
+	return []conversionDiagnostic{{offset: offset, warning: ConversionWarning{
+		Construct: ConstructTable,
+		Reason:    "Jira renders " + name + " inside this table cell; JFM keeps its text",
+	}}}
 }
 
 // jiraTableCellBounds splits the inside of a table row into cells. The Jira

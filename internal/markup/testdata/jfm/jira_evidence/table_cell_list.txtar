@@ -1,0 +1,32 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: Every table cell is a line start and Jira renders the list inside the cell; a GFM cell holds inline content only, so jiro keeps the text and warns.
+-- input.jira --
+||h||
+|* item|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+</tr>
+<tr>
+<td class='confluenceTd'><ul>
+	<li>item</li>
+</ul>
+</td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+| h |
+| --- |
+| \* item |
+-- warnings.json --
+[
+  {
+    "Line": 2,
+    "Column": 2,
+    "Construct": "table",
+    "Reason": "Jira renders a list inside this table cell; JFM keeps its text"
+  }
+]

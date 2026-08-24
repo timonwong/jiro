@@ -400,7 +400,7 @@ func renderJFMList(ctx context.Context, list listBlock, depth int) (string, erro
 			line += " " + content
 		}
 		lines = append(lines, line)
-		interrupted := false
+		interrupted, nested := false, false
 		for _, block := range item.Blocks {
 			child, isList := block.(listBlock)
 			if isList && !interrupted && !child.RequiresFlattening {
@@ -408,7 +408,15 @@ func renderJFMList(ctx context.Context, list listBlock, depth int) (string, erro
 				if err != nil {
 					return "", err
 				}
+				if nested {
+					// Two lists under one item are two lists to Jira as well, and JFM
+					// spells at most one bullet shape, so the blank line is all that
+					// holds them apart — the same separation two adjacent top-level
+					// lists get.
+					lines = append(lines, "")
+				}
 				lines = append(lines, childText)
+				nested = true
 				continue
 			}
 			flushLines()

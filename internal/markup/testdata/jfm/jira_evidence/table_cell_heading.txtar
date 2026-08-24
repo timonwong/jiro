@@ -1,0 +1,29 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: Jira renders a heading inside the cell, which a GFM cell cannot hold.
+-- input.jira --
+||h||
+|h1. x|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+</tr>
+<tr>
+<td class='confluenceTd'><h1><a name="x"></a>x</h1></td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+| h |
+| --- |
+| h1. x |
+-- warnings.json --
+[
+  {
+    "Line": 2,
+    "Column": 2,
+    "Construct": "table",
+    "Reason": "Jira renders a heading inside this table cell; JFM keeps its text"
+  }
+]
