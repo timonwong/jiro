@@ -1,0 +1,36 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: Jira keeps reading the cell past the forced newline and renders both markers as items of one list inside it. jiro ends the row at the first physical line, keeps that cell's text with one table warning, and reads the continuation line outside the table, which is how it has always read a row.
+-- input.jira --
+||h||
+|* a\\
+* b|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+</tr>
+<tr>
+<td class='confluenceTd'><ul>
+	<li>a<br class="atl-forced-newline" /></li>
+	<li>b</li>
+</ul>
+</td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+| h |
+| --- |
+| \|\* a\\\\ |
+
+- b|
+-- warnings.json --
+[
+  {
+    "Line": 2,
+    "Column": 1,
+    "Construct": "table",
+    "Reason": "Jira renders a list inside this table cell; JFM keeps its text"
+  }
+]

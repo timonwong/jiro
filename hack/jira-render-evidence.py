@@ -263,6 +263,38 @@ ROUND7 = [
     "||h||\n|a\\\\\n* item|", "||h||\n|a\\\\\n" + r"\* item|",
 ]
 
+# Probe strings backing the block parser's reading of list lines (#99): which
+# level a marker run nests at, when a run of dashes is a marker rather than a
+# dash, and which line starts Jira reads inside a list item or a table cell.
+ROUND8 = [
+    # --- the run's last character decides the type of the level it names ---
+    "*- a", "-# a", "#- a",
+    "* a\n- b", "- a\n* b", "- a\n- b", "# a\n- b", "- a\n# b", "* a\n- b\n* c",
+    "- a\n-* b", "-* a\n-* b", "* a\n*- b", "-* a\n** b", "- a\n** b",
+    "* a\n-* b", "* a\n-# b", "* a\n** b\n* c",
+    # --- a run of only dashes is a marker just while a list is open ---
+    "-- a", "--- a", "-- a\n-- b", "text\n-- b", "h1. x\n-- y", "bq. x\n-- y",
+    "* a\n\n-- b", "* a\n-- b", "# a\n-- b", "- a\n-- b", "* a\n-- b\n-- c",
+    "- a\n-- b\n--- c", "* a\n-- b\n* c", "* a\n** b\n-- c", "* a\nfoo\n-- b",
+    "* a\n--\n* b", "* a\n-- \n* b", "* a\n--- b", "- a\n--- b", "* a\n*-- b",
+    "* a\n*** b",
+    # --- a plain line below a marker stays inside the item ---
+    "* a\nfoo",
+    # --- a run that no space or tab follows is text ---
+    "##", "*\n", "* \n", "** ",
+    # --- the indent Jira skips before a marker run or a line control ---
+    "-\titem", "#\titem", "  - item", "* a\n  ** b", "* a\n\t** b",
+    "\t\th1. x", "  bq. x", " h2. x", " ---- ", " ----", "\t----",
+    "x\\\\\nh1. y", "x\\\\\n h1. y",
+    # --- a blank line ends a list ---
+    "- a\n\n- b", "* a\n\n* b",
+    # --- every table cell is a line start Jira renders a block at ---
+    "||h||\n|* a|", "||h||\n|- a|", "||h||\n|# a|", "||h||\n|h2. x|y|",
+    "||h||\n|* a\\\\\n* b|", "||h||\n|h1. x\\\\\ny|", "||h||\n|- a\\\\\n-- b|",
+    # --- a list item's own content is a line start for h1. and bq. only ---
+    "* * y", "* h1. y", "- h1. y", "* bq. y",
+]
+
 
 # Probe strings backing the per-context delimited value rules (#96): what a
 # link target, a link's visible text, an image source, an image parameter and
@@ -462,6 +494,7 @@ if __name__ == "__main__":
     arguments = [a for a in arguments if a != "--json"]
     which = arguments[0] if arguments else "all"
     run({"round1": ROUND1, "round2": ROUND2, "round3": ROUND3, "round4": ROUND4,
-          "round5": ROUND5, "round6": ROUND6, "round7": ROUND7, "round9": ROUND9,
+          "round5": ROUND5, "round6": ROUND6, "round7": ROUND7, "round8": ROUND8,
+          "round9": ROUND9,
           "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5 + ROUND6 + ROUND7
-                 + ROUND9}[which], as_json=as_json)
+                 + ROUND8 + ROUND9}[which], as_json=as_json)

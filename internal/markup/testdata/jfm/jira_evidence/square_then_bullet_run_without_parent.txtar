@@ -1,0 +1,23 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: Jira opens an empty square item to hold the round one the run's last character asks for; jiro must not fabricate that parent, so the line keeps its markers escaped and warns.
+-- input.jira --
+-* item
+-- rendered.html --
+<ul class="alternate" type="square">
+	<li>
+	<ul>
+		<li>item</li>
+	</ul>
+	</li>
+</ul>
+-- want.md --
+\-\* item
+-- warnings.json --
+[
+  {
+    "Line": 1,
+    "Column": 1,
+    "Construct": "list",
+    "Reason": "list item has no parent at its authored nesting level"
+  }
+]

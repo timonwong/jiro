@@ -1,0 +1,18 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A marker of another unordered type at the same depth closes the list and opens a new one; JFM has one bullet, so jiro writes the two lists as bullets separated by a blank line.
+-- input.jira --
+* a
+- b
+-- rendered.html --
+<ul>
+	<li>a</li>
+</ul>
+<ul class="alternate" type="square">
+	<li>b</li>
+</ul>
+-- want.md --
+- a
+
+- b
+-- warnings.json --
+[]

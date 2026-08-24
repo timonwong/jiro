@@ -80,6 +80,14 @@ _Avoid_: Emoji directive, icon HTML
 The single Jira Markup form jiro produces for a given Jiro Flavored Markdown document. It is jiro's output, not a stable representation of what a Jira Instance stores.
 _Avoid_: Escaped markup, wire format
 
+**Jira Line Start**:
+A position where Jira begins reading block syntax: the first character of a physical line after the spaces and tabs it skips, the character after a forced newline, and the start of every table cell. A Marker Run, `h1.` through `h6.`, `bq.`, and `----` open a block only there.
+_Avoid_: Line beginning, column zero, block start
+
+**Marker Run**:
+The unbroken run of `*`, `-`, and `#` that opens a Jira list item at a Jira Line Start when a space or a tab follows it. Its length is the item's nesting level and its last character types that level: a round bullet, a square bullet, or an ordered item. Jiro Flavored Markdown spells one bullet, so a round and a square Marker Run both write as `-`.
+_Avoid_: Marker chain, bullet, list prefix
+
 **Text Effect**:
 An inline style that Jira Markup expresses with a matched pair of effect delimiters, such as bold, italic, strikethrough, inserted, superscript, subscript, and citation.
 _Avoid_: Style, formatting, emphasis
