@@ -555,6 +555,15 @@ var jiraEmoticonTokens = []string{
 	":(", ":)", ":P", ":D", ";)",
 }
 
+// jiraEmoticonFirstBytes are the bytes a supported token can begin with, which
+// is what lets the gate answer for ordinary prose in one comparison.
+var jiraEmoticonFirstBytes = func() (bytes [256]bool) {
+	for _, token := range jiraEmoticonTokens {
+		bytes[token[0]] = true
+	}
+	return bytes
+}()
+
 // jiraEmoticonAliases maps a token onto the spelling JFM writes for the icon it
 // renders. `(*y)` and `(*)` are the same yellow star, so JFM has one canonical
 // form for it; every other token names an icon of its own.
@@ -997,8 +1006,13 @@ func jiraDashRun(source string, start, index, end int) int {
 
 // jiraEmoticonAt reports the length of the emoticon token at index. The gate is
 // asymmetric: a following word rune suppresses the icon (`(y)foo`), a preceding
-// one does not (`f(x)` still ends in an icon).
+// one does not (`f(x)` still ends in an icon). Every caller runs it over every
+// byte of a scanned range, so the first byte decides before the token list is
+// walked at all.
 func jiraEmoticonAt(source string, index, end int) int {
+	if index >= end || !jiraEmoticonFirstBytes[source[index]] {
+		return 0
+	}
 	for _, token := range jiraEmoticonTokens {
 		if !strings.HasPrefix(source[index:end], token) {
 			continue

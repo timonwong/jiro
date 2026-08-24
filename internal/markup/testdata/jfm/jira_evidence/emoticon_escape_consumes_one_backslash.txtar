@@ -1,5 +1,5 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
-observed: A backslash directly in front of a token the gate fires on is consumed and the token stays characters, even though Jira consumes no backslash before a bare colon.
+observed: A backslash directly in front of a token the gate fires on is consumed, and the token's characters are what Jira shows.
 -- input.jira --
 x \:) y
 -- rendered.html --

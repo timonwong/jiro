@@ -5,9 +5,9 @@ import "testing"
 // TestJiraEmoticonAtMatchesRenderer pins the token gate against the live Jira
 // renderer. Every row is a render that was observed; the rows whose reading jiro
 // has to produce are checked in as archives under testdata/jfm/jira_evidence,
-// and every row is a probe in round12 of hack/jira-render-evidence.py, which
-// reproduces each capture. The two rows the renderer disagrees with are marked
-// where they stand.
+// and every row is a probe in hack/jira-render-evidence.py, which reproduces
+// each capture. The two rows the renderer disagrees with are marked where they
+// stand.
 func TestJiraEmoticonAtMatchesRenderer(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {

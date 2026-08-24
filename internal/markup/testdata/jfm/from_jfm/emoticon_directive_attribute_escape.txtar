@@ -1,0 +1,6 @@
+-- input.md --
+:emoticon[(x)]{a="\q"}
+-- want.jira --
+:emoticon\[\(x\)\]\{a="\q"\}
+-- warnings.json --
+[{"Line":1,"Column":1,"Construct":"emoticon","Reason":"emoticon directive takes no attribute list"}]

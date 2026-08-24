@@ -973,6 +973,14 @@ func adaptInlineDirective(source []byte, node *jfmInlineDirective, next ast.Node
 	if node.Malformed != "" {
 		return literalInline{Span: span, Text: raw}, []conversionDiagnostic{{offset: span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: node.Malformed}}}, next, nil
 	}
+	// `:emoticon` is read before the attribute list is, because it accepts none
+	// at all: letting the generic reader run first would report the shape of a
+	// list the directive was never going to take, and the one warning the
+	// specification promises for a malformed emoticon would arrive beside a
+	// `directive` one.
+	if strings.EqualFold(node.Name, "emoticon") {
+		return adaptEmoticonDirective(source, node, raw, span, next)
+	}
 	attributes, attributeDiagnostics, malformed := parseDirectiveAttributes(source, node.Attrs)
 	diagnostics = append(diagnostics, attributeDiagnostics...)
 	if malformed != "" {
@@ -1017,21 +1025,27 @@ func adaptInlineDirective(source []byte, node *jfmInlineDirective, next ast.Node
 			diagnostics = append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructImage, Reason: "dangerous destination scheme remains reversible through the image directive"}})
 		}
 		return imageInline{Span: span, Alt: decodeInlineDirectiveContent(string(node.Content.Value(source))), Source: destination.Value, Attributes: canonical, Directive: true, Dangerous: dangerous}, diagnostics, next, nil
-	case "emoticon":
-		// The content is one raw token rather than inline JFM, and the
-		// directive carries no attributes at all, so anything else is a
-		// semantics jiro will not guess and the source stays visible.
-		if node.HasAttrs {
-			return literalInline{Span: span, Text: raw}, append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructEmoticon, Reason: "emoticon directive takes no attribute list"}}), next, nil
-		}
-		token, supported := canonicalJiraEmoticonToken(decodeInlineDirectiveContent(string(node.Content.Value(source))))
-		if !supported {
-			return literalInline{Span: span, Text: raw}, append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructEmoticon, Reason: "emoticon directive content is not one supported Jira emoticon token"}}), next, nil
-		}
-		return emoticonInline{Span: span, Token: token}, diagnostics, next, nil
 	default:
 		return literalInline{Span: span, Text: raw}, []conversionDiagnostic{{offset: span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "unknown JFM directive remains literal"}}}, next, nil
 	}
+}
+
+// adaptEmoticonDirective reads the attrless `:emoticon[token]` form. Its content
+// is one raw token rather than inline JFM and it takes no attribute list, so
+// every other shape is a semantics jiro will not guess: the whole directive
+// stays visible and reports exactly one `emoticon` warning.
+func adaptEmoticonDirective(source []byte, node *jfmInlineDirective, raw string, span sourceSpan, next ast.Node) (semanticInline, []conversionDiagnostic, ast.Node, error) {
+	literal := func(reason string) (semanticInline, []conversionDiagnostic, ast.Node, error) {
+		return literalInline{Span: span, Text: raw}, []conversionDiagnostic{{offset: span.Start, warning: ConversionWarning{Construct: ConstructEmoticon, Reason: reason}}}, next, nil
+	}
+	if node.HasAttrs {
+		return literal("emoticon directive takes no attribute list")
+	}
+	token, supported := canonicalJiraEmoticonToken(decodeInlineDirectiveContent(string(node.Content.Value(source))))
+	if !supported {
+		return literal("emoticon directive content is not one supported Jira emoticon token")
+	}
+	return emoticonInline{Span: span, Token: token}, []conversionDiagnostic{}, next, nil
 }
 
 // jfmFragmentGoldmark parses the small inline-directive fragments handled by

@@ -1,7 +1,7 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
-observed: Jira renders `(*y)` as the yellow star icon; jiro writes it as the canonical `(*)` token.
+observed: Jira renders `(*)` as the yellow star icon in prose; jiro reads it as an emoticon directive.
 -- input.jira --
-(*y)
+(*)
 -- rendered.html --
 <p><img class="emoticon" src="/jira/images/icons/emoticons/star_yellow.png" height="16" width="16" align="absmiddle" alt="" border="0"/></p>
 -- want.md --
