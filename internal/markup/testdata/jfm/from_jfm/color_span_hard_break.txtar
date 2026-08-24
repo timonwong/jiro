@@ -1,0 +1,8 @@
+-- input.md --
+<font color="red">before\
+after</font>
+-- want.jira --
+{color:red}before\\
+after{color}
+-- warnings.json --
+[]

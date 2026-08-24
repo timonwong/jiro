@@ -643,12 +643,7 @@ func adaptGoldmarkInlines(source []byte, parent ast.Node) ([]semanticInline, []c
 	diagnostics := make([]conversionDiagnostic, 0)
 	for child := parent.FirstChild(); child != nil; {
 		if textNode, ok := child.(*ast.Text); ok && textNode.HardLineBreak() {
-			span := sourceSpan{Start: textNode.Segment.Start, End: textNode.Segment.Stop}
-			value := decodedMarkdownText(textNode.Segment.Value(source), textNode.IsRaw())
-			if len(value) != 0 {
-				inlines = append(inlines, textInline{Span: span, Text: string(value)})
-			}
-			inlines = append(inlines, hardBreakInline{Span: span})
+			inlines = append(inlines, adaptHardBreakText(source, textNode)...)
 			child = child.NextSibling()
 			continue
 		}
@@ -665,15 +660,26 @@ func adaptGoldmarkInlines(source []byte, parent ast.Node) ([]semanticInline, []c
 	return mergeAdjacentTextInlines(inlines), diagnostics, nil
 }
 
+// adaptHardBreakText expands one goldmark text node that ends in a hard break
+// into the text it carries followed by the break. Every caller walking inline
+// siblings must route hard-break text through here: adaptGoldmarkInline returns
+// a single inline and so cannot represent the pair, which is how #109 lost the
+// text preceding a break inside a controlled span.
+func adaptHardBreakText(source []byte, textNode *ast.Text) []semanticInline {
+	span := sourceSpan{Start: textNode.Segment.Start, End: textNode.Segment.Stop}
+	inlines := make([]semanticInline, 0, 2)
+	if value := decodedMarkdownText(textNode.Segment.Value(source), textNode.IsRaw()); len(value) != 0 {
+		inlines = append(inlines, textInline{Span: span, Text: string(value)})
+	}
+	return append(inlines, hardBreakInline{Span: span})
+}
+
 func adaptGoldmarkInline(source []byte, node ast.Node) (semanticInline, []conversionDiagnostic, ast.Node, error) {
 	next := node.NextSibling()
 	switch typed := node.(type) {
 	case *ast.Text:
 		value := decodedMarkdownText(typed.Segment.Value(source), typed.IsRaw())
 		spanEnd := typed.Segment.Stop
-		if typed.HardLineBreak() {
-			return hardBreakInline{Span: sourceSpan{Start: typed.Segment.Start, End: spanEnd}}, nil, next, nil
-		}
 		text := string(value)
 		if typed.SoftLineBreak() {
 			text += " "
@@ -902,6 +908,10 @@ func adaptControlledHTML(source []byte, opening *ast.RawHTML) (semanticInline, [
 		if closing, isHTML := sibling.(*ast.RawHTML); isHTML && isControlledClosingTag(string(closing.Segments.Value(source)), tag) {
 			span := sourceSpan{Start: rawHTMLSpan(opening).Start, End: rawHTMLSpan(closing).End}
 			return styledInline{Span: span, Style: controlledStyle(tag), Value: color, Children: children}, diagnostics, closing.NextSibling(), nil
+		}
+		if textNode, isText := sibling.(*ast.Text); isText && textNode.HardLineBreak() {
+			children = append(children, adaptHardBreakText(source, textNode)...)
+			continue
 		}
 		child, childDiagnostics, next, err := adaptGoldmarkInline(source, sibling)
 		if err != nil {
