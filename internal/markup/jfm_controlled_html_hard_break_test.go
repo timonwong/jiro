@@ -7,12 +7,13 @@ import (
 	"github.com/timonwong/jiro/internal/markup"
 )
 
-// TestControlledSpanKeepsTextBeforeHardBreak covers #109: a hard break inside a
-// controlled span (<font color=…>, <ins>, <sup>, <sub>) must carry the text that
-// precedes it, exactly as the same break does at paragraph level. ToJFM emits
-// such spans for {color:red}a\\b{color}, so dropping the text broke the round
-// trip.
-func TestControlledSpanKeepsTextBeforeHardBreak(t *testing.T) {
+// TestControlledHTMLKeepsTextBeforeHardBreak pins #109 on the shape that broke
+// the round trip: ToJFM emits <font color=…> for {color:red}a\\b{color}, and the
+// text before the break went missing on the way back. It pairs that with the
+// paragraph-level break to state the invariant the fix rests on — the break maps
+// the same way inside controlled HTML as outside it. The remaining controlled
+// tags are covered by testdata/jfm/from_jfm/controlled_html_hard_break.txtar.
+func TestControlledHTMLKeepsTextBeforeHardBreak(t *testing.T) {
 	t.Parallel()
 	for _, testCase := range []struct {
 		name  string
@@ -20,10 +21,8 @@ func TestControlledSpanKeepsTextBeforeHardBreak(t *testing.T) {
 		want  string
 	}{
 		{name: "font color", input: "<font color=\"red\">a\\\nb</font>", want: "{color:red}a\\\\\nb{color}"},
-		{name: "inserted", input: "<ins>a\\\nb</ins>", want: "+a\\\\\nb+"},
 		{name: "paragraph level", input: "a\\\nb", want: "a\\\\\nb"},
 	} {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 			result, err := markup.FromJFM(context.Background(), testCase.input)
