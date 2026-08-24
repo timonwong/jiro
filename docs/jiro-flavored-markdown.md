@@ -781,7 +781,9 @@ JFM accepts GFM pipe tables. Jira header cells use `||`; body cells use `|`. Tab
 
 JFM-to-Jira conversion accepts representable inline content in a parsed GFM cell, including standard images. Such content MUST be converted rather than causing the table to become literal.
 
-Canonical Jira-to-JFM conversion uses a GFM table only when every cell contains text, bold, italic, strikethrough, inline code, or standard Markdown links. Images, hard breaks, controlled HTML, directives, significant cell-edge whitespace, headerless tables, inconsistent row shapes, rows Jira reads across several physical lines or behind an indent, and other Jira-only cell semantics use the reversible `:::table` container instead. A GFM table cannot contain a physical-line-spanning hard break because the line ending terminates the row.
+Two cell values are written so that the delimiter after them stays a delimiter. A cell whose content is empty is written as a single space, because Jira reads the `||` an empty cell would leave as a header-cell boundary or as the delimiter that closes the row. A cell value ending in a backslash keeps that backslash as `&#92;`, because a backslash escapes the `|` behind it and merges the cell with the next one.
+
+Canonical Jira-to-JFM conversion uses a GFM table only when every cell contains text, bold, italic, strikethrough, inline code, or standard Markdown links. Images, hard breaks, controlled HTML, directives, significant cell-edge whitespace, headerless tables, inconsistent row shapes, rows Jira reads across several physical lines or behind an indent, and other Jira-only cell semantics use the reversible `:::table` container instead. A GFM cell is one line and can hold no hard break, while a Jira row runs on across physical lines until one of them ends on its delimiter.
 
 The `:::table` body contains canonical Jira table rows and is not parsed as Markdown. `:::table` accepts no attributes. Selecting this directive is canonicalization, not literal fallback, and does not produce a warning.
 

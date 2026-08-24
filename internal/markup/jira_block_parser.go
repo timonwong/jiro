@@ -264,13 +264,23 @@ func jiraTableRowLine(text string) bool {
 	return strings.HasPrefix(text[jiraLineIndentLength(text):], "|")
 }
 
-// jiraTableRowClosed reports whether the row a physical line ends on is closed.
-// Jira closes the row on the delimiter its last line ends with whatever stands
-// in front of that delimiter, so `|a\\|` and `|a\|` both close their row and
-// leave the line below it outside the row. Only spaces and tabs may trail the
-// delimiter.
+// jiraTableRowCloserEnd reports the offset one past the `|` a line closes its
+// row on, and 0 when the line leaves the row open. Jira closes the row on the
+// delimiter the line ends with whatever stands in front of that delimiter, so
+// `|a\\|` and `|a\|` both close their row and leave the line below it outside;
+// only spaces and tabs may trail the delimiter. Everything that reads where a
+// row ends reads it here, because the row scanner and the cell split have to
+// find the same closer.
+func jiraTableRowCloserEnd(text string) int {
+	end := len(strings.TrimRight(text, " \t"))
+	if end == 0 || text[end-1] != '|' {
+		return 0
+	}
+	return end
+}
+
 func jiraTableRowClosed(text string) bool {
-	return strings.HasSuffix(strings.TrimRight(text, " \t"), "|")
+	return jiraTableRowCloserEnd(text) != 0
 }
 
 // jiraTableRowDelimiter reports the delimiter a row's cells are separated by,
@@ -371,7 +381,7 @@ func parseJiraTableRow(ctx context.Context, source string, span sourceSpan, clos
 	}
 	if innerEnd <= innerStart {
 		// `|` alone is a row Jira closes with no cell in it at all.
-		return nil, nil, nil, false, ctx.Err()
+		return nil, nil, nil, false, nil
 	}
 	bounds, err := jiraTableCellBounds(ctx, text, innerStart, innerEnd, delimiter)
 	if err != nil {
@@ -406,29 +416,25 @@ func parseJiraTableRow(ctx context.Context, source string, span sourceSpan, clos
 	return cells, diagnostics, cellBlockWarnings, edgeWhitespace, nil
 }
 
-// jiraTableRowInnerEnd reports where a closed row's cells end. The delimiter the
-// row closes on is not part of the last cell, and neither are the spaces and
-// tabs Jira allows behind it -- but a delimiter that a backslash stands in front
-// of closes the row without leaving it, so `|a\|` is the one cell `a\|` that
-// Jira renders as a literal `|`. A header row closes on a single `|` as readily
-// as on two.
+// jiraTableRowInnerEnd reports where a closed row's cells end. The closer
+// jiraTableRowCloserEnd finds is not part of the last cell, and neither are the
+// spaces and tabs behind it -- unless a backslash stands in front of it, because
+// then it closes the row without leaving it and `|a\|` is the one cell `a\|`
+// that Jira renders as a literal `|`. A header row closes on a single `|` as
+// readily as on two.
 func jiraTableRowInnerEnd(text string, innerStart int, delimiter string) int {
-	end := len(text)
-	for end > innerStart && (text[end-1] == ' ' || text[end-1] == '\t') {
-		end--
-	}
-	if end <= innerStart {
+	closer := jiraTableRowCloserEnd(text) - 1
+	if closer < innerStart {
 		// The row's opening delimiter is the only one it has, and it closes it.
 		return innerStart
 	}
-	if text[end-1] != '|' || text[end-2] == '\\' {
+	if text[closer-1] == '\\' {
 		return len(text)
 	}
-	end--
-	if delimiter == "||" && end > innerStart && text[end-1] == '|' {
-		end--
+	if delimiter == "||" && closer > innerStart && text[closer-1] == '|' {
+		return closer - 1
 	}
-	return end
+	return closer
 }
 
 // jiraTableCellBlockDiagnostics reports the warning a cell earns when Jira reads
@@ -465,9 +471,8 @@ func jiraTableCellBounds(ctx context.Context, text string, innerStart, innerEnd 
 		}
 		if text[index] == '\\' {
 			// A backslash keeps the byte behind it from opening a link or an
-			// image shape. Whether that byte is also kept from separating two
-			// cells is the lookbehind's answer below, and the two agree: every
-			// byte this skips over has the backslash directly in front of it.
+			// image shape. Whether that byte also separates two cells is the
+			// lookbehind's answer below.
 			index += 2
 			continue
 		}

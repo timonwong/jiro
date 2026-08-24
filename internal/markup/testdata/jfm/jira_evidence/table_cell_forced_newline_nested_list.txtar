@@ -1,0 +1,32 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Both marker runs are read inside the cell: Jira renders one data cell holding a square list whose only item is `a` with a forced newline, and a square list nested in that item holding `b`. jiro reads the row across both lines and keeps the whole table as raw Jira Markup, which a GFM cell could hold none of.
+-- input.jira --
+||h||
+|- a\\
+-- b|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+</tr>
+<tr>
+<td class='confluenceTd'><ul class="alternate" type="square">
+	<li>a<br class="atl-forced-newline" />
+	<ul class="alternate" type="square">
+		<li>b</li>
+	</ul>
+	</li>
+</ul>
+</td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+:::table
+||h||
+|- a\\
+-- b|
+:::
+-- warnings.json --
+[]

@@ -175,9 +175,8 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 		case hardBreakInline:
 			// No table cell reaches this: a GFM cell is one line and carries no
 			// hard break, and the `<br>` that would stand for one there is not
-			// controlled HTML in JFM and stays literal text. The newline itself
-			// would read back, since a Jira row runs on across physical lines,
-			// so the constraint is what a JFM cell can hold, not the row.
+			// controlled HTML in JFM and stays literal text
+			// (TestTableCellBreakStaysLiteralHTML).
 			write("\\\\\n", false, false)
 		case styledInline:
 			if typed.Style == styleColor {
@@ -730,26 +729,16 @@ func renderJiraTableRow(ctx context.Context, state *jiraRenderState, cells []tab
 		if err != nil {
 			return "", err
 		}
-		values[index] = jiraTableCellValue(value)
+		if value == "" {
+			// An empty value would leave `||` in the row, which Jira reads as a
+			// header-cell boundary or as the delimiter the row closes on rather
+			// than as a cell. One space is the empty-looking cell it does read,
+			// and an empty run has nothing for the verification to prove.
+			value = " "
+		}
+		values[index] = value
 	}
 	return delimiter + strings.Join(values, delimiter) + delimiter, nil
-}
-
-// jiraTableCellValue keeps a rendered cell value inside the cell the row writes
-// it into. The per-cell verification cannot see either hazard, because both live
-// where the value meets the delimiter next to it: an empty value would leave the
-// row with `||`, which Jira reads as a header-cell boundary or as the delimiter
-// the row closes on, and a value ending in a backslash would take the delimiter
-// behind it into the cell and merge that cell with the one after it. A space and
-// a `&#92;` are what Jira shows for the cell jiro means.
-func jiraTableCellValue(value string) string {
-	if value == "" {
-		return " "
-	}
-	if strings.HasSuffix(value, "\\") {
-		return value[:len(value)-1] + "&#92;"
-	}
-	return value
 }
 
 func renderJiraCodeBlock(ctx context.Context, block codeBlock) (string, error) {

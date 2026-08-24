@@ -103,6 +103,12 @@ func TestJiraTableRowWritesCellsThatReadBackAsCells(t *testing.T) {
 			if row != test.want {
 				t.Fatalf("row = %q, want %q", row, test.want)
 			}
+			// The delimiter rewrite happens inside the verified render, so a
+			// value it changed still has to read back as the run it was written
+			// from; a diagnostic here would mean the harness fell back instead.
+			if len(state.diagnostics) != 0 {
+				t.Fatalf("diagnostics = %#v, want none", state.diagnostics)
+			}
 			parsed, _, _, _, err := parseJiraTableRow(context.Background(), row, sourceSpan{Start: 0, End: len(row)}, true)
 			if err != nil {
 				t.Fatal(err)
