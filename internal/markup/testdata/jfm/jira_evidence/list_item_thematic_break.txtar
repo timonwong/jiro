@@ -1,0 +1,12 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Jira reads its dash rule at a list item's content start and draws the rule inside the item, so jiro writes the rule as the item's own block; `- ***` is the JFM spelling, because a line of dashes alone would be a thematic break of its own rather than an item.
+-- input.jira --
+* ----
+-- rendered.html --
+<ul>
+	<li><hr /></li>
+</ul>
+-- want.md --
+- ***
+-- warnings.json --
+[]

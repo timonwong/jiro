@@ -136,6 +136,19 @@ func listItemLineControl(item listItem) (level int, quote bool, inlines []semant
 	return 0, false, nil, false
 }
 
+// listItemLineThematicBreak reports whether a list item leads with a horizontal
+// rule. Jira reads its dash rule at the content start of every item and draws
+// the rule inside the item, and a Markdown item holds a thematic break of its
+// own, so both renderers write it on the item line rather than flattening it
+// out of the list (#122).
+func listItemLineThematicBreak(item listItem) bool {
+	if len(item.Inlines) != 0 || len(item.Blocks) == 0 {
+		return false
+	}
+	_, ok := item.Blocks[0].(thematicBreakBlock)
+	return ok
+}
+
 // inlinesFitOneLine reports whether a run can be written on one line, which a
 // run that breaks a line itself or carries an authored newline cannot.
 func inlinesFitOneLine(inlines []semanticInline) bool {

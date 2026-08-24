@@ -111,6 +111,7 @@ Escaping is interpreted in the source notation before target escaping is applied
 - An authored backslash is written as the character reference `&#92;` when the next character is one whose backslash Jira consumes, or when an emoticon directive follows it, so that neither the forced newline `\\` nor an escape `\X` nor an emoticon escape can form from authored text. Every other backslash is written as itself, keeping `C:\dir\file`, `a \ b`, and a trailing `x\` readable.
 - A `h1.` through `h6.` or `bq.` prefix at the start of a Jira output line, including every table cell and every list item's content, is protected with the character reference `&#46;`, because Jira shows a backslash before `.` instead of consuming it. Jira reads the prefix whether or not a space follows the `.`, so `h1.x` is protected exactly as `h1. x` is. Together with `&#92;` above and the `&#124;` a `|` needs inside a link's visible text, these are the only places plain text is written as a character reference rather than as itself or as a backslash escape.
 - A run of Jira list markers (`*`, `-`, and `#`, in any mix) followed by a space or a tab at the start of a Jira output line, including every table cell but not a list item's content, is protected by backslash-escaping its first character, so `\* item` becomes `\* item` and `\*\* item` becomes `\** item`. Jira opens no list at an item's content start, so a marker written there stays literal and is not escaped. Every line of a paragraph is a line start, including the line after a hard break. A marker run that no space or tab follows, and a run of two or more `-`, which Jira reads as a dash, are not list markers and stay literal. This is an ordinary backslash escape from the escapable set, not a character reference.
+- A run of four or five dashes that nothing but spaces and tabs follows, at the start of a Jira output line, including every table cell and every list item's content, is protected by backslash-escaping its first dash, so text of `----` is written `\----`. Jira consumes that backslash and shows the dashes. A longer run, and a run anything else follows, draw no rule and stay literal.
 - Escaping decisions are proven by re-parsing the rendered inline run. Plain text that cannot be verified is emitted fully escaped with a `plain-text` warning rather than changed in silence.
 - Plain-text characters that would start unintended Markdown formatting are escaped in JFM output.
 - Directive attribute escapes are interpreted only inside directive attributes. Unknown escape sequences remain visible and produce warnings.
@@ -119,7 +120,7 @@ Escaping is interpreted in the source notation before target escaping is applied
 
 Jira `h1.` through `h6.` correspond to Markdown ATX headings `#` through `######`. JFM accepts CommonMark ATX and setext headings and emits canonical ATX headings. ATX input may use up to three leading spaces and an optional closing hash sequence. Canonical output begins at column one, has no closing hashes, and uses one space after a non-empty marker. An empty heading has no trailing space. Jira reads a line control with or without a space after the `.` and skips every space and tab before its content, so `h1.x`, `h1. x`, and `h1.\tx` are the same heading of `x`. A Jira heading level is a single digit from 1 to 6: `h0.`, `h7.`, and multi-digit forms such as `h10.` are heading-like input, with or without a following space. Such a line opens no block, so a paragraph or a list item above it keeps it as text without a warning; a line that begins one remains visible and produces a `heading` warning.
 
-Jira `----` corresponds to canonical JFM `---`. Any CommonMark thematic-break spelling converts to Jira `----`.
+Jira `----` corresponds to canonical JFM `---`. Any CommonMark thematic-break spelling converts to Jira `----`. Jira draws the rule for a run of four or five dashes that nothing but spaces and tabs follows, at every line start it reads: a paragraph line, a table cell, and a list item's content start. A sixth dash draws none.
 
 Jira `\\` corresponds to a Markdown hard break. A Jira `\\` is a forced newline anywhere on a line, not only at its end, but only where it is the last backslash run of its whitespace-separated token and exactly two backslashes long. So `a\\b` breaks between the words, `ab\\cd\\ef` shows the first pair and breaks on the second, and `a\\\\b` shows four backslashes and breaks nowhere. Only ASCII whitespace ends a token, so a period or a no-break space keeps two runs in one token: `a\\b.c\\d` breaks once while `a\\b c\\d` breaks twice. Only a backslash Jira keeps counts as a later run: a lone one it consumes as an escape is invisible to the decision, so `a\\b\c` and `a\\b\` stay literal while `a\\b\-c` breaks. The extent the rule is read in is one physical line or one table cell, and it is read through inline markup rather than inside it, so the pair in `*x\\y*-z\\w` stays literal while the same pair in `*x\\y* -z\\w` breaks. A link's visible text is read without the rule and keeps every backslash.
 
@@ -510,9 +511,11 @@ JFM accepts CommonMark unordered markers `-`, `*`, and `+` and ordered markers e
 
 Jira has two unordered bullets, the round `*` and the square `-`, and JFM has one. Both become the same JFM bullet, so a square Jira bullet comes back as a round one, and a Jira list that changes bullet shape starts a new list that JFM can only separate with a blank line.
 
-Jira reads its line controls at every list item's content start, at every nesting level and under every marker, so `* h1. y` is a heading inside the item and `* bq. y` a quote inside it. A JFM item that begins with a heading, or with a quote holding a single paragraph or nothing at all, is therefore written on the item line itself in both directions and stays in its list; `- # y` and `* h1. y` are the same item. A list marker does not re-form at that position: `* * y` is the item text `* y`, and JFM item text beginning with `#` is escaped so that it comes back as text.
+Jira reads its line controls at every list item's content start, at every nesting level and under every marker, so `* h1. y` is a heading inside the item and `* bq. y` a quote inside it. A JFM item that begins with a heading, or with a quote holding a single paragraph or nothing at all, is therefore written on the item line itself in both directions and stays in its list; `- # y` and `* h1. y` are the same item. A list marker does not re-form at that position: `* * y` is the item text `* y`, and JFM item text beginning with `#` or `-` is escaped so that it comes back as text.
 
-A control that opens an item consumes only its own line. Jira renders the lines below it as further blocks inside the item, which JFM cannot spell there, so those blocks follow the list as independent blocks in source order and the lost containment produces a `list` warning.
+Jira reads its dash rule there as well, so `* ----` is a horizontal rule inside the item and the item stays one item of its list. A JFM item that begins with a thematic break is likewise written on the item line, spelled `- ***`: a line of nothing but dashes and spaces is a thematic break of its own, so `- ---` is no item at all.
+
+A control or a rule that opens an item consumes only its own line. Jira renders the lines below it as further blocks inside the item, which JFM cannot spell there, so those blocks follow the list as independent blocks in source order and the lost containment produces a `list` warning.
 
 A list item with one inline paragraph followed by nested lists is reversible. When an item contains additional recognized blocks that Jira list markers cannot own:
 
@@ -575,6 +578,26 @@ Input:
 Output:
 ~~~jfm
 - # Findings
+- next
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: list-item-thematic-break; direction: jira-to-jfm -->
+Input:
+~~~jira
+* first
+* ----
+* next
+~~~
+
+Output:
+~~~jfm
+- first
+- ***
 - next
 ~~~
 

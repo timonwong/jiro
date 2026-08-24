@@ -752,10 +752,24 @@ ROUND15 = [
 ]
 
 
+# The `* ----`, `* ---- `, `* -----`, `* ----x` and `* ---- y` renders the dash
+# rule inside a list item was found in are ROUND13's, and the archives built from
+# them cite that round rather than repeat the probe here.
 ROUND16 = [
     # --- a lone backslash at the end of a line is no forced newline: Jira
     #     shows it and breaks the line as it breaks any other (#119) ---
     "a\\\nb", "a\\", "a&#92;\nb",
+    # --- the dash rule draws at every line start, under every marker and at
+    #     every depth, and the item it draws in stays one item of the list ---
+    "** ----", "# ----", "* a\n* ----\n* b", "* a\n* ----", "* ----\n** b",
+    "|----|", "||h||\n|----|",
+    # --- the line the rule leaves behind is a block of its own inside the item,
+    #     the reading a line control already gets there ---
+    "* ----\nb",
+    # --- how long the run may be: four or five dashes, and no more ---
+    "-----", "------", "* ------", "---- -", "* ---- -", "* ---", "----\t",
+    # --- and one backslash keeps every one of them off the line start ---
+    "\\----", "* \\----", "* \\---", "* \\----x", "||h||\n|\\----|",
 ]
 
 

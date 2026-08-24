@@ -479,7 +479,8 @@ func adaptGoldmarkList(source []byte, node *ast.List) (listBlock, []conversionDi
 				}
 				item.Blocks = append(item.Blocks, continuation)
 				diagnostics = append(diagnostics, continuationDiagnostics...)
-				if _, _, _, ok := listItemLineControl(item); ok && len(item.Blocks) == 1 {
+				_, _, _, lineControl := listItemLineControl(item)
+				if (lineControl || listItemLineThematicBreak(item)) && len(item.Blocks) == 1 {
 					// Jira reads this block back from the item's content start, so the
 					// item keeps it and nothing is flattened out of the list. Only the
 					// block the item leads with is read there; a second one still has

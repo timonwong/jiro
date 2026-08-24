@@ -97,13 +97,14 @@ func renderJFM(ctx context.Context, document semanticDocument) (string, error) {
 
 // jfmBlockOpeners are the characters that open a block where a JFM line begins,
 // which is why a text fragment written there escapes them. jfmItemContentOpeners
-// are the ones a list item's content start has to escape: Jira renders a heading
-// and a quote there and JFM reads both back, so `#` carries a block that has to
-// survive as text, while a marker written there opens a nested list JFM reads
-// and Jira does not, which is a loss of its own and not this rule's to fix.
+// are the ones a list item's content start has to escape: Jira renders a
+// heading, a quote and a horizontal rule there and JFM reads all three back, so
+// `#` and `-` carry blocks that have to survive as text. `-` is also the bullet
+// JFM reads at that start and Jira does not, so escaping it keeps a Jira item
+// whose text opens with one from opening a nested list on the way back.
 const (
 	jfmBlockOpeners       = "#>+-"
-	jfmItemContentOpeners = "#"
+	jfmItemContentOpeners = "#-"
 )
 
 func renderJFMInlines(ctx context.Context, inlines []semanticInline, lineStart string) (string, error) {
@@ -495,10 +496,11 @@ func renderJFMList(ctx context.Context, list listBlock, depth int) (string, erro
 }
 
 // renderJFMListItemLine writes one item's own line and reports how many of the
-// item's blocks that line took. A leading line control is written on the item
-// line itself: Jira reads a heading and a quote back from an item's content
-// start (listItemLineControl) and so does JFM, so neither side has to flatten
-// the block out of the list.
+// item's blocks that line took. A leading line control and a leading horizontal
+// rule are written on the item line itself: Jira reads a heading, a quote and
+// its dash rule back from an item's content start (listItemLineControl,
+// listItemLineThematicBreak) and so does JFM, so neither side has to flatten the
+// block out of the list.
 func renderJFMListItemLine(ctx context.Context, item listItem, marker string) (string, int, error) {
 	if level, quote, inlines, ok := listItemLineControl(item); ok {
 		content, err := renderJFMInlines(ctx, inlines, jfmBlockOpeners)
@@ -513,6 +515,12 @@ func renderJFMListItemLine(ctx context.Context, item listItem, marker string) (s
 			control += " " + content
 		}
 		return marker + " " + control, 1, nil
+	}
+	if listItemLineThematicBreak(item) {
+		// `- ---` is no item: a line of nothing but dashes and spaces is a thematic
+		// break whatever the first dash was meant as, so the rule inside an item
+		// takes the one spelling the bullet cannot be read into.
+		return marker + " ***", 1, nil
 	}
 	content, err := renderJFMInlines(ctx, item.Inlines, jfmItemContentOpeners)
 	if err != nil {

@@ -667,9 +667,10 @@ func renderJiraListSegments(ctx context.Context, state *jiraRenderState, list li
 }
 
 // renderJiraListItemLine writes one item's own line and reports how many of the
-// item's blocks that line took. A line control is written on the item line
-// itself, because that is where Jira reads it back (listItemLineControl); every
-// other block stays for the caller, which has only the flattening path for it.
+// item's blocks that line took. A line control and a horizontal rule are written
+// on the item line itself, because that is where Jira reads them back
+// (listItemLineControl, listItemLineThematicBreak); every other block stays for
+// the caller, which has only the flattening path for it.
 func renderJiraListItemLine(ctx context.Context, state *jiraRenderState, item listItem, marker string) (string, int, error) {
 	if level, quote, inlines, ok := listItemLineControl(item); ok {
 		// The control's content is no line start of its own: Jira has read the
@@ -679,6 +680,9 @@ func renderJiraListItemLine(ctx context.Context, state *jiraRenderState, item li
 			return "", 0, err
 		}
 		return marker + " " + jiraLineControlMarkup(level, quote, content), 1, nil
+	}
+	if listItemLineThematicBreak(item) {
+		return marker + " ----", 1, nil
 	}
 	content, err := renderJiraInlineRun(ctx, state, item.Inlines, jiraRunContext{lineStart: jiraLineStartItemContent})
 	if err != nil {

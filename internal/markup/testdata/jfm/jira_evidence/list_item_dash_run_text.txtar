@@ -1,0 +1,12 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A character behind the dash run leaves the item its text, so jiro keeps the run as text and escapes the dash JFM would read a break from.
+-- input.jira --
+* ----x
+-- rendered.html --
+<ul>
+	<li>----x</li>
+</ul>
+-- want.md --
+- \----x
+-- warnings.json --
+[]
