@@ -26,7 +26,7 @@ Load each conditional branch before using it:
 - For a single or bulk Issue Type change, read [Issue Type changes](references/issue-types.md).
 - For `issue clone SOURCE`, read [Issue Clone workflow](references/issue-clone.md) before mutation.
 - For Board or Sprint discovery, or any `--sprint` selector, read [Boards and Sprints](references/agile.md).
-- For JFM authoring, conversion, mutation input, reuse of typed Issue or Comment text, or `jfm_conversion` warnings, read [JFM workflows](references/jfm.md). Standalone `jiro jfm` conversion is offline and skips the Jira mutation loop.
+- For JFM authoring, conversion, any Description or Comment body input, reuse of typed Issue or Comment text, or `jfm_conversion` warnings, read [JFM workflows](references/jfm.md). Standalone `jiro jfm` conversion is offline and skips the Jira mutation loop.
 - For any `issue bulk` operation, read [Bulk workflows](references/bulk.md) before dry-run.
 - When the required operation is unavailable in typed commands (confirmed by `schema` and `--help`), read [REST API fallback](references/rest-api-fallback.md).
 
@@ -55,7 +55,7 @@ Before a write, confirm the Jira Instance, every target Issue Key, and every cur
 
 Resolve Jira-owned names and write semantics before mutating:
 
-- Classify every Description or Comment body before constructing the command. Newly authored Markdown/JFM uses `--input-format=jfm`; text copied from a typed Issue or Comment read is Jira Markup and uses `--input-format=jira` or the omitted default. Record the classification beside the final payload; do not select the format from the CLI default alone.
+- Classify each Description or Comment body by source: newly authored Markdown is `--input-format=jfm`; text reused from a typed read is Jira Markup (`jira` or omitted).
 - Match a transition by the exact ID, unique name, or unique destination status returned by `issue list-transitions`.
 - Resolve a Link Type with `issue link types`; preserve the outward direction from `FROM` to `--to`.
 - Use a file or `-` for stdin for long descriptions and Comment Bodies, keeping inline and file forms mutually exclusive. `issue move --comment` is inline-only.
@@ -69,10 +69,6 @@ payload are resolved with no remaining ambiguity.
 ## Mutate
 
 Use only the operation and fields requested. Carry an explicitly selected `--profile` through inspection, mutation, and readback.
-
-Before running the command, compare each text-bearing flag with its recorded body
-classification. The command is ready only when every body has the matching
-`--input-format` and the operation exposes that flag.
 
 ```bash
 jiro issue update OPS-42 --priority High --output=json
