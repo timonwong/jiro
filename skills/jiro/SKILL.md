@@ -55,6 +55,7 @@ Before a write, confirm the Jira Instance, every target Issue Key, and every cur
 
 Resolve Jira-owned names and write semantics before mutating:
 
+- Classify every Description or Comment body before constructing the command. Newly authored Markdown/JFM uses `--input-format=jfm`; text copied from a typed Issue or Comment read is Jira Markup and uses `--input-format=jira` or the omitted default. Record the classification beside the final payload; do not select the format from the CLI default alone.
 - Match a transition by the exact ID, unique name, or unique destination status returned by `issue list-transitions`.
 - Resolve a Link Type with `issue link types`; preserve the outward direction from `FROM` to `--to`.
 - Use a file or `-` for stdin for long descriptions and Comment Bodies, keeping inline and file forms mutually exclusive. `issue move --comment` is inline-only.
@@ -62,11 +63,16 @@ Resolve Jira-owned names and write semantics before mutating:
 - Treat `--component` and `--fix-version` updates as full replacements. Use the single value `none` only for an empty final field.
 
 Preflight is complete when the exact Jira Instance, target Issues, current values,
-Jira-owned selectors, and final payload are resolved with no remaining ambiguity.
+every text body's input-format classification, Jira-owned selectors, and final
+payload are resolved with no remaining ambiguity.
 
 ## Mutate
 
 Use only the operation and fields requested. Carry an explicitly selected `--profile` through inspection, mutation, and readback.
+
+Before running the command, compare each text-bearing flag with its recorded body
+classification. The command is ready only when every body has the matching
+`--input-format` and the operation exposes that flag.
 
 ```bash
 jiro issue update OPS-42 --priority High --output=json

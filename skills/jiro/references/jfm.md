@@ -12,6 +12,17 @@ For a Jira mutation, use this branch together with the core `inspect -> prefligh
 - Use `--input-format` only where the current schema and command help expose it: Issue creation, Issue update, Comment creation, and the inline transition comment on `issue move`. Custom fields retain their declared Jira value contract.
 - Treat Jira Markup as the only typed Issue and Comment read representation; the current contract has no JFM projection flags or sibling fields such as `--jfm`, `descriptionJfm`, or `bodyJfm`.
 
+Make the choice per body, before writing the command:
+
+| Body source | Input contract | Command choice |
+| --- | --- | --- |
+| New Markdown/JFM text authored for this mutation | Jiro Flavored Markdown | `--input-format=jfm` |
+| Text copied from `issue show` or `issue comment list` | Jira Markup | `--input-format=jira` or omit the flag |
+
+The `jira` default is a storage-compatibility default, not a classification for
+newly authored Markdown. The preflight record and the command must contain the
+same choice for every Description or Comment body.
+
 ## Supply JFM to a Jira mutation
 
 Use JFM with Issue Description or Comment Body input:
