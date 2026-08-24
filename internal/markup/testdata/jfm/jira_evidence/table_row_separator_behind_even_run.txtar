@@ -1,0 +1,24 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A `|` one backslash byte stands in front of separates no cells, and the run in front of this one is two backslashes long: Jira renders the two data cells `a` with a forced newline and `|b`, and `c`. A rendered cell value ending in a backslash would merge its cell with the next one the same way, so jiro writes none.
+-- input.jira --
+||h||
+|a\\|b|c|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+</tr>
+<tr>
+<td class='confluenceTd'>a<br class="atl-forced-newline" />|b</td>
+<td class='confluenceTd'>c</td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+:::table
+||h||
+|a\\|b|c|
+:::
+-- warnings.json --
+[]

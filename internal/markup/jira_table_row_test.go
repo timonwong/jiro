@@ -2,6 +2,7 @@ package markup
 
 import (
 	"context"
+	"reflect"
 	"testing"
 )
 
@@ -39,6 +40,7 @@ func TestJiraTableRowSplitsAroundLinksAndImages(t *testing.T) {
 		{name: "bangs inside words", row: `|a!b|c!d|`, want: []string{"a!b", "c!d"}},
 		{name: "monospace span protects nothing", row: `|{{a|b}}|c|`, want: []string{"{{a", "b}}", "c"}},
 		{name: "escaped separator", row: `|a\|b|c|`, want: []string{`a\|b`, "c"}},
+		{name: "separator behind an even backslash run", row: `|a\\|b|c|`, want: []string{`a\\|b`, "c"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -57,6 +59,66 @@ func TestJiraTableRowSplitsAroundLinksAndImages(t *testing.T) {
 				if got[index] != test.want[index] {
 					t.Fatalf("cells = %q, want %q", got, test.want)
 				}
+			}
+		})
+	}
+}
+
+// TestJiraTableRowWritesCellsThatReadBackAsCells pins the row assembly the
+// per-cell verification cannot reach: an empty value and a value ending in a
+// backslash are both harmless on their own and meet the delimiter only once the
+// row is joined, so the row jiro writes is re-read here to prove every cell is
+// still the one it was written as.
+func TestJiraTableRowWritesCellsThatReadBackAsCells(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name  string
+		cells []string
+		want  string
+		back  []string
+	}{
+		{name: "empty cell", cells: []string{"a", ""}, want: "|a| |", back: []string{"a", " "}},
+		{name: "empty cell between two", cells: []string{"a", "", "b"}, want: "|a| |b|", back: []string{"a", " ", "b"}},
+		{name: "cell ending in a backslash", cells: []string{`a\`, "b"}, want: "|a&#92;|b|", back: []string{"a&#92;", "b"}},
+		{name: "last cell ending in a backslash", cells: []string{"a", `b\`}, want: "|a|b&#92;|", back: []string{"a", "b&#92;"}},
+		{name: "cell that is one backslash", cells: []string{`\`, "b"}, want: "|&#92;|b|", back: []string{"&#92;", "b"}},
+		{name: "cell holding a delimiter", cells: []string{"a|b", "c"}, want: `|a\|b|c|`, back: []string{`a\|b`, "c"}},
+		{name: "cell ending in a delimiter", cells: []string{"a|", "c"}, want: `|a\||c|`, back: []string{`a\|`, "c"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			cells := make([]tableCell, 0, len(test.cells))
+			for _, value := range test.cells {
+				inlines := make([]semanticInline, 0, 1)
+				if value != "" {
+					inlines = append(inlines, textInline{Text: value})
+				}
+				cells = append(cells, tableCell{Inlines: inlines})
+			}
+			state := &jiraRenderState{diagnostics: make([]conversionDiagnostic, 0)}
+			row, err := renderJiraTableRow(context.Background(), state, cells, "|")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if row != test.want {
+				t.Fatalf("row = %q, want %q", row, test.want)
+			}
+			// The delimiter rewrite happens inside the verified render, so a
+			// value it changed still has to read back as the run it was written
+			// from; a diagnostic here would mean the harness fell back instead.
+			if len(state.diagnostics) != 0 {
+				t.Fatalf("diagnostics = %#v, want none", state.diagnostics)
+			}
+			parsed, _, _, _, err := parseJiraTableRow(context.Background(), row, sourceSpan{Start: 0, End: len(row)}, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, len(parsed))
+			for index, cell := range parsed {
+				got[index] = row[cell.Span.Start:cell.Span.End]
+			}
+			if !reflect.DeepEqual(got, test.back) {
+				t.Fatalf("cells read back = %q, want %q", got, test.back)
 			}
 		})
 	}

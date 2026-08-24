@@ -173,6 +173,10 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 			}
 			write("{{"+body+"}}", true, true)
 		case hardBreakInline:
+			// No table cell reaches this: a GFM cell is one line and carries no
+			// hard break, and the `<br>` that would stand for one there is not
+			// controlled HTML in JFM and stays literal text
+			// (TestTableCellBreakStaysLiteralHTML).
 			write("\\\\\n", false, false)
 		case styledInline:
 			if typed.Style == styleColor {
@@ -724,6 +728,13 @@ func renderJiraTableRow(ctx context.Context, state *jiraRenderState, cells []tab
 		value, err := renderJiraInlineRun(ctx, state, cell.Inlines, jiraRunContext{lineStart: jiraLineStartEveryRule, cellDelimiter: delimiter})
 		if err != nil {
 			return "", err
+		}
+		if value == "" {
+			// An empty value would leave `||` in the row, which Jira reads as a
+			// header-cell boundary or as the delimiter the row closes on rather
+			// than as a cell. One space is the empty-looking cell it does read,
+			// and an empty run has nothing for the verification to prove.
+			value = " "
 		}
 		values[index] = value
 	}

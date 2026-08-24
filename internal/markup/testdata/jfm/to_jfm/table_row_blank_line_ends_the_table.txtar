@@ -1,0 +1,12 @@
+-- input.jira --
+|a
+
+b|
+-- want.md --
+:::table
+|a
+:::
+
+b|
+-- warnings.json --
+[]

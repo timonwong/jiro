@@ -1,0 +1,18 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: The delimiter a row closes on leaves no cell behind it: Jira renders `|a||` as the single data cell `a` rather than as `a` and an empty second cell.
+-- input.jira --
+|a||
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<td class='confluenceTd'>a</td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+:::table
+|a||
+:::
+-- warnings.json --
+[]

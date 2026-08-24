@@ -1,0 +1,29 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A marker run on the line the cell continues onto opens a list there: Jira renders one data cell holding `a`, a forced newline, and a round list with the one item `item`. jiro reads the row across both lines and keeps the whole table as raw Jira Markup, which a GFM cell could hold none of.
+-- input.jira --
+||h||
+|a\\
+* item|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+</tr>
+<tr>
+<td class='confluenceTd'>a<br class="atl-forced-newline" />
+<ul>
+	<li>item</li>
+</ul>
+</td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+:::table
+||h||
+|a\\
+* item|
+:::
+-- warnings.json --
+[]

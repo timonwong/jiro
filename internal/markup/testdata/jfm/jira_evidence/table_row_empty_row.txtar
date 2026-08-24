@@ -1,0 +1,27 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A line that is nothing but `|` is a closed row with no cell in it: Jira renders an empty `<tr>` and reads `b|` as a paragraph below the table.
+-- input.jira --
+||h||
+|
+b|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+</tr>
+<tr>
+</tr>
+</tbody></table>
+</div>
+
+<p>b|</p>
+-- want.md --
+:::table
+||h||
+|
+:::
+
+b|
+-- warnings.json --
+[]

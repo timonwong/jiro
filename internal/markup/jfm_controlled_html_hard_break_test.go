@@ -2,6 +2,7 @@ package markup_test
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/timonwong/jiro/internal/markup"
@@ -36,5 +37,29 @@ func TestControlledHTMLKeepsTextBeforeHardBreak(t *testing.T) {
 				t.Fatalf("FromJFM(%q) = %q, want %q", testCase.input, result.Markup, testCase.want)
 			}
 		})
+	}
+}
+
+// TestTableCellBreakStaysLiteralHTML pins the constraint the Jira renderer's
+// hardBreakInline arm rests on. A GFM cell is one line and carries no hard
+// break, and `<br>` is not controlled HTML in JFM, so no table cell can reach
+// that arm; if `<br>` ever became a break, the row writer would owe the reader
+// the line the break opens.
+func TestTableCellBreakStaysLiteralHTML(t *testing.T) {
+	t.Parallel()
+	result, err := markup.FromJFM(context.Background(), "| h |\n| --- |\n| a<br>b |")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "||h||\n|a<br>b|"; result.Markup != want {
+		t.Fatalf("FromJFM() = %q, want %q", result.Markup, want)
+	}
+	want := []markup.ConversionWarning{{
+		Line: 3, Column: 4,
+		Construct: markup.ConstructHTML,
+		Reason:    "unsupported or malformed inline HTML remains literal",
+	}}
+	if !reflect.DeepEqual(result.Warnings, want) {
+		t.Fatalf("warnings = %#v, want %#v", result.Warnings, want)
 	}
 }

@@ -1,0 +1,26 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: The cell keeps reading past the forced newline: Jira renders one data cell holding a level-1 heading whose text is `x` and a forced newline, and a paragraph `y` below that heading inside the same cell. jiro reads the row across both lines and keeps the whole table as raw Jira Markup, which a GFM cell could hold none of.
+-- input.jira --
+||h||
+|h1. x\\
+y|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+</tr>
+<tr>
+<td class='confluenceTd'><h1><a name="x%5C%5C"></a>x<br class="atl-forced-newline" /></h1>
+<p>y</p></td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+:::table
+||h||
+|h1. x\\
+y|
+:::
+-- warnings.json --
+[]

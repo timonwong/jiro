@@ -1,0 +1,22 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Jira passes `&#92;`, the character reference for a backslash, through into the cell text. jiro keeps it as the cell's text, and writes one where a cell value would otherwise end in a raw backslash.
+-- input.jira --
+||h||
+|a&#92;|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+</tr>
+<tr>
+<td class='confluenceTd'>a&#92;</td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+| h |
+| --- |
+| a&#92; |
+-- warnings.json --
+[]

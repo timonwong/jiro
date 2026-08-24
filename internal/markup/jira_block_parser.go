@@ -257,27 +257,84 @@ func parseJiraListItemContent(ctx context.Context, source string, marker sourceL
 	return inlines, diagnostics, nil
 }
 
-func parseJiraTable(ctx context.Context, source string, lines []sourceLine, start int) (tableBlock, int, []conversionDiagnostic, error) {
-	index := start
-	for index < len(lines) && (strings.HasPrefix(lines[index].Text, "||") || strings.HasPrefix(lines[index].Text, "|")) {
-		index++
+// jiraTableRowLine reports whether the line opens a table row. Jira skips the
+// spaces and tabs in front of the delimiter, so ` |b|` below an open row opens a
+// row of its own rather than continuing the one above it.
+func jiraTableRowLine(text string) bool {
+	return strings.HasPrefix(text[jiraLineIndentLength(text):], "|")
+}
+
+// jiraTableRowCloserEnd reports the offset one past the `|` a line closes its
+// row on, and 0 when the line leaves the row open. Jira closes the row on the
+// delimiter the line ends with whatever stands in front of that delimiter, so
+// `|a\\|` and `|a\|` both close their row and leave the line below it outside;
+// only spaces and tabs may trail the delimiter. Everything that reads where a
+// row ends reads it here, because the row scanner and the cell split have to
+// find the same closer.
+func jiraTableRowCloserEnd(text string) int {
+	end := len(strings.TrimRight(text, " \t"))
+	if end == 0 || text[end-1] != '|' {
+		return 0
 	}
-	block := tableBlock{Span: sourceSpan{Start: lines[start].Start, End: lines[index-1].End}}
-	rawRows := make([]string, 0, index-start)
+	return end
+}
+
+func jiraTableRowClosed(text string) bool {
+	return jiraTableRowCloserEnd(text) != 0
+}
+
+// jiraTableRowDelimiter reports the delimiter a row's cells are separated by,
+// which is `||` for a header row and `|` for a data row.
+func jiraTableRowDelimiter(text string) string {
+	if strings.HasPrefix(text[jiraLineIndentLength(text):], "||") {
+		return "||"
+	}
+	return "|"
+}
+
+// parseJiraTable reads the table that starts at lines[start]. A Jira row is not
+// one physical line: it runs on until a line ends on its own delimiter, and
+// every line it takes on the way is content of the cell that was left open,
+// which Jira reads a block at the start of. The table ends at a blank line, at
+// the end of the range, or at the first line that opens no row while the row
+// above it is closed.
+func parseJiraTable(ctx context.Context, source string, lines []sourceLine, start int) (tableBlock, int, []conversionDiagnostic, error) {
+	block := tableBlock{}
+	rawLines := make([]string, 0, len(lines)-start)
 	diagnostics := make([]conversionDiagnostic, 0)
 	cellBlockDiagnostics := make([]conversionDiagnostic, 0)
-	columnCount := -1
-	for rowIndex := start; rowIndex < index; rowIndex++ {
-		line := lines[rowIndex]
-		rawRows = append(rawRows, line.Text)
-		header := strings.HasPrefix(line.Text, "||")
-		cells, cellDiagnostics, cellBlockWarnings, edgeWhitespace, err := parseJiraTableRow(ctx, source, line, header)
+	columnCount, rowCount := -1, 0
+	index := start
+	for index < len(lines) && jiraTableRowLine(lines[index].Text) {
+		if err := ctx.Err(); err != nil {
+			return tableBlock{}, 0, nil, err
+		}
+		rowStart := index
+		index++
+		for index < len(lines) && !jiraTableRowClosed(lines[index-1].Text) {
+			text := lines[index].Text
+			if jiraLineIndentLength(text) == len(text) || jiraTableRowLine(text) {
+				break
+			}
+			index++
+		}
+		for _, line := range lines[rowStart:index] {
+			rawLines = append(rawLines, line.Text)
+		}
+		if index-rowStart > 1 || jiraLineIndentLength(lines[rowStart].Text) != 0 {
+			// Neither a row that runs across physical lines nor one Jira reads
+			// past an indent has a GFM spelling, while the raw rows keep both.
+			block.Directive = true
+		}
+		header := jiraTableRowDelimiter(lines[rowStart].Text) == "||"
+		span := sourceSpan{Start: lines[rowStart].Start, End: lines[index-1].End}
+		cells, cellDiagnostics, cellBlockWarnings, edgeWhitespace, err := parseJiraTableRow(ctx, source, span, jiraTableRowClosed(lines[index-1].Text))
 		if err != nil {
 			return tableBlock{}, 0, nil, err
 		}
 		diagnostics = append(diagnostics, cellDiagnostics...)
 		cellBlockDiagnostics = append(cellBlockDiagnostics, cellBlockWarnings...)
-		if edgeWhitespace || columnCount >= 0 && len(cells) != columnCount || rowIndex != start && header {
+		if edgeWhitespace || columnCount >= 0 && len(cells) != columnCount || rowCount != 0 && header {
 			block.Directive = true
 		}
 		if columnCount < 0 {
@@ -288,12 +345,14 @@ func parseJiraTable(ctx context.Context, source string, lines []sourceLine, star
 				block.Directive = true
 			}
 		}
-		if rowIndex == start && header {
+		if rowCount == 0 && header {
 			block.Header = cells
 		} else {
 			block.Rows = append(block.Rows, cells)
 		}
+		rowCount++
 	}
+	block.Span = sourceSpan{Start: lines[start].Start, End: lines[index-1].End}
 	if len(block.Header) == 0 {
 		block.Directive = true
 	}
@@ -303,26 +362,35 @@ func parseJiraTable(ctx context.Context, source string, lines []sourceLine, star
 	if !block.Directive {
 		diagnostics = append(diagnostics, cellBlockDiagnostics...)
 	}
-	block.Raw = strings.Join(rawRows, "\n")
+	block.Raw = strings.Join(rawLines, "\n")
 	return block, index, diagnostics, nil
 }
 
-func parseJiraTableRow(ctx context.Context, source string, line sourceLine, header bool) ([]tableCell, []conversionDiagnostic, []conversionDiagnostic, bool, error) {
-	delimiter := "|"
-	if header {
-		delimiter = "||"
+// parseJiraTableRow reads one row's cells from the source the row spans. A row
+// is contiguous source however many physical lines it takes, so every cell keeps
+// the offsets it was written at. closed says the row ended on its own delimiter;
+// an open row -- one a new row line, a blank line or the end of the document cut
+// short -- has no closing delimiter to strip and Jira reads its last cell to the
+// end.
+func parseJiraTableRow(ctx context.Context, source string, span sourceSpan, closed bool) ([]tableCell, []conversionDiagnostic, []conversionDiagnostic, bool, error) {
+	text := source[span.Start:span.End]
+	delimiter := jiraTableRowDelimiter(text)
+	innerStart, innerEnd := jiraLineIndentLength(text)+len(delimiter), len(text)
+	if closed {
+		innerEnd = jiraTableRowInnerEnd(text, innerStart, delimiter)
 	}
-	text := line.Text
-	innerStart, innerEnd := len(delimiter), len(text)-len(delimiter)
-	if innerEnd < innerStart || !strings.HasSuffix(text, delimiter) {
-		// The cell Jira reads here runs past the end of the row, so its content
-		// still begins where the row's opening delimiter ends.
-		return []tableCell{{Span: sourceSpan{Start: line.Start, End: line.End}, Inlines: []semanticInline{textInline{Span: sourceSpan{Start: line.Start, End: line.End}, Text: text}}}},
-			nil, jiraTableCellBlockDiagnostics(text[min(innerStart, len(text)):], line.Start), false, nil
+	if innerEnd <= innerStart {
+		// `|` alone is a row Jira closes with no cell in it at all.
+		return nil, nil, nil, false, nil
 	}
 	bounds, err := jiraTableCellBounds(ctx, text, innerStart, innerEnd, delimiter)
 	if err != nil {
 		return nil, nil, nil, false, err
+	}
+	// The delimiter a row closes on leaves no cell behind it, so `|a||` is the
+	// one cell `a` rather than `a` and an empty one.
+	if last := len(bounds) - 1; last > 0 && bounds[last].Start == bounds[last].End {
+		bounds = bounds[:last]
 	}
 	cells := make([]tableCell, 0, len(bounds))
 	diagnostics := make([]conversionDiagnostic, 0)
@@ -333,19 +401,40 @@ func parseJiraTableRow(ctx context.Context, source string, line sourceLine, head
 		if strings.TrimSpace(value) != value {
 			edgeWhitespace = true
 		}
-		span := sourceSpan{Start: line.Start + bound.Start, End: line.Start + bound.End}
+		cellSpan := sourceSpan{Start: span.Start + bound.Start, End: span.Start + bound.End}
 		// A table cell is its own line domain: `|` separates no token, so a
 		// forced newline is decided inside the cell and both cells of
 		// `|a\\b|c\\d|` break.
-		inlines, inlineDiagnostics, err := parseJiraInlines(ctx, source, span.Start, span.End, jiraLineDomain{End: span.End})
+		inlines, inlineDiagnostics, err := parseJiraInlines(ctx, source, cellSpan.Start, cellSpan.End, jiraLineDomain{End: cellSpan.End})
 		if err != nil {
 			return nil, nil, nil, false, err
 		}
 		diagnostics = append(diagnostics, inlineDiagnostics...)
-		cellBlockWarnings = append(cellBlockWarnings, jiraTableCellBlockDiagnostics(value, span.Start)...)
-		cells = append(cells, tableCell{Span: span, Inlines: inlines})
+		cellBlockWarnings = append(cellBlockWarnings, jiraTableCellBlockDiagnostics(value, cellSpan.Start)...)
+		cells = append(cells, tableCell{Span: cellSpan, Inlines: inlines})
 	}
 	return cells, diagnostics, cellBlockWarnings, edgeWhitespace, nil
+}
+
+// jiraTableRowInnerEnd reports where a closed row's cells end. The closer
+// jiraTableRowCloserEnd finds is not part of the last cell, and neither are the
+// spaces and tabs behind it -- unless a backslash stands in front of it, because
+// then it closes the row without leaving it and `|a\|` is the one cell `a\|`
+// that Jira renders as a literal `|`. A header row closes on a single `|` as
+// readily as on two.
+func jiraTableRowInnerEnd(text string, innerStart int, delimiter string) int {
+	closer := jiraTableRowCloserEnd(text) - 1
+	if closer < innerStart {
+		// The row's opening delimiter is the only one it has, and it closes it.
+		return innerStart
+	}
+	if text[closer-1] == '\\' {
+		return len(text)
+	}
+	if delimiter == "||" && closer > innerStart && text[closer-1] == '|' {
+		return closer - 1
+	}
+	return closer
 }
 
 // jiraTableCellBlockDiagnostics reports the warning a cell earns when Jira reads
@@ -366,6 +455,11 @@ func jiraTableCellBlockDiagnostics(value string, offset int) []conversionDiagnos
 // renderer reuses it to prove that a rendered cell still reaches the inline
 // parser as one cell, so a row and a candidate cell must never be split by two
 // different rules.
+//
+// A delimiter one backslash byte stands in front of is inside a cell rather than
+// between two. The lookbehind is the whole rule, which is what makes an even run
+// of backslashes protect the delimiter exactly as an odd one does: `|a\\|b|c|`
+// is the two cells `a\\|b` and `c`.
 func jiraTableCellBounds(ctx context.Context, text string, innerStart, innerEnd int, delimiter string) ([]sourceSpan, error) {
 	bounds := make([]sourceSpan, 0, 1)
 	cellStart := innerStart
@@ -376,6 +470,9 @@ func jiraTableCellBounds(ctx context.Context, text string, innerStart, innerEnd 
 			}
 		}
 		if text[index] == '\\' {
+			// A backslash keeps the byte behind it from opening a link or an
+			// image shape. Whether that byte also separates two cells is the
+			// lookbehind's answer below.
 			index += 2
 			continue
 		}
@@ -387,7 +484,7 @@ func jiraTableCellBounds(ctx context.Context, text string, innerStart, innerEnd 
 			index = shapeEnd
 			continue
 		}
-		if !strings.HasPrefix(text[index:innerEnd], delimiter) {
+		if !strings.HasPrefix(text[index:innerEnd], delimiter) || index > 0 && text[index-1] == '\\' {
 			index++
 			continue
 		}

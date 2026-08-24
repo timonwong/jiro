@@ -220,13 +220,26 @@ func renderJiraInlineRunWith(ctx context.Context, state *jiraRenderState, inline
 
 // renderJiraInlineRunIn renders one run in one escape mode. Plain-text escaping
 // is decided over the finished run rather than per fragment, so rendering and
-// escaping are one step and no caller may take only half of it.
+// escaping are one step and no caller may take only half of it. The cell
+// delimiter that follows a table cell belongs to the same step, because it is
+// the next byte Jira reads after the run.
 func renderJiraInlineRunIn(ctx context.Context, inlines []semanticInline, render jiraInlineRender) (string, error) {
 	output, err := renderJiraInlines(ctx, inlines, render)
 	if err != nil {
 		return "", err
 	}
-	return escapePlainJiraEffects(ctx, output.text, output.plainOffsets, render.mode)
+	escaped, err := escapePlainJiraEffects(ctx, output.text, output.plainOffsets, render.mode)
+	if err != nil {
+		return "", err
+	}
+	if render.inTableCell && strings.HasSuffix(escaped, "\\") {
+		// A backslash at the end of a cell escapes the delimiter behind it and
+		// merges the cell with the next one. The character reference is the
+		// backslash Jira shows without reaching that delimiter, and the
+		// verification re-parse decodes it back to one (normalizeVerificationText).
+		escaped = escaped[:len(escaped)-1] + "&#92;"
+	}
+	return escaped, nil
 }
 
 // jiraRunNeedsVerification reports whether re-parsing the rendered run can tell
