@@ -279,11 +279,6 @@ func escapeMarkdownDestination(ctx context.Context, value string) (string, error
 	return escapeMarkdownCharacterReferences(result.String()), nil
 }
 
-func escapeMarkdownDestinationUnchecked(value string) string {
-	result, _ := escapeMarkdownDestination(context.Background(), value)
-	return result
-}
-
 // escapeMarkdownLabelText writes an image's alternative text, which is a Jira
 // image parameter value and so is read with character references resolved; a `&`
 // that begins one leaves as `&amp;` for the same reason as in a destination.

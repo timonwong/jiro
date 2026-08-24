@@ -252,7 +252,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int, domain
 			// text, which is what Jira renders there.
 			if isImage {
 				flushText(offset)
-				alt, preservedAttributes, attributeDiagnostics, invalid := validateJiraImageAttributes(attributes)
+				alt, preservedAttributes, attributeDiagnostics, invalid := validateDirectiveAttributes(attributes, jiraImageAttributeSchema)
 				diagnostics = append(diagnostics, attributeDiagnostics...)
 				if invalid {
 					result = append(result, literalInline{Span: sourceSpan{Start: offset, End: close + 1}, Text: source[offset : close+1]})
@@ -263,7 +263,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int, domain
 				directive := dangerous || len(preservedAttributes) != 0
 				result = append(result, imageInline{
 					Span:       sourceSpan{Start: offset, End: close + 1},
-					Alt:        alt,
+					Alt:        alt.Value,
 					Source:     destination,
 					Attributes: preservedAttributes,
 					Directive:  directive,
@@ -494,51 +494,6 @@ func parseJiraImageBody(body string, base int) (string, []directiveAttribute, bo
 		attributeStart = next + 1
 	}
 	return destination, attributes, true
-}
-
-func validateJiraImageAttributes(attributes []directiveAttribute) (string, []directiveAttribute, []conversionDiagnostic, bool) {
-	known := map[string]string{
-		"alt": "alt", "thumbnail": "thumbnail", "align": "align", "border": "border",
-		"bordercolor": "bordercolor", "hspace": "hspace", "vspace": "vspace",
-		"width": "width", "height": "height", "title": "title",
-	}
-	alt := ""
-	foundAlt := false
-	preserved := make([]directiveAttribute, 0, len(attributes))
-	diagnostics := make([]conversionDiagnostic, 0)
-	seen := map[string]bool{}
-	invalid := false
-	for _, attribute := range attributes {
-		if !validDirectiveAttributeName(attribute.Name) {
-			diagnostics = append(diagnostics, conversionDiagnostic{offset: attribute.Span.Start, warning: ConversionWarning{Construct: ConstructImage, Reason: "Jira image parameter name cannot be represented by JFM attribute grammar; complete image remains literal"}})
-			invalid = true
-			continue
-		}
-		key := strings.ToLower(attribute.Name)
-		canonical, knownAttribute := known[key]
-		if knownAttribute {
-			attribute.Name = canonical
-		} else {
-			diagnostics = append(diagnostics, conversionDiagnostic{offset: attribute.Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "unknown image attribute is preserved"}})
-		}
-		if seen[key] {
-			diagnostics = append(diagnostics, conversionDiagnostic{offset: attribute.Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "duplicate image attribute is preserved"}})
-		}
-		seen[key] = true
-		if key == "alt" && !attribute.Bare && !foundAlt {
-			alt, foundAlt = attribute.Value, true
-			continue
-		}
-		if key != "thumbnail" && attribute.Bare {
-			diagnostics = append(diagnostics, conversionDiagnostic{offset: attribute.Span.Start, warning: ConversionWarning{Construct: ConstructImage, Reason: "Jira image parameter without a value cannot be represented by JFM; complete image remains literal"}})
-			invalid = true
-		}
-		if key == "thumbnail" && !attribute.Bare {
-			diagnostics = append(diagnostics, conversionDiagnostic{offset: attribute.Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "thumbnail value is preserved although thumbnail is presence-only in JFM"}})
-		}
-		preserved = append(preserved, attribute)
-	}
-	return alt, preserved, diagnostics, invalid
 }
 
 func shiftSemanticInline(inline semanticInline, delta int) semanticInline {

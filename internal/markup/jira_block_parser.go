@@ -472,7 +472,7 @@ func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine,
 		if err != nil {
 			return jiraMacroParseResult{Err: err}, true
 		}
-		attributes, attributeDiagnostics, invalid := validateJiraMacroAttributes(attributes, panelAttributeOrder(), nil, "panel")
+		_, attributes, attributeDiagnostics, invalid := validateDirectiveAttributes(attributes, jiraMacroAttributeSchema(panelAttributeOrder(), nil, "panel"))
 		bodyDiagnostics = append(bodyDiagnostics, attributeDiagnostics...)
 		if invalid {
 			return jiraMacroParseResult{Block: literalBlock{Span: span, Text: source[span.Start:span.End]}, Next: closeIndex + 1, Diagnostics: bodyDiagnostics}, true
@@ -487,7 +487,7 @@ func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine,
 	if err != nil {
 		return jiraMacroParseResult{Err: err}, true
 	}
-	attributes, attributeDiagnostics, invalid := validateJiraMacroAttributes(attributes, codeAttributeOrder(), map[string]bool{"collapse": true, "linenumbers": true}, "code")
+	_, attributes, attributeDiagnostics, invalid := validateDirectiveAttributes(attributes, jiraMacroAttributeSchema(codeAttributeOrder(), map[string]bool{"collapse": true, "linenumbers": true}, "code"))
 	if invalid {
 		return jiraMacroParseResult{Block: literalBlock{Span: span, Text: source[span.Start:span.End]}, Next: closeIndex + 1, Diagnostics: attributeDiagnostics}, true
 	}
@@ -573,7 +573,7 @@ func parseJiraCodeAttributes(ctx context.Context, opening string, base int) ([]d
 		if strings.EqualFold(name, "language") {
 			attributeValue = normalizeCodeLanguage(attributeValue)
 		}
-		attributes = append(attributes, directiveAttribute{Span: sourceSpan{Start: prefixOffset + part.Start, End: prefixOffset + part.End}, Name: canonicalCodeAttributeName(name), Value: attributeValue})
+		attributes = append(attributes, directiveAttribute{Span: sourceSpan{Start: prefixOffset + part.Start, End: prefixOffset + part.End}, Name: name, Value: attributeValue})
 	}
 	return attributes, nil
 }
@@ -595,15 +595,6 @@ func safeCodeFenceLanguage(language string) bool {
 		}
 	}
 	return true
-}
-
-func canonicalCodeAttributeName(name string) string {
-	for _, canonical := range codeAttributeOrder() {
-		if strings.EqualFold(name, canonical) {
-			return canonical
-		}
-	}
-	return name
 }
 
 func codeAttributeOrder() []string {
@@ -631,7 +622,7 @@ func parseJiraNamedAttributes(ctx context.Context, opening, name string, base in
 			}
 			attributeName, attributeValue, bare = part.Value[:equals], value, false
 		}
-		attributes = append(attributes, directiveAttribute{Span: sourceSpan{Start: prefixOffset + part.Start, End: prefixOffset + part.End}, Name: canonicalPanelAttributeName(attributeName), Value: attributeValue, Bare: bare})
+		attributes = append(attributes, directiveAttribute{Span: sourceSpan{Start: prefixOffset + part.Start, End: prefixOffset + part.End}, Name: attributeName, Value: attributeValue, Bare: bare})
 	}
 	return attributes, nil
 }
@@ -661,57 +652,6 @@ func splitJiraParameterParts(ctx context.Context, value string) ([]jiraParameter
 		start = end + 1
 	}
 	return parts, nil
-}
-
-func canonicalPanelAttributeName(name string) string {
-	for _, canonical := range panelAttributeOrder() {
-		if strings.EqualFold(name, canonical) {
-			return canonical
-		}
-	}
-	return name
-}
-
-func validateJiraMacroAttributes(attributes []directiveAttribute, known []string, booleans map[string]bool, macro string) ([]directiveAttribute, []conversionDiagnostic, bool) {
-	diagnostics := make([]conversionDiagnostic, 0)
-	seen := map[string]bool{}
-	invalid := false
-	for index := range attributes {
-		if !validDirectiveAttributeName(attributes[index].Name) {
-			diagnostics = append(diagnostics, conversionDiagnostic{offset: attributes[index].Span.Start, warning: ConversionWarning{Construct: ConstructJiraMacro, Reason: "Jira parameter name cannot be represented by JFM attribute grammar; complete " + macro + " remains literal"}})
-			invalid = true
-			continue
-		}
-		key := strings.ToLower(attributes[index].Name)
-		knownAttribute := false
-		for _, name := range known {
-			if strings.EqualFold(name, attributes[index].Name) {
-				attributes[index].Name = name
-				knownAttribute = true
-				break
-			}
-		}
-		if !knownAttribute {
-			diagnostics = append(diagnostics, conversionDiagnostic{offset: attributes[index].Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "unknown " + macro + " attribute is preserved"}})
-		}
-		if seen[key] {
-			diagnostics = append(diagnostics, conversionDiagnostic{offset: attributes[index].Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "duplicate " + macro + " attribute is preserved"}})
-		}
-		seen[key] = true
-		if attributes[index].Bare {
-			diagnostics = append(diagnostics, conversionDiagnostic{offset: attributes[index].Span.Start, warning: ConversionWarning{Construct: ConstructJiraMacro, Reason: "Jira parameter without a value cannot be represented by this JFM attribute; complete " + macro + " remains literal"}})
-			invalid = true
-		}
-		if booleans[key] && !attributes[index].Bare {
-			value := strings.ToLower(attributes[index].Value)
-			if value == "true" || value == "false" {
-				attributes[index].Value = value
-			} else {
-				diagnostics = append(diagnostics, conversionDiagnostic{offset: attributes[index].Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "invalid boolean " + macro + " attribute value is preserved"}})
-			}
-		}
-	}
-	return attributes, diagnostics, invalid
 }
 
 func validDirectiveAttributeName(name string) bool {
