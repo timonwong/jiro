@@ -963,7 +963,7 @@ The defined directives are `:emoticon`, `:link`, `:image`, `:::code`, `:::table`
 
 ### Attribute values
 
-- String values are double-quoted and use JSON-style escapes for quote, backslash, newline, carriage return, and tab.
+- String values are double-quoted and use JSON-style escapes for quote, backslash, newline, carriage return, and tab. A closing brace is escaped as `\}`, because an unescaped one ends the attribute list.
 - Boolean values are lowercase unquoted `true` or `false`. Known boolean values are case-insensitive on input and lowercase canonically. An invalid boolean remains a quoted visible value and produces a warning.
 - Presence-only flags, such as image `thumbnail`, have no value.
 - Every non-boolean value is a quoted string, including empty and numeric-looking values.

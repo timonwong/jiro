@@ -391,6 +391,11 @@ func serializeDirectiveAttributes(ctx context.Context, attributes []directiveAtt
 	return strings.Join(parts, " "), nil
 }
 
+// quoteDirectiveAttributeValue writes one attribute value between double quotes.
+// A `}` is escaped beside the characters Go quotes, because the attribute list
+// ends at the first `}` no backslash stands in front of: without it a value
+// holding one -- a link title, a link target, a panel or code title -- would end
+// the directive early and leave the whole source literal on the way back.
 func quoteDirectiveAttributeValue(ctx context.Context, value string) (string, error) {
 	var result strings.Builder
 	result.WriteByte('"')
@@ -399,6 +404,10 @@ func quoteDirectiveAttributeValue(ctx context.Context, value string) (string, er
 			if err := ctx.Err(); err != nil {
 				return "", err
 			}
+		}
+		if character == '}' {
+			result.WriteString(`\}`)
+			continue
 		}
 		quoted := strconv.Quote(string(character))
 		result.WriteString(quoted[1 : len(quoted)-1])
