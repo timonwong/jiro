@@ -1,12 +1,14 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
-observed: Jira skips every space and tab between the `.` and the content, so the heading text carries none of them.
+observed: A heading level Jira does have ends the paragraph above it, with no space after the `.` as well.
 -- input.jira --
-* h1.  	y
+a
+h1.x
 -- rendered.html --
-<ul>
-	<li><h1><a name="y"></a>y</h1></li>
-</ul>
+<p>a</p>
+<h1><a name="x"></a>x</h1>
 -- want.md --
-- # y
+a
+
+# x
 -- warnings.json --
 []

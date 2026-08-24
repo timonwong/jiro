@@ -40,8 +40,9 @@ func jiraLineControlPrefix(line string) (level int, quote bool, end int) {
 // jiraLineControlContentStart reports where the content of the control that
 // ends at end begins. Jira skips every space and tab after the `.` and keeps
 // none of them, so `h1.x`, `h1. x` and `h2.  \tx` all have the content `x`.
-func jiraLineControlContentStart(line string, end int) int {
-	return end + jiraLineIndentLength(line[end:])
+// source is whatever the caller reads offsets in, one line or a whole document.
+func jiraLineControlContentStart(source string, end int) int {
+	return end + jiraLineIndentLength(source[end:])
 }
 
 // jiraLineMalformedHeadingPrefix reports a line start that spells `h`, digits
@@ -49,8 +50,8 @@ func jiraLineControlContentStart(line string, end int) int {
 // reads this one second and what is left of it are the levels it has none of,
 // whatever follows the `.`: Jira renders `h7. x` and `h10.x` alike as text, and
 // jiro keeps the line literal with a warning rather than guessing which heading
-// was meant. That literal is a block of its own, so the line ends the paragraph
-// above it as well.
+// was meant. The line opens no block for Jira, so a caller that has a paragraph
+// or an item open keeps the line in it instead of asking this.
 func jiraLineMalformedHeadingPrefix(line string) bool {
 	if len(line) == 0 || line[0] != 'h' {
 		return false

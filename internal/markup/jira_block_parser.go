@@ -44,9 +44,9 @@ func isJiraBlockStartBesidesList(line string) bool {
 	if _, _, controlEnd := jiraLineControlPrefix(line); controlEnd != 0 {
 		return true
 	}
-	if jiraLineMalformedHeadingPrefix(line) {
-		return true
-	}
+	// A heading level Jira has none of opens nothing: Jira keeps `h10. x` and
+	// `h10.x` in the paragraph or the item above them, and only the levels it
+	// does have interrupt one.
 	if jiraLineThematicBreak(line) || strings.HasPrefix(line, "||") || strings.HasPrefix(line, "|") {
 		return true
 	}
@@ -185,6 +185,12 @@ func parseJiraLists(ctx context.Context, source string, lines []sourceLine, star
 			}
 			item.Blocks = append(item.Blocks, block)
 			diagnostics = append(diagnostics, controlDiagnostics...)
+			if index < len(lines) && jiraListItemContinues(lines[index].Text) {
+				diagnostics = append(diagnostics, conversionDiagnostic{offset: lines[index].Start, warning: ConversionWarning{
+					Construct: ConstructList,
+					Reason:    "Jira keeps this line inside the list item above it; a JFM item holds nothing after its line control, so the line follows the list",
+				}})
+			}
 		} else {
 			continuation := index
 			for continuation < len(lines) && jiraListItemContinues(lines[continuation].Text) {

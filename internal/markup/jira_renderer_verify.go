@@ -62,7 +62,32 @@ const (
 	jiraLineStartItemContent                    = jiraLineStartControls
 )
 
-func (rules jiraLineStartRules) reads(rule jiraLineStartRules) bool { return rules&rule != 0 }
+// jiraLineStartClaim is the block Jira opens at one line start under one set of
+// rules. control tells the two apart because they are kept off the line in
+// different ways: a line control's `.` is spelled `&#46;`, while a marker run
+// takes a backslash before the marker at start.
+type jiraLineStartClaim struct {
+	start   int
+	end     int
+	control bool
+}
+
+// claim reports the block these rules read at the start of value, so that every
+// reader of a line start asks one question and no rule can be enabled in one of
+// them and missed in the other.
+func (rules jiraLineStartRules) claim(value string) (jiraLineStartClaim, bool) {
+	if rules&jiraLineStartControls != 0 {
+		if _, _, end := jiraLineControlPrefix(value); end != 0 {
+			return jiraLineStartClaim{end: end, control: true}, true
+		}
+	}
+	if rules&jiraLineStartMarkers != 0 {
+		if start, end := jiraListMarkerPrefix(value); end != 0 {
+			return jiraLineStartClaim{start: start, end: end}, true
+		}
+	}
+	return jiraLineStartClaim{}, false
+}
 
 // jiraRunContext describes the block position of one top-level inline run,
 // which is everything the inline grammar and the verification re-parse need to
@@ -340,15 +365,8 @@ func verifyJiraInlineRun(ctx context.Context, rendered, intended string, inlines
 // first offset inherits the narrower reading its block gives it.
 func jiraLineStartsReadAsText(rendered string, lineStart jiraLineStartRules) bool {
 	for offset := 0; offset < len(rendered); {
-		if lineStart.reads(jiraLineStartMarkers) {
-			if _, markerEnd := jiraListMarkerPrefix(rendered[offset:]); markerEnd != 0 {
-				return false
-			}
-		}
-		if lineStart.reads(jiraLineStartControls) {
-			if _, _, controlEnd := jiraLineControlPrefix(rendered[offset:]); controlEnd != 0 {
-				return false
-			}
+		if _, claimed := lineStart.claim(rendered[offset:]); claimed {
+			return false
 		}
 		newline := strings.IndexByte(rendered[offset:], '\n')
 		if newline < 0 {

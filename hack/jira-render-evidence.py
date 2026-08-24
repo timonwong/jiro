@@ -662,6 +662,14 @@ ROUND13 = [
     "h1.", "* h1.", "* bq.", "h1. y\\\\",
     # --- the dash run draws its rule inside an item too (#122, unimplemented) ---
     "* ---- ", "* ----", "* -----", "* ----x", "* ---- y",
+    # --- a level Jira has none of opens no block: the paragraph and the item
+    #     above it keep the line, while a level it has ends them ---
+    "a\nh10.x", "a\nh10. x", "a\nh0.x", "a\nh7.y", "h10.x\nb",
+    "a\nh1.x", "a\nh1. y", "a\nbq.y",
+    # --- `bq.` is not the only quote an item reads ---
+    "* {quote}y{quote}", "* a\n* {quote}b{quote}",
+    # --- rows the unit tables read, so that every one of them is a render ---
+    "* h1.  \ty", "  h1.x", "h1. ",
 ]
 
 

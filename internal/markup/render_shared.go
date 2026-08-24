@@ -84,16 +84,22 @@ func containsDirectiveAttribute(attributes []directiveAttribute, name string) bo
 }
 
 func inlineEndsAtLineStart(inline semanticInline) bool {
-	switch typed := inline.(type) {
-	case hardBreakInline:
+	if _, hardBreak := inline.(hardBreakInline); hardBreak {
 		return true
-	case textInline:
-		return strings.HasSuffix(typed.Text, "\n")
-	case literalInline:
-		return strings.HasSuffix(typed.Text, "\n")
-	default:
-		return false
 	}
+	return strings.HasSuffix(inlineLiteralText(inline), "\n")
+}
+
+// inlineLiteralText reports the characters an inline writes to the line as
+// themselves, and "" for one that writes markup of its own.
+func inlineLiteralText(inline semanticInline) string {
+	switch typed := inline.(type) {
+	case textInline:
+		return typed.Text
+	case literalInline:
+		return typed.Text
+	}
+	return ""
 }
 
 // listItemLineControl reports the line control a list item leads with, as the
@@ -137,12 +143,8 @@ func inlinesFitOneLine(inlines []semanticInline) bool {
 		switch typed := inline.(type) {
 		case hardBreakInline:
 			return false
-		case textInline:
-			if strings.Contains(typed.Text, "\n") {
-				return false
-			}
-		case literalInline:
-			if strings.Contains(typed.Text, "\n") {
+		case textInline, literalInline:
+			if strings.Contains(inlineLiteralText(inline), "\n") {
 				return false
 			}
 		case styledInline:

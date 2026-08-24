@@ -1,0 +1,10 @@
+-- input.jira --
+* h1. y
+* bq. y
+* z
+-- want.md --
+- # y
+- > y
+- z
+-- warnings.json --
+[]

@@ -412,30 +412,25 @@ func escapeTextForJiraText(ctx context.Context, value string, render jiraInlineR
 				return "", nil, err
 			}
 		}
-		if lineStart.reads(jiraLineStartControls) {
-			if _, _, prefixLength := jiraLineControlPrefix(value[offset:]); prefixLength != 0 {
+		if claim, claimed := lineStart.claim(value[offset:]); claimed {
+			if claim.control {
 				// A character reference is the only way to keep `h1.` and `bq.` off
 				// the line start: Jira does not consume a backslash before `.`, so
 				// `h1\. x` renders with the backslash visible.
-				flush(offset + prefixLength - 1)
+				flush(offset + claim.end - 1)
 				result.WriteString("&#46;")
-				pending, changed = offset+prefixLength, true
-				offset, lineStart = pending, jiraLineStartInline
-				continue
-			}
-		}
-		if lineStart.reads(jiraLineStartMarkers) {
-			if markerStart, markerEnd := jiraListMarkerPrefix(value[offset:]); markerEnd != 0 {
+				pending, changed = offset+claim.end, true
+			} else {
 				// Jira reads the whole marker run as a list, and stops reading one
 				// as soon as the first marker carries a backslash, so the rest of
 				// the run needs nothing beyond what its own byte class asks for.
-				flush(offset + markerStart)
+				flush(offset + claim.start)
 				result.WriteByte('\\')
-				result.WriteByte(value[offset+markerStart])
-				pending, changed = offset+markerStart+1, true
-				offset, lineStart = pending, jiraLineStartInline
-				continue
+				result.WriteByte(value[offset+claim.start])
+				pending, changed = offset+claim.start+1, true
 			}
+			offset, lineStart = pending, jiraLineStartInline
+			continue
 		}
 		character := value[offset]
 		lineStart = jiraLineStartInline
@@ -666,7 +661,9 @@ func renderJiraListSegments(ctx context.Context, state *jiraRenderState, list li
 // other block stays for the caller, which has only the flattening path for it.
 func renderJiraListItemLine(ctx context.Context, state *jiraRenderState, item listItem, marker string) (string, int, error) {
 	if level, quote, inlines, ok := listItemLineControl(item); ok {
-		content, err := renderJiraInlineRun(ctx, state, inlines, jiraRunContext{})
+		// The control's content is no line start of its own: Jira has read the
+		// block by the time it begins, so `* h1. bq. y` keeps the `bq.` as text.
+		content, err := renderJiraInlineRun(ctx, state, inlines, jiraRunContext{lineStart: jiraLineStartInline})
 		if err != nil {
 			return "", 0, err
 		}
