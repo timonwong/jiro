@@ -1,0 +1,12 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Jira ignores the spaces and tabs trailing the dash run, so the item still holds a rule and jiro keeps none of them.
+-- input.jira --
+* ---- 
+-- rendered.html --
+<ul>
+	<li><hr /></li>
+</ul>
+-- want.md --
+- ***
+-- warnings.json --
+[]

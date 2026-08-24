@@ -196,6 +196,12 @@ func TestEscapeTextForJiraTextProtectsLineStarts(t *testing.T) {
 		{name: "indented text", text: " plain", want: " plain"},
 		{name: "marker after a newline", text: "x\n* item", want: "x\n\\* item"},
 		{name: "indented marker after a newline", text: "x\n\t* item", want: "x\n\t\\* item"},
+		{name: "dash rule", text: "----", want: `\----`},
+		{name: "five dash rule", text: "-----", want: `\-----`},
+		{name: "indented dash rule", text: " ----", want: ` \----`},
+		{name: "dash rule after a newline", text: "x\n----", want: "x\n\\----"},
+		{name: "dash run behind a word", text: "x ----", want: "x ----"},
+		{name: "dash run Jira draws no rule for", text: "------", want: "------"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -259,8 +265,10 @@ func TestJiraLineMarkerRunMatchesRenderer(t *testing.T) {
 }
 
 // TestJiraLineThematicBreakMatchesRenderer holds the third line-start rule on
-// the same indent: Jira draws the rule past leading spaces and tabs and ignores
-// the ones trailing it.
+// the same indent: Jira draws the rule past leading spaces and tabs for a run of
+// four or five dashes and ignores the ones trailing it, while a sixth dash and
+// anything else behind the run leave the line its text. Every row is a render
+// captured in round13 or round16 of hack/jira-render-evidence.py.
 func TestJiraLineThematicBreakMatchesRenderer(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
@@ -272,9 +280,14 @@ func TestJiraLineThematicBreakMatchesRenderer(t *testing.T) {
 		{name: "indented rule", line: " ----", want: true},
 		{name: "tab indented rule", line: "\t----", want: true},
 		{name: "trailing space", line: " ---- ", want: true},
+		{name: "trailing tab", line: "----\t", want: true},
+		{name: "five dashes", line: "-----", want: true},
 		{name: "three dashes", line: "---"},
+		{name: "six dashes", line: "------"},
+		{name: "dash behind the run", line: "---- -"},
 		{name: "dash run with an item", line: "---- x"},
 		{name: "text before the rule", line: "x ----"},
+		{name: "rule on a later line", line: "x\n----"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

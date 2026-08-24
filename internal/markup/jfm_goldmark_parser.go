@@ -479,7 +479,8 @@ func adaptGoldmarkList(source []byte, node *ast.List) (listBlock, []conversionDi
 				}
 				item.Blocks = append(item.Blocks, continuation)
 				diagnostics = append(diagnostics, continuationDiagnostics...)
-				if _, _, _, ok := listItemLineControl(item); ok && len(item.Blocks) == 1 {
+				_, _, _, lineControl := listItemLineControl(item)
+				if (lineControl || listItemLineThematicBreak(item)) && len(item.Blocks) == 1 {
 					// Jira reads this block back from the item's content start, so the
 					// item keeps it and nothing is flattened out of the list. Only the
 					// block the item leads with is read there; a second one still has
@@ -661,10 +662,11 @@ func adaptGoldmarkInlines(source []byte, parent ast.Node) ([]semanticInline, []c
 }
 
 // adaptInlineSibling adapts one node of an inline sibling chain and is the only
-// entry point those walks may use. A text node ending in a hard break expands to
-// the text plus the break, a pair adaptGoldmarkInline's single return value
-// cannot express, so a walk calling adaptGoldmarkInline directly drops the text
-// before the break (#109).
+// entry point those walks may use. Two nodes expand to more than one inline, a
+// pair adaptGoldmarkInline's single return value cannot express: a text node
+// ending in a hard break, whose text would otherwise be dropped in front of the
+// break (#109), and inline HTML, which an unclosed opening tag leaves as the
+// literal tag followed by everything the tag was never closed around (#118).
 func adaptInlineSibling(source []byte, node ast.Node) ([]semanticInline, []conversionDiagnostic, ast.Node, error) {
 	if textNode, isText := node.(*ast.Text); isText && textNode.HardLineBreak() {
 		span := sourceSpan{Start: textNode.Segment.Start, End: textNode.Segment.Stop}
@@ -673,6 +675,9 @@ func adaptInlineSibling(source []byte, node ast.Node) ([]semanticInline, []conve
 			inlines = append(inlines, textInline{Span: span, Text: string(value)})
 		}
 		return append(inlines, hardBreakInline{Span: span}), nil, node.NextSibling(), nil
+	}
+	if rawHTML, isHTML := node.(*ast.RawHTML); isHTML {
+		return adaptControlledHTML(source, rawHTML)
 	}
 	inline, diagnostics, next, err := adaptGoldmarkInline(source, node)
 	if err != nil {
@@ -757,8 +762,6 @@ func adaptGoldmarkInline(source []byte, node ast.Node) (semanticInline, []conver
 			diagnostics = append(diagnostics, conversionDiagnostic{offset: constructStart, warning: ConversionWarning{Construct: ConstructImage, Reason: "dangerous destination scheme remains reversible through Jira Markup"}})
 		}
 		return imageInline{Span: inlineNodeSpan(typed), Alt: alt, Source: target, Attributes: attributes, Directive: directive || dangerous, Dangerous: dangerous}, diagnostics, next, nil
-	case *ast.RawHTML:
-		return adaptControlledHTML(source, typed)
 	case *jfmInlineDirective:
 		return adaptInlineDirective(source, typed, next)
 	default:
@@ -895,27 +898,28 @@ var controlledTagPattern = regexp.MustCompile(`(?i)^<\s*(ins|sup|sub)\s*>$`)
 var controlledFontPattern = regexp.MustCompile(`(?i)^<\s*font\s+color\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>` + "`" + `]+))\s*>$`)
 var genericOpeningTagPattern = regexp.MustCompile(`(?i)^<\s*([A-Za-z][A-Za-z0-9-]*)(?:\s[^>]*)?>$`)
 
-func adaptControlledHTML(source []byte, opening *ast.RawHTML) (semanticInline, []conversionDiagnostic, ast.Node, error) {
+func adaptControlledHTML(source []byte, opening *ast.RawHTML) ([]semanticInline, []conversionDiagnostic, ast.Node, error) {
 	raw := string(opening.Segments.Value(source))
 	tag, color, ok := parseControlledOpeningTag(raw)
 	if !ok {
 		span := rawHTMLSpan(opening)
+		unsupported := []conversionDiagnostic{{offset: span.Start, warning: ConversionWarning{Construct: ConstructHTML, Reason: "unsupported or malformed inline HTML remains literal"}}}
 		if match := genericOpeningTagPattern.FindStringSubmatch(raw); match != nil {
 			for sibling := opening.NextSibling(); sibling != nil; sibling = sibling.NextSibling() {
 				if closing, isHTML := sibling.(*ast.RawHTML); isHTML && isControlledClosingTag(string(closing.Segments.Value(source)), strings.ToLower(match[1])) {
 					complete := sourceSpan{Start: span.Start, End: rawHTMLSpan(closing).End}
-					return literalInline{Span: complete, Text: string(source[complete.Start:complete.End])}, []conversionDiagnostic{{offset: span.Start, warning: ConversionWarning{Construct: ConstructHTML, Reason: "unsupported or malformed inline HTML remains literal"}}}, closing.NextSibling(), nil
+					return literalSourceInlines(source, complete, opening.NextSibling(), closing), unsupported, closing.NextSibling(), nil
 				}
 			}
 		}
-		return literalInline{Span: span, Text: raw}, []conversionDiagnostic{{offset: span.Start, warning: ConversionWarning{Construct: ConstructHTML, Reason: "unsupported or malformed inline HTML remains literal"}}}, opening.NextSibling(), nil
+		return []semanticInline{literalInline{Span: span, Text: raw}}, unsupported, opening.NextSibling(), nil
 	}
 	children := make([]semanticInline, 0)
 	diagnostics := make([]conversionDiagnostic, 0)
 	for sibling := opening.NextSibling(); sibling != nil; sibling = sibling.NextSibling() {
 		if closing, isHTML := sibling.(*ast.RawHTML); isHTML && isControlledClosingTag(string(closing.Segments.Value(source)), tag) {
 			span := sourceSpan{Start: rawHTMLSpan(opening).Start, End: rawHTMLSpan(closing).End}
-			return styledInline{Span: span, Style: controlledStyle(tag), Value: color, Children: children}, diagnostics, closing.NextSibling(), nil
+			return []semanticInline{styledInline{Span: span, Style: controlledStyle(tag), Value: color, Children: children}}, diagnostics, closing.NextSibling(), nil
 		}
 		adapted, childDiagnostics, next, err := adaptInlineSibling(source, sibling)
 		if err != nil {
@@ -928,8 +932,62 @@ func adaptControlledHTML(source []byte, opening *ast.RawHTML) (semanticInline, [
 		}
 		sibling = next.PreviousSibling()
 	}
+	// The scan above adapted every sibling the closing tag never came for, so
+	// the opening tag goes out as the literal text the warning promises and the
+	// children go out behind it. Dropping them would lose input the warning
+	// never mentions (#118), and there is nothing left to hand back to the walk.
 	span := rawHTMLSpan(opening)
-	return literalInline{Span: span, Text: raw}, append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructHTML, Reason: "unclosed controlled HTML remains literal"}}), nil, nil
+	inlines := append([]semanticInline{literalInline{Span: span, Text: raw}}, children...)
+	return inlines, append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructHTML, Reason: "unclosed controlled HTML remains literal"}}), nil, nil
+}
+
+// literalSourceInlines keeps one span of JFM source as the literal text it was
+// authored as, with the hard breaks inside it lifted out. A hard break is the
+// one thing the source bytes cannot carry through: the `\` in front of the
+// newline is JFM syntax and no character of the text, so written as authored it
+// reaches Jira as a backslash Jira shows in front of an ordinary line break and
+// comes back as that backslash and a space instead of the break (#119). Lifted
+// out, the writer spells it as Jira's forced newline, which reads back as the
+// break it was.
+func literalSourceInlines(source []byte, span sourceSpan, first, limit ast.Node) []semanticInline {
+	inlines := make([]semanticInline, 0, 1)
+	cursor := span.Start
+	for _, offset := range inlineHardBreakOffsets(first, limit) {
+		newline := bytes.IndexByte(source[offset:span.End], '\n')
+		if offset < cursor || newline < 0 {
+			continue
+		}
+		if offset > cursor {
+			inlines = append(inlines, literalInline{Span: sourceSpan{Start: cursor, End: offset}, Text: string(source[cursor:offset])})
+		}
+		cursor = offset + newline + 1
+		inlines = append(inlines, hardBreakInline{Span: sourceSpan{Start: offset, End: cursor}})
+	}
+	if cursor < span.End {
+		inlines = append(inlines, literalInline{Span: sourceSpan{Start: cursor, End: span.End}, Text: string(source[cursor:span.End])})
+	}
+	return inlines
+}
+
+// inlineHardBreakOffsets reports where each hard break begins in the sibling
+// chain that runs from first up to but not including limit, descendants
+// included, in source order. A break begins where the text before it stops,
+// which is the first byte of the `\` or the two spaces that spell it.
+func inlineHardBreakOffsets(first, limit ast.Node) []int {
+	offsets := []int(nil)
+	var visit func(ast.Node)
+	visit = func(node ast.Node) {
+		if text, isText := node.(*ast.Text); isText && text.HardLineBreak() {
+			offsets = append(offsets, text.Segment.Stop)
+		}
+		for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+			visit(child)
+		}
+	}
+	for sibling := first; sibling != nil && sibling != limit; sibling = sibling.NextSibling() {
+		visit(sibling)
+	}
+	return offsets
 }
 
 func parseControlledOpeningTag(raw string) (tag, color string, ok bool) {

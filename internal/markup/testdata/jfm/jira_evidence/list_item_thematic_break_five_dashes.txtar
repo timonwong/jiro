@@ -1,0 +1,12 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A fifth dash still draws the rule inside the item, so jiro reads a run of four or five dashes as one.
+-- input.jira --
+* -----
+-- rendered.html --
+<ul>
+	<li><hr /></li>
+</ul>
+-- want.md --
+- ***
+-- warnings.json --
+[]

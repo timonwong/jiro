@@ -66,15 +66,26 @@ func jiraLineMalformedHeadingPrefix(line string) bool {
 	return true
 }
 
-// jiraLineThematicBreak reports whether Jira draws a horizontal rule for the
-// line. Jira reads the four dashes past the indent and ignores the spaces and
-// tabs that trail them.
+// jiraLineThematicBreak reports whether Jira draws a horizontal rule at the
+// start of line, which is every line start Jira has: `* ----` draws the rule
+// inside the item as `----` draws it in a paragraph. Jira reads a run of four
+// or five dashes past the indent and ignores the spaces and tabs that trail
+// them, while a sixth dash or anything else behind the run is text. The scan
+// stops at the first line ending so that a caller holding more than one line
+// asks about the one it stands at.
 func jiraLineThematicBreak(line string) bool {
+	if end := strings.IndexAny(line, "\r\n"); end >= 0 {
+		line = line[:end]
+	}
 	rest := line[jiraLineIndentLength(line):]
-	if !strings.HasPrefix(rest, "----") {
+	dashes := 0
+	for dashes < len(rest) && rest[dashes] == '-' {
+		dashes++
+	}
+	if dashes < 4 || dashes > 5 {
 		return false
 	}
-	return strings.TrimRight(rest[len("----"):], " \t") == ""
+	return strings.TrimRight(rest[dashes:], " \t") == ""
 }
 
 // jiraLineMarkerRun reports the marker run Jira reads at a line start and the

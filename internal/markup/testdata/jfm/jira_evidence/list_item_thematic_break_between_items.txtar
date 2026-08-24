@@ -1,0 +1,18 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: The rule is one item of the list Jira keeps open, so jiro writes three items and the list survives the line.
+-- input.jira --
+* a
+* ----
+* b
+-- rendered.html --
+<ul>
+	<li>a</li>
+	<li><hr /></li>
+	<li>b</li>
+</ul>
+-- want.md --
+- a
+- ***
+- b
+-- warnings.json --
+[]

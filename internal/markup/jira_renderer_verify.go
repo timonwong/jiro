@@ -49,23 +49,25 @@ type jiraRenderState struct {
 // jiraLineStartRules names the line-start rules that re-form where a rendered
 // run begins, which is not the same set everywhere. A paragraph and a table
 // cell begin where Jira reads every rule, while a list item's content begins
-// where Jira reads its line controls and no list marker: `* * y` is the item
-// text `* y`, so a marker written there needs no protection and escaping one
-// would only show the backslash.
+// where Jira reads its line controls and its dash rule and no list marker:
+// `* * y` is the item text `* y`, so a marker written there needs no protection
+// and escaping one would only show the backslash, while `* ----` draws the rule
+// inside the item exactly as `----` draws it in a paragraph.
 type jiraLineStartRules uint8
 
 const (
 	jiraLineStartInline      jiraLineStartRules = 0
 	jiraLineStartControls    jiraLineStartRules = 1 << 0
 	jiraLineStartMarkers     jiraLineStartRules = 1 << 1
-	jiraLineStartEveryRule                      = jiraLineStartControls | jiraLineStartMarkers
-	jiraLineStartItemContent                    = jiraLineStartControls
+	jiraLineStartBreaks      jiraLineStartRules = 1 << 2
+	jiraLineStartEveryRule                      = jiraLineStartControls | jiraLineStartMarkers | jiraLineStartBreaks
+	jiraLineStartItemContent                    = jiraLineStartControls | jiraLineStartBreaks
 )
 
 // jiraLineStartClaim is the block Jira opens at one line start under one set of
 // rules. control tells the two apart because they are kept off the line in
 // different ways: a line control's `.` is spelled `&#46;`, while a marker run
-// takes a backslash before the marker at start.
+// and a dash rule take a backslash before the character at start.
 type jiraLineStartClaim struct {
 	start   int
 	end     int
@@ -85,6 +87,13 @@ func (rules jiraLineStartRules) claim(value string) (jiraLineStartClaim, bool) {
 		if start, end := jiraListMarkerPrefix(value); end != 0 {
 			return jiraLineStartClaim{start: start, end: end}, true
 		}
+	}
+	if rules&jiraLineStartBreaks != 0 && jiraLineThematicBreak(value) {
+		// One backslash is enough, whatever the run's length: Jira consumes it and
+		// reads no rule behind the dash it leaves, so `\----` and `\-----` render
+		// their dashes as text.
+		start := jiraLineIndentLength(value)
+		return jiraLineStartClaim{start: start, end: start + 1}, true
 	}
 	return jiraLineStartClaim{}, false
 }

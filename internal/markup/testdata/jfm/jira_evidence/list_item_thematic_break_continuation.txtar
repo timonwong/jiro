@@ -1,0 +1,23 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: The rule takes its own line and the line below it is a block of its own inside the item, which a JFM item holding a rule has nowhere to put, so the block follows the list and jiro warns -- the reading a line control already gets there.
+-- input.jira --
+* ----
+b
+-- rendered.html --
+<ul>
+	<li><hr />
+<p>b</p></li>
+</ul>
+-- want.md --
+- ***
+
+b
+-- warnings.json --
+[
+  {
+    "Line": 2,
+    "Column": 1,
+    "Construct": "list",
+    "Reason": "Jira keeps this line inside the list item above it; a JFM item holds nothing after its horizontal rule, so the line follows the list"
+  }
+]

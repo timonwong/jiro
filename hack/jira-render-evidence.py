@@ -8,7 +8,7 @@ Equivalent single-case curl:
     -H 'Content-Type: application/json' -H 'X-Atlassian-Token: no-check' \
     -d '{"rendererType":"atlassian-wiki-renderer","unrenderedMarkup":"{{*bold*}}"}'
 
-Usage: python3 hack/jira-render-evidence.py [round1|...|round15|all] [--json]   (default: all)
+Usage: python3 hack/jira-render-evidence.py [round1|...|round16|all] [--json]   (default: all)
 
 --json prints one {"in": ..., "out": ...} object per line so captures can be
 turned into evidence fixtures without reparsing the human-readable output.
@@ -752,6 +752,27 @@ ROUND15 = [
 ]
 
 
+# The `* ----`, `* ---- `, `* -----`, `* ----x` and `* ---- y` renders the dash
+# rule inside a list item was found in are ROUND13's, and the archives built from
+# them cite that round rather than repeat the probe here.
+ROUND16 = [
+    # --- a lone backslash at the end of a line is no forced newline: Jira
+    #     shows it and breaks the line as it breaks any other (#119) ---
+    "a\\\nb", "a\\", "a&#92;\nb",
+    # --- the dash rule draws at every line start, under every marker and at
+    #     every depth, and the item it draws in stays one item of the list ---
+    "** ----", "# ----", "* a\n* ----\n* b", "* a\n* ----", "* ----\n** b",
+    "|----|", "||h||\n|----|",
+    # --- the line the rule leaves behind is a block of its own inside the item,
+    #     the reading a line control already gets there ---
+    "* ----\nb",
+    # --- how long the run may be: four or five dashes, and no more ---
+    "-----", "------", "* ------", "---- -", "* ---- -", "* ---", "----\t",
+    # --- and one backslash keeps every one of them off the line start ---
+    "\\----", "* \\----", "* \\---", "* \\----x", "||h||\n|\\----|",
+]
+
+
 def render(markup, timeout=30):
     body = json.dumps({"rendererType": "atlassian-wiki-renderer",
                        "unrenderedMarkup": markup}).encode()
@@ -792,7 +813,7 @@ if __name__ == "__main__":
           "round5": ROUND5, "round6": ROUND6, "round7": ROUND7, "round8": ROUND8,
           "round9": ROUND9, "round10": ROUND10, "round11": ROUND11,
           "round12": ROUND12, "round13": ROUND13,
-          "round14": ROUND14, "round15": ROUND15,
+          "round14": ROUND14, "round15": ROUND15, "round16": ROUND16,
           "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5 + ROUND6 + ROUND7
                  + ROUND8 + ROUND9 + ROUND10 + ROUND11 + ROUND12
-                 + ROUND13 + ROUND14 + ROUND15}[which], as_json=as_json)
+                 + ROUND13 + ROUND14 + ROUND15 + ROUND16}[which], as_json=as_json)

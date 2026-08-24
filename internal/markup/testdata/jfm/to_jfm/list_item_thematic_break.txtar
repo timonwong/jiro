@@ -1,0 +1,12 @@
+-- input.jira --
+# ----
+
+* a
+** ----
+-- want.md --
+1. ***
+
+- a
+    - ***
+-- warnings.json --
+[]

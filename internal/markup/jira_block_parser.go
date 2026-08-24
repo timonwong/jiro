@@ -172,7 +172,13 @@ func parseJiraLists(ctx context.Context, source string, lines []sourceLine, star
 		}
 		item := listItem{Span: sourceSpan{Start: line.Start, End: line.End}}
 		index++
-		if level, quote, controlEnd := jiraLineControlPrefix(line.Text[contentStart:]); controlEnd != 0 {
+		if jiraLineThematicBreak(line.Text[contentStart:]) {
+			// Jira reads its dash rule at every item's content start and draws the
+			// rule inside the item, on that line and no more, exactly as it reads a
+			// line control there.
+			item.Blocks = append(item.Blocks, thematicBreakBlock{Span: sourceSpan{Start: line.Start + contentStart, End: line.End}})
+			diagnostics = append(diagnostics, jiraItemLineBlockContinuation(lines, index, "horizontal rule")...)
+		} else if level, quote, controlEnd := jiraLineControlPrefix(line.Text[contentStart:]); controlEnd != 0 {
 			// Jira reads its line controls at every item's content start and renders
 			// the block inside the item. The control takes its own line and no more:
 			// the lines below it that Jira keeps in the item are blocks of their own
@@ -185,12 +191,7 @@ func parseJiraLists(ctx context.Context, source string, lines []sourceLine, star
 			}
 			item.Blocks = append(item.Blocks, block)
 			diagnostics = append(diagnostics, controlDiagnostics...)
-			if index < len(lines) && jiraListItemContinues(lines[index].Text) {
-				diagnostics = append(diagnostics, conversionDiagnostic{offset: lines[index].Start, warning: ConversionWarning{
-					Construct: ConstructList,
-					Reason:    "Jira keeps this line inside the list item above it; a JFM item holds nothing after its line control, so the line follows the list",
-				}})
-			}
+			diagnostics = append(diagnostics, jiraItemLineBlockContinuation(lines, index, "line control")...)
 		} else {
 			continuation := index
 			for continuation < len(lines) && jiraListItemContinues(lines[continuation].Text) {
@@ -213,6 +214,22 @@ func parseJiraLists(ctx context.Context, source string, lines []sourceLine, star
 	}
 	closeTo(0)
 	return blocks, index, diagnostics, nil
+}
+
+// jiraItemLineBlockContinuation reports the diagnostic the line at index owes
+// the reader when the item above it leads with a block written on the item's own
+// line. Jira keeps that line inside the item and renders it as a block of its
+// own, which a JFM item holding a line control or a rule has nowhere to put, so
+// the line follows the list instead. blockName names the block already on the
+// item line, and the two warnings differ in nothing else.
+func jiraItemLineBlockContinuation(lines []sourceLine, index int, blockName string) []conversionDiagnostic {
+	if index >= len(lines) || !jiraListItemContinues(lines[index].Text) {
+		return nil
+	}
+	return []conversionDiagnostic{{offset: lines[index].Start, warning: ConversionWarning{
+		Construct: ConstructList,
+		Reason:    "Jira keeps this line inside the list item above it; a JFM item holds nothing after its " + blockName + ", so the line follows the list",
+	}}}
 }
 
 // jiraListItemContinues reports whether the line is one Jira keeps inside the
