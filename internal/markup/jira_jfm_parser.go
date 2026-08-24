@@ -6,11 +6,15 @@ import (
 )
 
 func parseJiraMarkup(ctx context.Context, source string) (semanticDocument, []conversionDiagnostic, error) {
-	return parseJiraMarkupAtQuoteDepth(ctx, source, 0)
+	return parseJiraMarkupAtQuoteDepth(ctx, source, 0, len(source), 0)
 }
 
-func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, quoteDepth int) (semanticDocument, []conversionDiagnostic, error) {
-	lines, err := splitSourceLinesWithContext(ctx, source)
+// parseJiraMarkupAtQuoteDepth reads source[start:end] as Jira Markup. source is
+// always the whole document and the range is the part being read, so a macro
+// body reaches the parser as a range of the document it came from and every
+// span and diagnostic offset it produces is already a document offset.
+func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, start, end, quoteDepth int) (semanticDocument, []conversionDiagnostic, error) {
+	lines, err := splitSourceLinesWithContext(ctx, source, start, end)
 	if err != nil {
 		return semanticDocument{}, nil, err
 	}
@@ -107,7 +111,7 @@ func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, quoteDepth 
 			continue
 		}
 
-		start := index
+		paragraphStart := index
 		var raw strings.Builder
 		for index < len(lines) && lines[index].Text != "" && !isJiraBlockStart(lines[index].Text) {
 			if raw.Len() != 0 {
@@ -116,20 +120,23 @@ func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, quoteDepth 
 			raw.WriteString(lines[index].Text)
 			index++
 		}
-		end := lines[index-1].End
+		paragraphEnd := lines[index-1].End
+		// Joining the lines is the only span the inline parser can read a
+		// multi-line paragraph from, so its positions are offsets into that
+		// synthesized string and have to be rebased onto the document.
 		inlines, inlineDiagnostics, err := parseJiraInlines(ctx, raw.String(), 0, raw.Len(), jiraLineDomain{End: raw.Len()})
 		if err != nil {
 			return semanticDocument{}, nil, err
 		}
 		for inlineIndex, inline := range inlines {
-			inlines[inlineIndex] = shiftSemanticInline(inline, lines[start].Start)
+			inlines[inlineIndex] = shiftSemanticInline(inline, lines[paragraphStart].Start)
 		}
 		for diagnosticIndex := range inlineDiagnostics {
-			inlineDiagnostics[diagnosticIndex].offset += lines[start].Start
+			inlineDiagnostics[diagnosticIndex].offset += lines[paragraphStart].Start
 		}
 		diagnostics = append(diagnostics, inlineDiagnostics...)
 		document.Blocks = append(document.Blocks, paragraphBlock{
-			Span:    sourceSpan{Start: lines[start].Start, End: end},
+			Span:    sourceSpan{Start: lines[paragraphStart].Start, End: paragraphEnd},
 			Inlines: inlines,
 		})
 	}
@@ -144,40 +151,44 @@ type sourceLine struct {
 }
 
 func splitSourceLines(source string) []sourceLine {
-	lines, _ := splitSourceLinesWithContext(context.Background(), source)
+	lines, _ := splitSourceLinesWithContext(context.Background(), source, 0, len(source))
 	return lines
 }
 
-func splitSourceLinesWithContext(ctx context.Context, source string) ([]sourceLine, error) {
-	if source == "" {
+// splitSourceLinesWithContext splits source[start:end] into lines whose offsets
+// are offsets into source. The range is the only bound the split honours: a line
+// that runs to end takes no EOL, so a macro body never reads the delimiter line
+// that follows it.
+func splitSourceLinesWithContext(ctx context.Context, source string, start, end int) ([]sourceLine, error) {
+	if start >= end {
 		return nil, ctx.Err()
 	}
-	lines := make([]sourceLine, 0, strings.Count(source, "\n")+1)
-	for start := 0; start < len(source); {
-		if start&255 == 0 {
+	lines := make([]sourceLine, 0, strings.Count(source[start:end], "\n")+1)
+	for lineStart := start; lineStart < end; {
+		if (lineStart-start)&255 == 0 {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
 		}
-		end := start
-		for end < len(source) && source[end] != '\r' && source[end] != '\n' {
-			if end&255 == 0 {
+		lineEnd := lineStart
+		for lineEnd < end && source[lineEnd] != '\r' && source[lineEnd] != '\n' {
+			if (lineEnd-start)&255 == 0 {
 				if err := ctx.Err(); err != nil {
 					return nil, err
 				}
 			}
-			end++
+			lineEnd++
 		}
-		eolEnd := end
-		if eolEnd < len(source) {
-			if source[eolEnd] == '\r' && eolEnd+1 < len(source) && source[eolEnd+1] == '\n' {
+		eolEnd := lineEnd
+		if eolEnd < end {
+			if source[eolEnd] == '\r' && eolEnd+1 < end && source[eolEnd+1] == '\n' {
 				eolEnd += 2
 			} else {
 				eolEnd++
 			}
 		}
-		lines = append(lines, sourceLine{Start: start, End: end, Text: source[start:end], EOL: source[end:eolEnd]})
-		start = eolEnd
+		lines = append(lines, sourceLine{Start: lineStart, End: lineEnd, Text: source[lineStart:lineEnd], EOL: source[lineEnd:eolEnd]})
+		lineStart = eolEnd
 	}
 	return lines, ctx.Err()
 }

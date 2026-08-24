@@ -59,15 +59,9 @@ func parseUnsupportedJiraBlockMacro(ctx context.Context, source string, lines []
 	}
 	bodyStart := lines[start].End + len(lines[start].EOL)
 	bodyEnd := lines[closeIndex].Start
-	bodyDocument, bodyDiagnostics, err := parseJiraMarkupAtQuoteDepth(ctx, source[bodyStart:bodyEnd], quoteDepth)
+	bodyDocument, bodyDiagnostics, err := parseJiraMarkupAtQuoteDepth(ctx, source, bodyStart, bodyEnd, quoteDepth)
 	if err != nil {
 		return jiraMacroParseResult{Err: err}, true
-	}
-	for blockIndex, block := range bodyDocument.Blocks {
-		bodyDocument.Blocks[blockIndex] = shiftSemanticBlock(block, bodyStart)
-	}
-	for diagnosticIndex := range bodyDiagnostics {
-		bodyDiagnostics[diagnosticIndex].offset += bodyStart
 	}
 	bodyDiagnostics = append([]conversionDiagnostic{{offset: lines[start].Start, warning: ConversionWarning{
 		Construct: ConstructJiraMacro,
@@ -445,28 +439,16 @@ func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine,
 				}}},
 			}, true
 		}
-		bodyDocument, diagnostics, err := parseJiraMarkupAtQuoteDepth(ctx, source[bodyStart:bodyEnd], quoteDepth+1)
+		bodyDocument, diagnostics, err := parseJiraMarkupAtQuoteDepth(ctx, source, bodyStart, bodyEnd, quoteDepth+1)
 		if err != nil {
 			return jiraMacroParseResult{Err: err}, true
-		}
-		for blockIndex, block := range bodyDocument.Blocks {
-			bodyDocument.Blocks[blockIndex] = shiftSemanticBlock(block, bodyStart)
-		}
-		for diagnosticIndex := range diagnostics {
-			diagnostics[diagnosticIndex].offset += bodyStart
 		}
 		return jiraMacroParseResult{Block: quoteBlock{Span: span, Blocks: bodyDocument.Blocks}, Next: closeIndex + 1, Diagnostics: diagnostics}, true
 	}
 	if name == "panel" {
-		bodyDocument, bodyDiagnostics, err := parseJiraMarkupAtQuoteDepth(ctx, source[bodyStart:bodyEnd], quoteDepth)
+		bodyDocument, bodyDiagnostics, err := parseJiraMarkupAtQuoteDepth(ctx, source, bodyStart, bodyEnd, quoteDepth)
 		if err != nil {
 			return jiraMacroParseResult{Err: err}, true
-		}
-		for blockIndex, block := range bodyDocument.Blocks {
-			bodyDocument.Blocks[blockIndex] = shiftSemanticBlock(block, bodyStart)
-		}
-		for diagnosticIndex := range bodyDiagnostics {
-			bodyDiagnostics[diagnosticIndex].offset += bodyStart
 		}
 		attributes, err := parseJiraNamedAttributes(ctx, opening, "panel", lines[start].Start)
 		if err != nil {
@@ -665,78 +647,6 @@ func validDirectiveAttributeName(name string) bool {
 		}
 	}
 	return true
-}
-
-func shiftSemanticBlock(block semanticBlock, delta int) semanticBlock {
-	switch typed := block.(type) {
-	case paragraphBlock:
-		typed.Span.Start += delta
-		typed.Span.End += delta
-		for index, inline := range typed.Inlines {
-			typed.Inlines[index] = shiftSemanticInline(inline, delta)
-		}
-		return typed
-	case headingBlock:
-		typed.Span.Start += delta
-		typed.Span.End += delta
-		for index, inline := range typed.Inlines {
-			typed.Inlines[index] = shiftSemanticInline(inline, delta)
-		}
-		return typed
-	case thematicBreakBlock:
-		typed.Span.Start += delta
-		typed.Span.End += delta
-		return typed
-	case quoteBlock:
-		typed.Span.Start += delta
-		typed.Span.End += delta
-		for blockIndex, block := range typed.Blocks {
-			typed.Blocks[blockIndex] = shiftSemanticBlock(block, delta)
-		}
-		return typed
-	case listBlock:
-		typed.Span.Start += delta
-		typed.Span.End += delta
-		for itemIndex := range typed.Items {
-			typed.Items[itemIndex].Span.Start += delta
-			typed.Items[itemIndex].Span.End += delta
-			for inlineIndex, inline := range typed.Items[itemIndex].Inlines {
-				typed.Items[itemIndex].Inlines[inlineIndex] = shiftSemanticInline(inline, delta)
-			}
-			for blockIndex, block := range typed.Items[itemIndex].Blocks {
-				typed.Items[itemIndex].Blocks[blockIndex] = shiftSemanticBlock(block, delta)
-			}
-		}
-		return typed
-	case tableBlock:
-		typed.Span.Start += delta
-		typed.Span.End += delta
-		return typed
-	case codeBlock:
-		typed.Span.Start += delta
-		typed.Span.End += delta
-		return typed
-	case panelBlock:
-		typed.Span.Start += delta
-		typed.Span.End += delta
-		for index, child := range typed.Blocks {
-			typed.Blocks[index] = shiftSemanticBlock(child, delta)
-		}
-		return typed
-	case unsupportedMacroBlock:
-		typed.Span.Start += delta
-		typed.Span.End += delta
-		for index, child := range typed.Blocks {
-			typed.Blocks[index] = shiftSemanticBlock(child, delta)
-		}
-		return typed
-	case literalBlock:
-		typed.Span.Start += delta
-		typed.Span.End += delta
-		return typed
-	default:
-		return block
-	}
 }
 
 var codeLanguageAliases = map[string]string{
