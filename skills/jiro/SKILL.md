@@ -26,7 +26,7 @@ Load each conditional branch before using it:
 - For a single or bulk Issue Type change, read [Issue Type changes](references/issue-types.md).
 - For `issue clone SOURCE`, read [Issue Clone workflow](references/issue-clone.md) before mutation.
 - For Board or Sprint discovery, or any `--sprint` selector, read [Boards and Sprints](references/agile.md).
-- For JFM authoring, conversion, any Description or Comment body input, reuse of typed Issue or Comment text, or `jfm_conversion` warnings, read [JFM workflows](references/jfm.md). Standalone `jiro jfm` conversion is offline and skips the Jira mutation loop.
+- For JFM authoring, conversion, any Description or Comment body input, or `jfm_conversion` warnings, read [JFM workflows](references/jfm.md). Standalone `jiro jfm` conversion is offline and skips the Jira mutation loop.
 - For any `issue bulk` operation, read [Bulk workflows](references/bulk.md) before dry-run.
 - When the required operation is unavailable in typed commands (confirmed by `schema` and `--help`), read [REST API fallback](references/rest-api-fallback.md).
 
@@ -76,7 +76,7 @@ jiro issue assign OPS-42 --assignee none --output=json
 jiro issue link add OPS-42 --to OPS-99 --type Blocks --output=json
 ```
 
-`issue move` sends its transition, Comment, Resolution, and Custom Fields in one Jira transition request; it does not fall back to a later Comment request. Delete an Issue Link by its Jira Link ID.
+`issue move` sends its transition, Comment, Resolution, and Custom Fields in one Jira transition request. Delete an Issue Link by its Jira Link ID.
 
 Preserve partial results. A failed follow-up operation can leave a newly created Issue or ordinary update fields in Jira; retain the returned Issue Key and every confirmed update when reporting the failure.
 

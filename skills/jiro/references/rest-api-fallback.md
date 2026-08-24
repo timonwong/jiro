@@ -1,6 +1,6 @@
 # REST API fallback
 
-Use `jiro api` as a bounded escape hatch only after the current schema and relevant typed-command help prove that jiro lacks the required operation. State that this branch returns Jira's raw, version-dependent response rather than jiro's normalized contract.
+Use `jiro api` as a bounded escape hatch only after the current schema and relevant typed-command help prove that jiro lacks the required operation. This branch returns Jira's raw, version-dependent response, not jiro's normalized contract.
 
 ## Establish the request
 
@@ -13,6 +13,6 @@ Use `jiro api` as a bounded escape hatch only after the current schema and relev
 
 Treat the response status and body as evidence, not as a stable jiro envelope. Stop and report the verified boundary when the endpoint, authentication path, required metadata, or final state cannot be established.
 
-Keep Credentials in their provided environment source; leave jiro's TOML and OS keyring untouched. Keep the workflow jiro-first and REST-second rather than switching to another Jira CLI or browser UI.
+Keep Credentials in their provided environment source; leave jiro's TOML and OS keyring untouched. Keep the workflow jiro-first and REST-second.
 
 Complete this branch only when the requested Jira state is visible in a REST readback or the verified boundary has been reported.
