@@ -1,5 +1,5 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
-observed: A title ending in a backslash still forms a link when one space follows it, because the refusal that reads a body ending in a backslash no longer fires and the trim removes the space again; this is how jiro writes such a title.
+observed: A title ending in a backslash still forms a link when one space follows it, and the trim removes that space again, so the rendered title ends in the backslash; this is how jiro writes such a title.
 -- input.jira --
 [x|http://x|t\ ]
 -- rendered.html --

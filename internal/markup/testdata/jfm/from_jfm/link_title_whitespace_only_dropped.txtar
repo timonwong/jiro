@@ -4,5 +4,5 @@
 [x|http://x]
 -- warnings.json --
 [
-  {"Line":1,"Column":1,"Construct":"link","Reason":"surrounding whitespace in link title was removed; Jira trims every title it reads"}
+  {"Line":1,"Column":1,"Construct":"link","Reason":"link title was dropped; Jira reads a title of only whitespace as no title"}
 ]

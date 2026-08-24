@@ -1,5 +1,5 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
-observed: The refusal that reads a bracket body ending in a backslash covers the title too: Jira renders the markup as text.
+observed: A bracket body whose title ends in a backslash renders no link at all; Jira shows the markup as text and the backslash itself is gone.
 -- input.jira --
 [x|http://x|t\]
 -- rendered.html --

@@ -219,17 +219,15 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 			if err != nil {
 				return jiraInlineOutput{}, err
 			}
+			// `[target]` has no third part, so a title is what makes a link take
+			// the named spelling; an unnamed link that keeps one writes its target
+			// as the visible text, which is what its label already holds.
 			title := spellJiraLinkTitle(typed.Title).Text
 			switch {
 			case title == "" && typed.Unnamed:
 				write("["+target+"]", false, false)
 			case title == "":
 				writeNested("[", label, "|"+target+"]")
-			case typed.Unnamed:
-				// `[target]` has no third part, so the title is what makes an
-				// unnamed link take the named spelling; Jira shows the target as
-				// the visible text either way.
-				write("["+target+"|"+target+"|"+title+"]", false, false)
 			default:
 				writeNested("[", label, "|"+target+"|"+title+"]")
 			}

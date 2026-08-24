@@ -993,26 +993,21 @@ func adaptInlineDirective(source []byte, node *jfmInlineDirective, next ast.Node
 	}
 	switch strings.ToLower(node.Name) {
 	case "link":
-		// `target` and `title` are the directive's whole attribute grammar, and it
-		// has no location for anything else: an unknown name, a second spelling of
-		// either, and a value-less one all leave the complete directive literal
-		// rather than render a link jiro read only half of. The loop is kept
-		// hand-rolled because that answer is the opposite of what the shared
-		// schema validator does with an unknown attribute, which is preserve it.
+		// An unknown name, a second spelling of a known one, and a value-less
+		// attribute each leave the complete directive literal rather than render a
+		// link jiro read only half of. The walk is kept here rather than in
+		// validateDirectiveAttributes because that answer is the opposite of the
+		// shared validator's, which preserves an unknown attribute; only the
+		// canonical spellings come from the schema.
 		values := map[string]string{}
 		for _, attribute := range attributes {
-			name := ""
-			for _, known := range []string{"target", "title"} {
-				if strings.EqualFold(attribute.Name, known) {
-					name = known
-				}
-			}
-			if _, duplicate := values[name]; name == "" || duplicate {
+			name, known := linkDirectiveAttributeSchema.canonicalName(attribute.Name)
+			if _, duplicate := values[name]; !known || duplicate {
 				diagnostics = append(diagnostics, conversionDiagnostic{offset: attribute.Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "link directive has an unknown or duplicate attribute"}})
 				return literalInline{Span: span, Text: raw}, diagnostics, next, nil
 			}
 			if attribute.Bare {
-				diagnostics = append(diagnostics, conversionDiagnostic{offset: attribute.Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "link directive " + name + " requires a value"}})
+				diagnostics = append(diagnostics, conversionDiagnostic{offset: attribute.Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: linkDirectiveValueRequired[name]}})
 				return literalInline{Span: span, Text: raw}, diagnostics, next, nil
 			}
 			values[name] = attribute.Value

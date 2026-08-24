@@ -315,21 +315,42 @@ func collectRenderLossDiagnostics(state *jiraRenderState, inlines []semanticInli
 		case styledInline:
 			collectRenderLossDiagnostics(state, typed.Children)
 		case linkInline:
-			spelling := spellJiraLinkTitle(typed.Title)
-			switch {
-			case spelling.BracketDropped:
-				report(typed.Span.Start, ConstructLink, "link title was dropped; a Jira link title cannot carry a closing bracket")
-			default:
-				if spelling.LineBreakFlattened {
-					report(typed.Span.Start, ConstructLink, "line break in link title was converted to a space")
-				}
-				if spelling.EdgeWhitespaceTrimmed {
-					report(typed.Span.Start, ConstructLink, "surrounding whitespace in link title was removed; Jira trims every title it reads")
-				}
+			for _, reason := range spellJiraLinkTitle(typed.Title).losses() {
+				report(typed.Span.Start, ConstructLink, reason)
 			}
 			collectRenderLossDiagnostics(state, typed.Label)
 		}
 	}
+}
+
+// The losses one link title can report. A dropped title is one reason on its
+// own: the reader has to be told the title is gone rather than adjusted.
+const (
+	jiraLinkTitleBracketDropped        = "link title was dropped; a Jira link title cannot carry a closing bracket"
+	jiraLinkTitleWhitespaceDropped     = "link title was dropped; Jira reads a title of only whitespace as no title"
+	jiraLinkTitleLineBreakFlattened    = "line break in link title was converted to a space"
+	jiraLinkTitleEdgeWhitespaceTrimmed = "surrounding whitespace in link title was removed; Jira trims every title it reads"
+)
+
+// losses names every semantic this spelling could not carry, in the order a
+// reader meets them. It is the one reading of the spelling's flags, so the
+// renderer and its diagnostics cannot come to different conclusions about the
+// same title.
+func (spelling jiraLinkTitleSpelling) losses() []string {
+	switch {
+	case spelling.BracketDropped:
+		return []string{jiraLinkTitleBracketDropped}
+	case spelling.WhitespaceDropped:
+		return []string{jiraLinkTitleWhitespaceDropped}
+	}
+	reasons := make([]string, 0, 2)
+	if spelling.LineBreakFlattened {
+		reasons = append(reasons, jiraLinkTitleLineBreakFlattened)
+	}
+	if spelling.EdgeWhitespaceTrimmed {
+		reasons = append(reasons, jiraLinkTitleEdgeWhitespaceTrimmed)
+	}
+	return reasons
 }
 
 func inlinesContainCode(inlines []semanticInline) bool {
@@ -505,14 +526,13 @@ func appendJiraVerificationKey(builder *strings.Builder, inlines []semanticInlin
 			flush()
 			appendVerificationScalar(builder, "a", typed.Target)
 			// The intended side is keyed by the title Jira reads back from the
-			// spelling the renderer writes. A title the spelling trims or cannot
-			// hold is a loss collectRenderLossDiagnostics has already reported, and
-			// keying the authored title instead would send the verifier looking for
-			// an escaping that does not exist. The unnamed spelling has no title
-			// slot, so a link that keeps a title is written and read back named.
+			// spelling the renderer writes; a title the spelling trims or cannot
+			// hold is a loss collectRenderLossDiagnostics has already reported. The
+			// unnamed spelling has no title slot, so a link that keeps a title is
+			// written named and reads back named.
 			title := typed.Title
 			if !reparsed {
-				title = jiraLinkTitleReadBack(typed.Title)
+				title = spellJiraLinkTitle(typed.Title).readBack()
 			}
 			appendVerificationScalar(builder, "i", title)
 			unnamed := typed.Unnamed && title == ""

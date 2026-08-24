@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A backslash pair inside a title stays two backslashes: the title consumes none of them and no forced newline forms there.
+-- input.jira --
+[x|http://x|t\\u]
+-- rendered.html --
+<p><a href="http://x" title="t\\u" class="external-link" target="_blank" rel="nofollow noopener">x</a></p>
+-- want.md --
+[x](http://x "t\\\\u")
+-- warnings.json --
+[]

@@ -1,0 +1,12 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Jira forms no link at all when a bracket body spans a physical line: it renders the markup as text with a line break. jiro's own bracket scan still reads across the line, a pre-existing divergence for every part of the body, and it reads the title as one line the way it reads every other inline run; a JFM title jiro writes to Jira is therefore flattened to one line with a warning.
+-- input.jira --
+[y|http://y|a
+b]
+-- rendered.html --
+<p>[y|http://y|a<br/>
+b]</p>
+-- want.md --
+[y](http://y "a b")
+-- warnings.json --
+[]

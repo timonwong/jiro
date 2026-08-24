@@ -193,16 +193,20 @@ func decodeJiraLinkTitle(value string) string {
 }
 
 // jiraLinkTitleSpelling is how one title is written between the last `|` and the
-// closing `]`, together with the parts of it the spelling could not carry. Every
-// field is a rule the probes pin: a raw `]` ends the link wherever it stands and
-// a backslash in front of it stays visible in the title, so a title holding one
-// has no Jira spelling at all; a body whose last character is a backslash
+// closing `]`, together with the parts of it the spelling could not carry. It is
+// the single answer to every question the renderer, its diagnostics and the
+// verification key ask about one title: Text is what goes out, readBack is what
+// Jira reads out of it again, and the flags are what the reader lost. Every one
+// of them is a rule the probes pin: a raw `]` ends the link wherever it stands
+// and a backslash in front of it stays visible in the title, so a title holding
+// one has no Jira spelling at all; a body whose last character is a backslash
 // refuses the whole link, which one trailing space undoes because the trim
 // removes it again; and a link body is one line.
 type jiraLinkTitleSpelling struct {
 	Text                  string
 	LineBreakFlattened    bool
 	EdgeWhitespaceTrimmed bool
+	WhitespaceDropped     bool
 	BracketDropped        bool
 }
 
@@ -215,10 +219,14 @@ func spellJiraLinkTitle(value string) jiraLinkTitleSpelling {
 	if trimmed := strings.Trim(spelling.Text, " \t"); trimmed != spelling.Text {
 		spelling.Text, spelling.EdgeWhitespaceTrimmed = trimmed, true
 	}
+	// A dropped title takes the smaller losses with it: they are no longer what
+	// the reader is missing. A title of nothing but whitespace is one of them,
+	// because the trim leaves Jira no title to show at all.
 	if strings.Contains(spelling.Text, "]") {
-		// A dropped title takes the smaller losses with it: they are no longer
-		// what the reader is missing.
 		return jiraLinkTitleSpelling{BracketDropped: true}
+	}
+	if spelling.Text == "" && value != "" {
+		return jiraLinkTitleSpelling{WhitespaceDropped: true}
 	}
 	if strings.HasSuffix(spelling.Text, `\`) {
 		spelling.Text += " "
@@ -228,10 +236,10 @@ func spellJiraLinkTitle(value string) jiraLinkTitleSpelling {
 
 var jiraLinkTitleLineBreaks = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ")
 
-// jiraLinkTitleReadBack reports the title Jira reads back from the spelling
-// jiro writes for value, which is the title a rendered link actually carries.
-func jiraLinkTitleReadBack(value string) string {
-	return decodeJiraLinkTitle(spellJiraLinkTitle(value).Text)
+// readBack reports the title Jira reads back out of this spelling, which is the
+// title the rendered link actually carries.
+func (spelling jiraLinkTitleSpelling) readBack() string {
+	return decodeJiraLinkTitle(spelling.Text)
 }
 
 // decodeJiraImageValue reads an image source or an image parameter value, where

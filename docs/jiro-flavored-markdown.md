@@ -655,7 +655,7 @@ Jira-only targets such as issue keys, attachments, and users use `:link[content]
 
 Both notations have a link title and it is reversible: Markdown writes it after the destination, and Jira Markup reads it as a third bracket part, `[label|target|title]`. Jira reads that part verbatim, so a backslash and a character reference inside a title stand for themselves, and every further `|` belongs to the title. An unnamed link has no third part, so a link that keeps a title is always written `[label|target|title]`; a title on a Jira-only or dangerous target rides the `:link` directive's `title` attribute.
 
-Jira trims the spaces and tabs around a title it reads, and a title cannot hold a closing bracket or span lines. Writing a link title to Jira therefore trims it, replaces its line breaks with spaces, and drops it entirely when it holds a `]`; each of those is a lossy conversion and produces a warning.
+Jira trims the spaces and tabs around a title it reads, and a title cannot hold a closing bracket or span lines. Writing a link title to Jira therefore trims it, replaces its line breaks with spaces, and drops it entirely when it holds a `]` or when the trim leaves nothing behind; each of those is a lossy conversion and produces a warning.
 
 Jira link labels cannot contain a physical hard break. A hard break inside a Markdown link label becomes one space, the link remains structural, and a warning records the discarded break semantic.
 

@@ -2,6 +2,7 @@ package markup
 
 import (
 	"context"
+	"reflect"
 	"testing"
 )
 
@@ -17,18 +18,22 @@ func TestJiraLinkTitleSpellingReadsBack(t *testing.T) {
 		spelled  string
 		readBack string
 		spelling jiraLinkTitleSpelling
+		losses   []string
 	}{
+		{title: "", spelled: "", readBack: ""},
 		{title: "t", spelled: "t", readBack: "t"},
 		{title: "t|u|v", spelled: "t|u|v", readBack: "t|u|v"},
 		{title: `t\|u`, spelled: `t\|u`, readBack: `t\|u`},
 		{title: "t&#124;u", spelled: "t&#124;u", readBack: "t&#124;u"},
+		{title: "a}b", spelled: "a}b", readBack: "a}b"},
 		{title: `t\`, spelled: `t\ `, readBack: `t\`},
-		{title: " t ", spelled: "t", readBack: "t", spelling: jiraLinkTitleSpelling{EdgeWhitespaceTrimmed: true}},
-		{title: "\tt\t", spelled: "t", readBack: "t", spelling: jiraLinkTitleSpelling{EdgeWhitespaceTrimmed: true}},
-		{title: "  ", spelled: "", readBack: "", spelling: jiraLinkTitleSpelling{EdgeWhitespaceTrimmed: true}},
-		{title: "a]b", spelled: "", readBack: "", spelling: jiraLinkTitleSpelling{BracketDropped: true}},
-		{title: "a\nb", spelled: "a b", readBack: "a b", spelling: jiraLinkTitleSpelling{LineBreakFlattened: true}},
-		{title: "\na", spelled: "a", readBack: "a", spelling: jiraLinkTitleSpelling{LineBreakFlattened: true, EdgeWhitespaceTrimmed: true}},
+		{title: " t ", spelled: "t", readBack: "t", spelling: jiraLinkTitleSpelling{EdgeWhitespaceTrimmed: true}, losses: []string{jiraLinkTitleEdgeWhitespaceTrimmed}},
+		{title: "\tt\t", spelled: "t", readBack: "t", spelling: jiraLinkTitleSpelling{EdgeWhitespaceTrimmed: true}, losses: []string{jiraLinkTitleEdgeWhitespaceTrimmed}},
+		{title: "  ", spelled: "", readBack: "", spelling: jiraLinkTitleSpelling{WhitespaceDropped: true}, losses: []string{jiraLinkTitleWhitespaceDropped}},
+		{title: "a]b", spelled: "", readBack: "", spelling: jiraLinkTitleSpelling{BracketDropped: true}, losses: []string{jiraLinkTitleBracketDropped}},
+		{title: "a\nb", spelled: "a b", readBack: "a b", spelling: jiraLinkTitleSpelling{LineBreakFlattened: true}, losses: []string{jiraLinkTitleLineBreakFlattened}},
+		{title: "\na", spelled: "a", readBack: "a", spelling: jiraLinkTitleSpelling{LineBreakFlattened: true, EdgeWhitespaceTrimmed: true}, losses: []string{jiraLinkTitleLineBreakFlattened, jiraLinkTitleEdgeWhitespaceTrimmed}},
+		{title: "\n", spelled: "", readBack: "", spelling: jiraLinkTitleSpelling{WhitespaceDropped: true}, losses: []string{jiraLinkTitleWhitespaceDropped}},
 	} {
 		spelling := spellJiraLinkTitle(test.title)
 		want := test.spelling
@@ -36,8 +41,11 @@ func TestJiraLinkTitleSpellingReadsBack(t *testing.T) {
 		if spelling != want {
 			t.Errorf("spellJiraLinkTitle(%q) = %#v, want %#v", test.title, spelling, want)
 		}
-		if got := jiraLinkTitleReadBack(test.title); got != test.readBack {
-			t.Errorf("jiraLinkTitleReadBack(%q) = %q, want %q", test.title, got, test.readBack)
+		if got := spelling.readBack(); got != test.readBack {
+			t.Errorf("spellJiraLinkTitle(%q).readBack() = %q, want %q", test.title, got, test.readBack)
+		}
+		if got := spelling.losses(); !reflect.DeepEqual(got, test.losses) && (len(got) != 0 || len(test.losses) != 0) {
+			t.Errorf("spellJiraLinkTitle(%q).losses() = %q, want %q", test.title, got, test.losses)
 		}
 	}
 	// What the reader takes out of the markup, including the newline no title

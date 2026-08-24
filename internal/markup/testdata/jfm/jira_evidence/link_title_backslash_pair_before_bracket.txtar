@@ -1,0 +1,11 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A title ending in a backslash pair renders no link and a forced newline inside the text Jira shows, so the pair is a line break rather than an escaped bracket: it is the body's last backslash that refuses the link, not what the backslash protects.
+-- input.jira --
+[x|http://x|t\\]
+-- rendered.html --
+<p>[x|http://x|t<br class="atl-forced-newline" />]</p>
+-- want.md --
+\[x|http://x|t\
+\]
+-- warnings.json --
+[]

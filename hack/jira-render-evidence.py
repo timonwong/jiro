@@ -743,6 +743,10 @@ ROUND15 = [
     "[x|#anchor|t]", "[x|mailto:a@b.c|t]", "[x|~admin|t]",
     "[http://x|http://x|t]", "[x|^file.pdf|t]", "[x|^file.pdf]",
     "[x|javascript:alert(1)|t]",
+    # --- and no link at all forms across a physical line, whichever part the
+    #     line break falls in ---
+    "[y|http://y|a\nb]", "[y|http://y|a \nb]", "[y|http://y/a\nb]",
+    "[y|http://y|a\n]",
 ]
 
 
