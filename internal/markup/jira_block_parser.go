@@ -359,7 +359,7 @@ func jiraTableCellBounds(ctx context.Context, text string, innerStart, innerEnd 
 func tableCellSupportsGFM(cell tableCell) bool {
 	for _, inline := range cell.Inlines {
 		switch typed := inline.(type) {
-		case textInline, codeInline:
+		case textInline, codeInline, emoticonInline:
 		case styledInline:
 			if typed.Style != styleBold && typed.Style != styleItalic && typed.Style != styleStrike {
 				return false

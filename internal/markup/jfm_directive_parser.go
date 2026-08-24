@@ -14,10 +14,14 @@ var kindJFMInlineDirective = ast.NewNodeKind("JFMInlineDirective")
 
 type jfmInlineDirective struct {
 	ast.BaseInline
-	Raw       text.Segment
-	Name      string
-	Content   text.Segment
-	Attrs     text.Segment
+	Raw     text.Segment
+	Name    string
+	Content text.Segment
+	Attrs   text.Segment
+	// HasAttrs reports that the source wrote an attribute list, which an empty
+	// Attrs segment cannot say on its own and which the attrless `:emoticon`
+	// form has to reject.
+	HasAttrs  bool
 	Malformed string
 }
 
@@ -59,7 +63,12 @@ func (jfmInlineDirectiveParser) Parse(_ ast.Node, reader text.Reader, _ parser.C
 	}
 	end := contentEnd + 1
 	if end >= len(line) || line[end] != '{' {
-		node.Malformed = "inline directive is missing its attribute list"
+		// `:emoticon` is the one directive whose canonical form is attrless, so
+		// a missing attribute list is what it is supposed to look like and the
+		// content model decides the rest.
+		if !strings.EqualFold(name, "emoticon") {
+			node.Malformed = "inline directive is missing its attribute list"
+		}
 		reader.Advance(end)
 		return node
 	}
@@ -69,6 +78,7 @@ func (jfmInlineDirectiveParser) Parse(_ ast.Node, reader text.Reader, _ parser.C
 	}
 	node.Raw.Stop = segment.Start + attributeEnd + 1
 	node.Attrs = text.NewSegment(segment.Start+end+1, segment.Start+attributeEnd)
+	node.HasAttrs = true
 	reader.Advance(attributeEnd + 1)
 	return node
 }

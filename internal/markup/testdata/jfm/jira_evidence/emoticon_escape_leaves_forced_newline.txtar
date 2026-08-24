@@ -1,0 +1,11 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: The emoticon escape takes one backslash of the run, which leaves the pair that breaks the line.
+-- input.jira --
+\\\:)
+-- rendered.html --
+<p><br class="atl-forced-newline" />:)</p>
+-- want.md --
+\
+:)
+-- warnings.json --
+[]

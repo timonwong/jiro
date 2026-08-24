@@ -1,0 +1,6 @@
+-- input.md --
+**:emoticon[(x)]** *:emoticon[(y)]* ~~:emoticon[(n)]~~ <ins>:emoticon[(i)]</ins> <sup>:emoticon[(/)]</sup>
+-- want.jira --
+*(x)* _(y)_ -(n)- +(i)+ ^(/)^
+-- warnings.json --
+[]

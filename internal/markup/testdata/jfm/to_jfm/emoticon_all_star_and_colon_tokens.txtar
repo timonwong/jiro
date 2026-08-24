@@ -1,0 +1,6 @@
+-- input.jira --
+(*) (*r) (*g) (*b) (flag) (flagoff) :) :( :P :D ;)
+-- want.md --
+:emoticon[(*)] :emoticon[(*r)] :emoticon[(*g)] :emoticon[(*b)] :emoticon[(flag)] :emoticon[(flagoff)] :emoticon[:)] :emoticon[:(] :emoticon[:P] :emoticon[:D] :emoticon[;)]
+-- warnings.json --
+[]

@@ -1,0 +1,10 @@
+-- input.jira --
+{panel:title=(x)}
+body
+{panel}
+-- want.md --
+:::panel{title="(x)"}
+body
+:::
+-- warnings.json --
+[]

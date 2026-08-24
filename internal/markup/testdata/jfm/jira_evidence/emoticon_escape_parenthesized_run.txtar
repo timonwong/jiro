@@ -1,0 +1,11 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: One backslash of the run escapes the token and the pair that is left breaks the line.
+-- input.jira --
+\\\(x)
+-- rendered.html --
+<p><br class="atl-forced-newline" />(x)</p>
+-- want.md --
+\
+(x)
+-- warnings.json --
+[]

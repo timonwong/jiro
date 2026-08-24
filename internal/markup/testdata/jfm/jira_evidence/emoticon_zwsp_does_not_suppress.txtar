@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: U+200B after a token does not suppress the icon, but jiro never writes one to force it.
+-- input.jira --
+(x)​foo
+-- rendered.html --
+<p><img class="emoticon" src="/jira/images/icons/emoticons/error.png" height="16" width="16" align="absmiddle" alt="" border="0"/>​foo</p>
+-- want.md --
+:emoticon[(x)]​foo
+-- warnings.json --
+[]

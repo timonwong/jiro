@@ -1,0 +1,6 @@
+-- input.jira --
+{{(x)}} and (x)
+-- want.md --
+`(x)` and :emoticon[(x)]
+-- warnings.json --
+[]

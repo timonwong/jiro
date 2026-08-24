@@ -200,6 +200,10 @@ func renderJFMInlines(ctx context.Context, inlines []semanticInline, atLineStart
 				return "", err
 			}
 			result.WriteString(":image[" + alt + "]{" + serialized + "}")
+		case emoticonInline:
+			// A supported token holds neither `]` nor a backslash, so the
+			// content needs no escaping.
+			result.WriteString(":emoticon[" + typed.Token + "]")
 		case literalInline:
 			content, err := escapeTextForJFM(ctx, typed.Text, atLineStart)
 			if err != nil {

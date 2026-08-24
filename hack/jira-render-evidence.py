@@ -8,7 +8,7 @@ Equivalent single-case curl:
     -H 'Content-Type: application/json' -H 'X-Atlassian-Token: no-check' \
     -d '{"rendererType":"atlassian-wiki-renderer","unrenderedMarkup":"{{*bold*}}"}'
 
-Usage: python3 hack/jira-render-evidence.py [round1|...|round11|all] [--json]   (default: all)
+Usage: python3 hack/jira-render-evidence.py [round1|...|round12|all] [--json]   (default: all)
 
 --json prints one {"in": ..., "out": ...} object per line so captures can be
 turned into evidence fixtures without reparsing the human-readable output.
@@ -581,6 +581,57 @@ ROUND11 = [
     r"h1. a\\b c\\d",
 ]
 
+# Probe strings backing the explicit JFM emoticon directive (#83): the token
+# gate in every visible context, the escapes and character references that keep
+# an emoticon-shaped literal visible, and the one backslash Jira's emoticon
+# escape consumes in front of a token.
+ROUND12 = [
+    # --- the token gate: a preceding word rune leaves the icon, a following one
+    #     kills it, and U+200B is not a following word rune ---
+    "(x)", "(y)", "(n)", "(i)", "(/)", "(!)", "(?)", "(+)", "(-)",
+    "(on)", "(off)", "(*)", "(*r)", "(*g)", "(*b)", "(*y)", "(flag)", "(flagoff)",
+    ":)", ":(", ":P", ":D", ";)",
+    "x:)", "x;)", ":)y", ";)y", ":)x", "a;)b", "x(y)", "(flag)off", "(*y)x",
+    # --- case and shape variants: `(a)` names no icon, every parenthesized
+    #     token is lower case only, and of the colon forms `:p` and `:-)` render
+    #     although they are outside the token set jiro's evidence established ---
+    "(a)", "(X)", "(Y)", "(N)", "(I)", "(ON)", "(OFF)", "(*R)", "(*Y)",
+    "(FLAG)", "(Flag)", ":p", ":d", ";p", ";P", ":-)", "=)",
+    "(x)" + ZWSP + "foo", "(x) ", " (x)", "((x))", "(:))", "(x)(y)",
+    # --- escaping either parenthesis is enough to stop the token ---
+    r"\(x\)", r"\(x)", r"(x\)", r"\(x\)y", r"a\(x\)b", r"\(x)y", r"\(y)",
+    r"\(*y\)", r"\(flagoff\)", r"\(on)", r"\(flagoff)", r"\(*y)",
+    r"\(\!\)", r"(\!)", r"\(-\)", r"\(*\)", r"\(?\)", r"\(+\)", r"\(/\)",
+    r"print\(x\)",
+    # --- a character reference is opaque to the token scan ---
+    "&#58;)", "&#58;(", "&#58;P", "&#58;D", "&#59;)", "&#58;)y", "&#59;)y",
+    "x&#58;)", "x&#59;)", "&#58;", "&#59;", "&#58;x", "&#58;P y", "&#58;)&#58;)",
+    "&#40;x&#41;",
+    # --- the emoticon escape consumes exactly one backslash, and only where the
+    #     gate fires; the rest of the run then follows the ordinary rules ---
+    r"\:)", r"\;)", r"\:P", r"\:D", r"\:(", r"x \:) y", r"x \;) y", r"x \:P y",
+    r"a\:)b", r"a\;)b", r"a\:Pb",
+    r"\\:)", r"\\;)", r"\\:P", r"\\\:)", r"\\\:P", r"\\\\:)",
+    r"x \\:) y", r"a\\:)", r"\\:)y",
+    r"\\(x)", r"\\\(x)", r"a\\(x)", r"a\\\(x)", r"\\(x)y", r"\\(*y)",
+    r"\\\\(x)", r"\\ (x)", r"a \\ (x)",
+    r"a\:b", r"a\;b", "\\:", "\\;", r"a\Pb", r"a\Db", r"a\(b", r"a\)b",
+    # --- the same escape inside the constructs that read an inline run ---
+    r"h1. \\(x)", r"* \\:)", r"[\:)|http://example.com]", r"{{\:)}}",
+    r"{color:red}\:){color}", "||h||\n|\\\\:)|(x)|",
+    r"[a|http://example.com]\:)",
+    # --- the visible contexts a token renders in, and the delimited values it
+    #     does not ---
+    "*(x)*", "(x)*foo*", "*foo*(x)", "h1. (x)", "* (x)", "bq. (x)",
+    "||h||\n|(x)|", "[(x)|http://example.com]", "[a|http://example.com/(x)]",
+    # --- a delimiter inside a token pairs nothing, because Jira substitutes the
+    #     icon before it reads any Text Effect ---
+    "+(+)+", "{+}(+){+}", "*(*)*", "-(-)-", "^(x)^", "~(x)~",
+    # --- and the JFM spelling itself is nothing to Jira ---
+    ":emoticon[(x)]",
+]
+
+
 def render(markup, timeout=30):
     body = json.dumps({"rendererType": "atlassian-wiki-renderer",
                        "unrenderedMarkup": markup}).encode()
@@ -620,5 +671,6 @@ if __name__ == "__main__":
     run({"round1": ROUND1, "round2": ROUND2, "round3": ROUND3, "round4": ROUND4,
           "round5": ROUND5, "round6": ROUND6, "round7": ROUND7, "round8": ROUND8,
           "round9": ROUND9, "round10": ROUND10, "round11": ROUND11,
+          "round12": ROUND12,
           "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5 + ROUND6 + ROUND7
-                 + ROUND8 + ROUND9 + ROUND10 + ROUND11}[which], as_json=as_json)
+                 + ROUND8 + ROUND9 + ROUND10 + ROUND11 + ROUND12}[which], as_json=as_json)

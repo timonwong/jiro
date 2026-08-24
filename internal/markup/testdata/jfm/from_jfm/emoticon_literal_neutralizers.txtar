@@ -1,0 +1,6 @@
+-- input.md --
+print(x) hello :) hello :P hello ;)
+-- want.jira --
+print\(x\) hello &#58;) hello &#58;P hello &#59;)
+-- warnings.json --
+[]

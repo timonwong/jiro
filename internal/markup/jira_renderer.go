@@ -128,8 +128,14 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 		result.WriteString(content)
 		return offset
 	}
-	writeText := func(value string) error {
-		content, offsets, err := escapeTextForJiraText(ctx, value, render)
+	// writeText appends one plain-text fragment. beforeEmoticon reports that an
+	// emoticon token follows it in the run, which is the one thing the escaper
+	// cannot see in the fragment itself and which decides a trailing backslash:
+	// Jira's emoticon escape would consume it and drop the icon.
+	writeText := func(value string, beforeEmoticon bool) error {
+		textRender := render
+		textRender.beforeEmoticonToken = beforeEmoticon
+		content, offsets, err := escapeTextForJiraText(ctx, value, textRender)
 		if err != nil {
 			return err
 		}
@@ -152,14 +158,15 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 		if err := ctx.Err(); err != nil {
 			return jiraInlineOutput{}, err
 		}
+		beforeEmoticon := nextInlineIsEmoticon(inlines[index+1:])
 		switch typed := inline.(type) {
 		case textInline:
-			if err := writeText(typed.Text); err != nil {
+			if err := writeText(typed.Text, beforeEmoticon); err != nil {
 				return jiraInlineOutput{}, err
 			}
 		case codeInline:
 			if render.mode == jiraEscapeAbandoned {
-				if err := writeText(typed.Text); err != nil {
+				if err := writeText(typed.Text, beforeEmoticon); err != nil {
 					return jiraInlineOutput{}, err
 				}
 				break
@@ -246,8 +253,14 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 				markup += "|" + strings.Join(attributes, ",")
 			}
 			write(markup+"!", false, false)
+		case emoticonInline:
+			// The raw token is the whole spelling. Where a word rune follows it
+			// Jira suppresses the icon; the token still goes out visible and
+			// collectEmoticonDiagnostics reports the loss, because a synthetic
+			// boundary character would be text Jira never showed (ADR-0019).
+			write(typed.Token, false, false)
 		case literalInline:
-			if err := writeText(typed.Text); err != nil {
+			if err := writeText(typed.Text, beforeEmoticon); err != nil {
 				return jiraInlineOutput{}, err
 			}
 		default:
@@ -297,11 +310,12 @@ func jiraReversedDelimiters(delimiters string) string {
 	return string(reversed)
 }
 
-// jiraFirstRuneOfInlines reports the rune that will sit after a Text Effect's
-// closing delimiter in the rendered run, which is where Jira decides whether a
-// bare delimiter closes at all. Only a text inline can begin with a word rune:
-// every other inline begins with `{`, `[`, `!`, `\` or an Effect Delimiter of
-// its own.
+// jiraFirstRuneOfInlines reports the rune that will open the rendered run, which
+// is where Jira decides whether a bare Text Effect delimiter closes at all and
+// whether an emoticon token in front of it still renders as an icon. Only a text
+// inline can begin with a word rune: every other inline begins with `{`, `[`,
+// `!`, `\`, an emoticon token's `(`, `:` or `;`, or an Effect Delimiter of its
+// own.
 func jiraFirstRuneOfInlines(inlines []semanticInline) rune {
 	for _, inline := range inlines {
 		switch typed := inline.(type) {
@@ -321,6 +335,10 @@ func jiraFirstRuneOfInlines(inlines []semanticInline) rune {
 			return '!'
 		case hardBreakInline:
 			return '\\'
+		case emoticonInline:
+			if character, size := utf8.DecodeRuneInString(typed.Token); size != 0 {
+				return character
+			}
 		case styledInline:
 			if delimiter, ok := jiraEffectDelimiter(typed.Style); ok {
 				return rune(delimiter)
@@ -330,6 +348,17 @@ func jiraFirstRuneOfInlines(inlines []semanticInline) rune {
 		}
 	}
 	return 0
+}
+
+// nextInlineIsEmoticon reports whether the rendered run continues with an
+// emoticon token, which is what makes a trailing backslash in front of it
+// unwritable as itself.
+func nextInlineIsEmoticon(inlines []semanticInline) bool {
+	if len(inlines) == 0 {
+		return false
+	}
+	_, emoticon := inlines[0].(emoticonInline)
+	return emoticon
 }
 
 // jiraNeedsMonospaceSeparatorBefore and jiraNeedsMonospaceSeparatorAfter read
@@ -366,6 +395,10 @@ func escapeTextForJiraText(ctx context.Context, value string, render jiraInlineR
 	var plainEffectOffsets []int
 	atLineStart := render.atLineStart
 	pending, changed := 0, false
+	// emoticonCloseParenthesis is where the parenthesis closing a neutralized
+	// token stands, so that the token's own bytes still pass through the byte
+	// rules below and only its two parentheses gain a backslash.
+	emoticonCloseParenthesis := -1
 	flush := func(upto int) {
 		if upto > pending {
 			result.WriteString(value[pending:upto])
@@ -403,6 +436,28 @@ func escapeTextForJiraText(ctx context.Context, value string, render jiraInlineR
 		}
 		character := value[offset]
 		atLineStart = character == '\n'
+		// Jira renders a supported emoticon token in visible text as an icon, so
+		// text that only looks like one is kept visible with the smallest
+		// encoding that stops it: both parentheses of a parenthesized token are
+		// escaped, and a colon or semicolon token leaves its first byte as a
+		// character reference (ADR-0019). The gate is the one the Jira parser
+		// reads, so a token Jira would not render is written as it stands and
+		// `print(x)foo` keeps its parentheses.
+		if offset == emoticonCloseParenthesis {
+			flush(offset)
+			result.WriteByte('\\')
+			changed = true
+		} else if length := jiraEmoticonAt(value, offset, len(value)); length != 0 {
+			flush(offset)
+			if reference, encoded := jiraEmoticonLeadingReferences[character]; encoded {
+				result.WriteString(reference)
+				pending = offset + 1
+			} else {
+				result.WriteByte('\\')
+				emoticonCloseParenthesis = offset + length - 1
+			}
+			changed = true
+		}
 		switch jiraPlainTextByteClasses[character] {
 		case jiraPlainTextByteStructural:
 			// A backslash before a `|` in a link's visible text protects
@@ -423,10 +478,14 @@ func escapeTextForJiraText(ctx context.Context, value string, render jiraInlineR
 			plainEffectOffsets = append(plainEffectOffsets, result.Len())
 		case jiraPlainTextByteBackslash:
 			// An authored backslash may not become one of Jira's own. Jira reads
-			// `\\` as a forced newline and `\X` as an escape, so a backslash that
-			// would start either is written as a character reference; every other
-			// one Jira shows as itself, which keeps `C:\dir\file` readable.
-			if offset+1 < len(value) && isJiraEscapable(value[offset+1]) {
+			// `\\` as a forced newline, `\X` as an escape and the one in front of
+			// an emoticon token as that token's escape, so a backslash that would
+			// start any of them is written as a character reference; every other
+			// one Jira shows as itself, which keeps `C:\dir\file` readable. Only
+			// the last backslash of a run can reach the token that follows the
+			// fragment, so only it is encoded there.
+			if offset+1 < len(value) && isJiraEscapable(value[offset+1]) ||
+				offset+1 == len(value) && render.beforeEmoticonToken {
 				flush(offset)
 				result.WriteString("&#92;")
 				pending, changed = offset+1, true

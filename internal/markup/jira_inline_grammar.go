@@ -78,9 +78,12 @@ const (
 const jiraPlainTextStructuralCharacters = "{}[]!|#"
 
 // jiraPlainTextByteClasses classifies every byte plain text cannot pass through
-// unexamined. Emoticon and dash characters are absent on purpose: a Jira
-// emoticon or dash in prose is Jira-flavored semantics jiro keeps, so plain text
-// never escapes one and reading a run back over it would be pure cost.
+// unexamined. Dash characters are absent on purpose: a Jira dash in prose is
+// Jira-flavored semantics jiro keeps, so plain text never escapes one and
+// reading a run back over it would be pure cost. Emoticon characters are absent
+// for a different reason: an emoticon token is neutralized as a whole token
+// rather than byte by byte (ADR-0019), which escapeTextForJiraText decides on
+// the same gate the Jira parser reads.
 var jiraPlainTextByteClasses = func() (classes [256]jiraPlainTextByteClass) {
 	for _, character := range jiraPlainTextStructuralCharacters {
 		classes[character] = jiraPlainTextByteStructural
@@ -180,10 +183,19 @@ func jiraBackslashRunEnd(source string, runStart, end int) int {
 // Effect closer: the pair in `*x\\y*-z\\w` stays literal inside the bold
 // because a later backslash stands in the same token.
 func jiraForcedNewlineRun(source string, runStart, runEnd, lineEnd int) bool {
+	return jiraForcedNewlineRunFrom(source, runStart, runEnd, runEnd, lineEnd)
+}
+
+// jiraForcedNewlineRunFrom is jiraForcedNewlineRun with an explicit point for
+// the rest-of-token scan to resume at. Only the emoticon escape needs one: the
+// backslash it consumes is gone from the token before the break is decided, so
+// the scan has to start past it and past the token it protected, which is why
+// `\\\:)` breaks while `\\:)` shows one backslash.
+func jiraForcedNewlineRunFrom(source string, runStart, runEnd, scanFrom, lineEnd int) bool {
 	if runEnd-runStart != 2 || lineEnd == jiraNoForcedNewlineDomain {
 		return false
 	}
-	for index := runEnd; index < lineEnd; {
+	for index := scanFrom; index < lineEnd; {
 		if isJiraForcedNewlineSeparator(source[index]) {
 			return true
 		}
@@ -345,6 +357,15 @@ func findJiraEffectClose(ctx context.Context, source string, start, end int, del
 			}
 		}
 		if jiraBackslashPrecedes(source, index) {
+			continue
+		}
+		// Jira substitutes an emoticon token before it pairs any delimiter, so
+		// a delimiter inside one closes nothing: `+(+)+` is an inserted effect
+		// around the plus icon, and `*(*)*` a bold one around the star. A token
+		// the gate suppresses or a backslash escapes is no token, and its
+		// characters stay candidates.
+		if tokenLength := jiraEmoticonAt(source, index, end); tokenLength != 0 {
+			index += tokenLength - 1
 			continue
 		}
 		closeEnd, brace := 0, false
@@ -532,6 +553,70 @@ var jiraEmoticonTokens = []string{
 	"(*r)", "(*g)", "(*b)", "(*y)", "(*)",
 	"(y)", "(n)", "(i)", "(/)", "(x)", "(!)", "(?)", "(+)", "(-)",
 	":(", ":)", ":P", ":D", ";)",
+}
+
+// jiraEmoticonFirstBytes are the bytes a supported token can begin with, which
+// is what lets the gate answer for ordinary prose in one comparison.
+var jiraEmoticonFirstBytes = func() (bytes [256]bool) {
+	for _, token := range jiraEmoticonTokens {
+		bytes[token[0]] = true
+	}
+	return bytes
+}()
+
+// jiraEmoticonAliases maps a token onto the spelling JFM writes for the icon it
+// renders. `(*y)` and `(*)` are the same yellow star, so JFM has one canonical
+// form for it; every other token names an icon of its own.
+var jiraEmoticonAliases = map[string]string{"(*y)": "(*)"}
+
+// jiraEmoticonLeadingReferences are the character references plain text writes
+// for the first byte of a colon or semicolon token. Neither byte is escapable
+// on its own, so a token that opens with one is kept visible by encoding that
+// byte rather than by protecting a pair of parentheses (ADR-0019).
+var jiraEmoticonLeadingReferences = map[byte]string{':': "&#58;", ';': "&#59;"}
+
+// jiraEmoticonNeutralizations maps each encoding jiraEmoticonLeadingReferences
+// produces back onto the token it keeps visible, so that Jira-to-JFM reads a
+// neutralized token as the ordinary text it was written from. No key is a
+// prefix of another.
+var jiraEmoticonNeutralizations = func() map[string]string {
+	result := make(map[string]string, len(jiraEmoticonLeadingReferences))
+	for _, token := range jiraEmoticonTokens {
+		if reference, encoded := jiraEmoticonLeadingReferences[token[0]]; encoded {
+			result[reference+token[1:]] = token
+		}
+	}
+	return result
+}()
+
+// canonicalJiraEmoticonToken reports the canonical spelling of one supported
+// emoticon token. Matching is exact and case-sensitive, because Jira reads `:P`
+// as a token and `:p` as text.
+func canonicalJiraEmoticonToken(token string) (string, bool) {
+	for _, supported := range jiraEmoticonTokens {
+		if token != supported {
+			continue
+		}
+		if canonical, aliased := jiraEmoticonAliases[token]; aliased {
+			return canonical, true
+		}
+		return token, true
+	}
+	return "", false
+}
+
+// jiraNeutralizedEmoticonAt reports the token the character reference at index
+// keeps visible, and the length of that encoding.
+func jiraNeutralizedEmoticonAt(source string, index, end int) (string, int) {
+	if index >= end || source[index] != '&' {
+		return "", 0
+	}
+	for encoded, token := range jiraEmoticonNeutralizations {
+		if strings.HasPrefix(source[index:end], encoded) {
+			return token, len(encoded)
+		}
+	}
+	return "", 0
 }
 
 // jiraAutolinkSchemes are the bare-URL prefixes the renderer links. A bare email
@@ -921,8 +1006,13 @@ func jiraDashRun(source string, start, index, end int) int {
 
 // jiraEmoticonAt reports the length of the emoticon token at index. The gate is
 // asymmetric: a following word rune suppresses the icon (`(y)foo`), a preceding
-// one does not (`f(x)` still ends in an icon).
+// one does not (`f(x)` still ends in an icon). Every caller runs it over every
+// byte of a scanned range, so the first byte decides before the token list is
+// walked at all.
 func jiraEmoticonAt(source string, index, end int) int {
+	if index >= end || !jiraEmoticonFirstBytes[source[index]] {
+		return 0
+	}
 	for _, token := range jiraEmoticonTokens {
 		if !strings.HasPrefix(source[index:end], token) {
 			continue

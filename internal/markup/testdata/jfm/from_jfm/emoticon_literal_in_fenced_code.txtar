@@ -1,0 +1,12 @@
+-- input.md --
+```
+print(x)
+:)
+```
+-- want.jira --
+{noformat}
+print(x)
+:)
+{noformat}
+-- warnings.json --
+[]

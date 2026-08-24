@@ -66,6 +66,10 @@ type jiraInlineRender struct {
 	// inLinkLabel marks a run rendered inside a link's visible text, which is
 	// the one plain-text context where a `|` may not be backslash-escaped.
 	inLinkLabel bool
+	// beforeEmoticonToken marks a plain-text fragment an emoticon token follows
+	// in the rendered run, where a trailing backslash would be consumed as that
+	// token's escape instead of standing as a character.
+	beforeEmoticonToken bool
 }
 
 func (render jiraInlineRender) nested() jiraInlineRender {
@@ -120,6 +124,7 @@ func renderJiraInlineRun(ctx context.Context, state *jiraRenderState, inlines []
 // renderJiraInlineRunWith takes the verifier as a value so that a test can
 // exercise the later modes without an input Jira actually misreads.
 func renderJiraInlineRunWith(ctx context.Context, state *jiraRenderState, inlines []semanticInline, run jiraRunContext, verify jiraInlineRunVerifier) (string, error) {
+	collectEmoticonDiagnostics(state, inlines)
 	render := jiraInlineRender{inTableCell: run.inTableCell(), atLineStart: run.atLineStart}
 	rendered, err := renderJiraInlineRunIn(ctx, inlines, render)
 	if err != nil || !jiraRunNeedsVerification(inlines, rendered) {
@@ -223,8 +228,38 @@ func jiraInlineSpanStart(inline semanticInline) int {
 		return typed.Span.Start
 	case hardBreakInline:
 		return typed.Span.Start
+	case emoticonInline:
+		return typed.Span.Start
 	default:
 		return 0
+	}
+}
+
+// collectEmoticonDiagnostics reports every emoticon directive of one top-level
+// run whose token a word rune follows in the rendered output. Jira suppresses
+// the icon there and jiro emits the token all the same, so the loss is reported
+// rather than papered over with a boundary character Jira never showed
+// (ADR-0019). It runs once per run, before the escaping modes the verifier may
+// render several times.
+func collectEmoticonDiagnostics(state *jiraRenderState, inlines []semanticInline) {
+	for index, inline := range inlines {
+		switch typed := inline.(type) {
+		case emoticonInline:
+			if !isJiraWordRune(jiraFirstRuneOfInlines(inlines[index+1:])) {
+				continue
+			}
+			state.diagnostics = append(state.diagnostics, conversionDiagnostic{
+				offset: typed.Span.Start,
+				warning: ConversionWarning{
+					Construct: ConstructEmoticon,
+					Reason:    "Jira emoticon token is followed by a word character and cannot be guaranteed to render as an icon",
+				},
+			})
+		case styledInline:
+			collectEmoticonDiagnostics(state, typed.Children)
+		case linkInline:
+			collectEmoticonDiagnostics(state, typed.Label)
+		}
 	}
 }
 
@@ -340,9 +375,10 @@ func appendJiraCodeBodyKey(builder *strings.Builder, inlines []semanticInline) {
 // jiraVerificationKey serializes the parts of an inline run that a conversion
 // must preserve, as a sequence of length-prefixed `tag<length>:<value>;`
 // scalars with parentheses around nested runs. The tags are: t text, c inline
-// code, br hard break, s Text Effect kind, v Text Effect value, a link target,
-// u link is unnamed, m image source, l image alt, and n/w/b for one image
-// attribute's name, value and bare flag; ? is an inline no rule below claims.
+// code, br hard break, e emoticon token, s Text Effect kind, v Text Effect
+// value, a link target, u link is unnamed, m image source, l image alt, and
+// n/w/b for one image attribute's name, value and bare flag; ? is an inline no
+// rule below claims.
 //
 // Source offsets are absent because the rendered run has its own, and adjacent
 // text is merged because the split between text inlines is an artifact of how
@@ -364,12 +400,24 @@ func appendJiraVerificationKey(builder *strings.Builder, inlines []semanticInlin
 		appendVerificationScalar(builder, "t", text.String())
 		text.Reset()
 	}
-	for _, inline := range inlines {
+	for index, inline := range inlines {
 		switch typed := inline.(type) {
 		case textInline:
 			text.WriteString(normalizeVerificationText(typed.Text, reparsed))
 		case literalInline:
 			text.WriteString(normalizeVerificationText(typed.Text, reparsed))
+		case emoticonInline:
+			// A token a word rune follows is text on both sides: Jira renders
+			// the characters rather than the icon, jiro's own parser reads them
+			// back as text, and the warning has already reported that the
+			// directive did not survive. Anywhere else the icon is the meaning
+			// that has to match.
+			if !reparsed && isJiraWordRune(jiraFirstRuneOfInlines(inlines[index+1:])) {
+				text.WriteString(typed.Token)
+				break
+			}
+			flush()
+			appendVerificationScalar(builder, "e", typed.Token)
 		case codeInline:
 			flush()
 			appendVerificationScalar(builder, "c", typed.Text)

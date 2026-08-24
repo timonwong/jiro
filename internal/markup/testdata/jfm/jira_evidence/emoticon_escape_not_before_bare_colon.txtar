@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Jira shows a backslash before a bare colon rather than consuming it.
+-- input.jira --
+a\:b
+-- rendered.html --
+<p>a\:b</p>
+-- want.md --
+a\\:b
+-- warnings.json --
+[]

@@ -33,6 +33,8 @@ JFM inline code follows Jira renderer behavior rather than treating `{{...}}` as
 
 Plain text follows the same rule. An effect delimiter is escaped only where Jira would read it as one delimiter of a complete span, so `foo_bar_baz`, `release-note` and `what??` stay readable while `a -b- c` becomes `a \-b\- c`; a Text Effect that touches a letter or digit is written in Jira's brace form (`a**b**c` becomes `a{*}b{*}c`); a `h1.` or `bq.` line start is protected with `&#46;`; and an authored backslash becomes `&#92;` only where a bare one would start a Jira escape or forced newline, so `C:\dir\file` stays readable. Plain text that cannot be verified becomes fully escaped with a `plain-text` warning.
 
+A Jira emoticon has its own JFM spelling, the attrless inline directive `:emoticon[token]`, whose content is exactly one supported token such as `(x)`, `(*)` or `:)`; `(*y)` is accepted on input and written back as `(*)`. Jira → JFM emits the directive for an unescaped token in visible inline text and leaves an escaped one, a token in code, in a Monospace Span, or in a link, image or macro value as ordinary text. Emoticon-shaped prose stays literal without a warning: `print(x)` becomes `print\(x\)` and `:)`, `:P`, `:D`, `:(` and `;)` become `&#58;)`, `&#58;P`, `&#58;D`, `&#58;(` and `&#59;)`. A directive whose token a word character follows still emits the token and reports an `emoticon` warning, because Jira suppresses the icon there; an unknown token, an attribute list, or any other content leaves the whole directive literal with the same warning.
+
 ## Convert documents offline
 
 Use the non-mutating JFM subcommands when no Jira request is needed:
