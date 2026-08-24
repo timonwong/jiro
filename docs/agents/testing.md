@@ -46,7 +46,7 @@ source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evi
 observed: one sentence on what Jira rendered and what jiro therefore does
 ```
 
-`python3 hack/jira-render-evidence.py all --json` reproduces every `rendered.html` in the directory; `round12` is the newest round, and a new archive's probe belongs there.
+`python3 hack/jira-render-evidence.py all --json` reproduces every `rendered.html` in the directory; `round13` is the newest round, and a new archive's probe belongs there.
 
 ## JFM specification examples
 

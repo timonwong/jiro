@@ -28,13 +28,9 @@ func renderJiraBlocks(ctx context.Context, state *jiraRenderState, document sema
 			if err != nil {
 				return "", err
 			}
-			heading := fmt.Sprintf("h%d.", typed.Level)
-			if content != "" {
-				heading += " " + content
-			}
-			blocks = append(blocks, heading)
+			blocks = append(blocks, jiraLineControlMarkup(typed.Level, false, content))
 		case paragraphBlock:
-			content, err := renderJiraInlineRun(ctx, state, typed.Inlines, jiraRunContext{atLineStart: true})
+			content, err := renderJiraInlineRun(ctx, state, typed.Inlines, jiraRunContext{lineStart: jiraLineStartEveryRule})
 			if err != nil {
 				return "", err
 			}
@@ -94,7 +90,7 @@ func renderJiraBlocks(ctx context.Context, state *jiraRenderState, document sema
 			}
 			blocks = append(blocks, typed.Opening+"\n"+body+ensureLiteralClosingSeparation(body)+typed.Closing)
 		case literalBlock:
-			content, err := escapeTextForJira(ctx, typed.Text, true)
+			content, err := escapeTextForJira(ctx, typed.Text, jiraLineStartEveryRule)
 			if err != nil {
 				return "", err
 			}
@@ -266,7 +262,12 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 		default:
 			return jiraInlineOutput{}, fmt.Errorf("%w: unsupported semantic inline in Jira renderer", ErrConversion)
 		}
-		render.atLineStart = inlineEndsAtLineStart(inline)
+		// A newline the run itself writes opens a full line start: what the
+		// enclosing block narrows is only where the run begins.
+		render.lineStart = jiraLineStartInline
+		if inlineEndsAtLineStart(inline) {
+			render.lineStart = jiraLineStartEveryRule
+		}
 	}
 	output.text = result.String()
 	return output, ctx.Err()
@@ -378,8 +379,8 @@ func jiraNeedsMonospaceSeparatorAfter(value string) bool {
 	return size != 0 && (isJiraWordRune(character) || character == '\u200b')
 }
 
-func escapeTextForJira(ctx context.Context, value string, atLineStart bool) (string, error) {
-	content, plainEffectOffsets, err := escapeTextForJiraText(ctx, value, jiraInlineRender{atLineStart: atLineStart})
+func escapeTextForJira(ctx context.Context, value string, lineStart jiraLineStartRules) (string, error) {
+	content, plainEffectOffsets, err := escapeTextForJiraText(ctx, value, jiraInlineRender{lineStart: lineStart})
 	if err != nil {
 		return "", err
 	}
@@ -393,7 +394,7 @@ func escapeTextForJira(ctx context.Context, value string, atLineStart bool) (str
 func escapeTextForJiraText(ctx context.Context, value string, render jiraInlineRender) (string, []int, error) {
 	var result strings.Builder
 	var plainEffectOffsets []int
-	atLineStart := render.atLineStart
+	lineStart := render.lineStart
 	pending, changed := 0, false
 	// emoticonCloseParenthesis is where the parenthesis closing a neutralized
 	// token stands, so that the token's own bytes still pass through the byte
@@ -411,7 +412,7 @@ func escapeTextForJiraText(ctx context.Context, value string, render jiraInlineR
 				return "", nil, err
 			}
 		}
-		if atLineStart {
+		if lineStart.reads(jiraLineStartControls) {
 			if _, _, prefixLength := jiraLineControlPrefix(value[offset:]); prefixLength != 0 {
 				// A character reference is the only way to keep `h1.` and `bq.` off
 				// the line start: Jira does not consume a backslash before `.`, so
@@ -419,9 +420,11 @@ func escapeTextForJiraText(ctx context.Context, value string, render jiraInlineR
 				flush(offset + prefixLength - 1)
 				result.WriteString("&#46;")
 				pending, changed = offset+prefixLength, true
-				offset, atLineStart = pending, false
+				offset, lineStart = pending, jiraLineStartInline
 				continue
 			}
+		}
+		if lineStart.reads(jiraLineStartMarkers) {
 			if markerStart, markerEnd := jiraListMarkerPrefix(value[offset:]); markerEnd != 0 {
 				// Jira reads the whole marker run as a list, and stops reading one
 				// as soon as the first marker carries a backslash, so the rest of
@@ -430,12 +433,15 @@ func escapeTextForJiraText(ctx context.Context, value string, render jiraInlineR
 				result.WriteByte('\\')
 				result.WriteByte(value[offset+markerStart])
 				pending, changed = offset+markerStart+1, true
-				offset, atLineStart = pending, false
+				offset, lineStart = pending, jiraLineStartInline
 				continue
 			}
 		}
 		character := value[offset]
-		atLineStart = character == '\n'
+		lineStart = jiraLineStartInline
+		if character == '\n' {
+			lineStart = jiraLineStartEveryRule
+		}
 		// Jira renders a supported emoticon token in visible text as an icon, so
 		// text that only looks like one is kept visible with the smallest
 		// encoding that stops it: both parentheses of a parenthesized token are
@@ -611,17 +617,14 @@ func renderJiraListSegments(ctx context.Context, state *jiraRenderState, list li
 		if list.Ordered {
 			marker = activeParentMarkers + "#"
 		}
-		content, err := renderJiraInlineRun(ctx, state, item.Inlines, jiraRunContext{})
+		line, taken, err := renderJiraListItemLine(ctx, state, item, marker)
 		if err != nil {
 			return nil, err
 		}
-		line := marker
-		if content != "" {
-			line += " " + content
-		}
 		lines = append(lines, line)
+		blocks := item.Blocks[taken:]
 		interrupted := false
-		for _, block := range item.Blocks {
+		for _, block := range blocks {
 			child, isList := block.(listBlock)
 			if isList && !interrupted && !child.RequiresFlattening {
 				childSegments, err := renderJiraListSegments(ctx, state, child, marker)
@@ -657,6 +660,42 @@ func renderJiraListSegments(ctx context.Context, state *jiraRenderState, list li
 	return segments, nil
 }
 
+// renderJiraListItemLine writes one item's own line and reports how many of the
+// item's blocks that line took. A line control is written on the item line
+// itself, because that is where Jira reads it back (listItemLineControl); every
+// other block stays for the caller, which has only the flattening path for it.
+func renderJiraListItemLine(ctx context.Context, state *jiraRenderState, item listItem, marker string) (string, int, error) {
+	if level, quote, inlines, ok := listItemLineControl(item); ok {
+		content, err := renderJiraInlineRun(ctx, state, inlines, jiraRunContext{})
+		if err != nil {
+			return "", 0, err
+		}
+		return marker + " " + jiraLineControlMarkup(level, quote, content), 1, nil
+	}
+	content, err := renderJiraInlineRun(ctx, state, item.Inlines, jiraRunContext{lineStart: jiraLineStartItemContent})
+	if err != nil {
+		return "", 0, err
+	}
+	if content == "" {
+		return marker, 0, nil
+	}
+	return marker + " " + content, 0, nil
+}
+
+// jiraLineControlMarkup spells one line control. Jira reads the control whether
+// or not a space follows the `.`, and jiro writes that space only where content
+// follows it, so an empty heading is `h1.` alone.
+func jiraLineControlMarkup(level int, quote bool, content string) string {
+	prefix := fmt.Sprintf("h%d.", level)
+	if quote {
+		prefix = "bq."
+	}
+	if content == "" {
+		return prefix
+	}
+	return prefix + " " + content
+}
+
 func renderJiraTable(ctx context.Context, state *jiraRenderState, table tableBlock) (string, error) {
 	if table.Directive && table.Raw != "" {
 		return table.Raw, nil
@@ -685,7 +724,7 @@ func renderJiraTableRow(ctx context.Context, state *jiraRenderState, cells []tab
 		// Jira reads every cell of every row from its own line start, so a cell
 		// whose content opens with a list marker or a `h1.` prefix renders a list
 		// or a heading inside the cell rather than the text it was written as.
-		value, err := renderJiraInlineRun(ctx, state, cell.Inlines, jiraRunContext{atLineStart: true, cellDelimiter: delimiter})
+		value, err := renderJiraInlineRun(ctx, state, cell.Inlines, jiraRunContext{lineStart: jiraLineStartEveryRule, cellDelimiter: delimiter})
 		if err != nil {
 			return "", err
 		}

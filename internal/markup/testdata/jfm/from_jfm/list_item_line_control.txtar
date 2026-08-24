@@ -1,0 +1,16 @@
+-- input.md --
+- # y
+- ## z
+- > q
+- h1. text
+- h1.text
+- \* marker
+-- want.jira --
+* h1. y
+* h2. z
+* bq. q
+* h1&#46; text
+* h1&#46;text
+* * marker
+-- warnings.json --
+[]

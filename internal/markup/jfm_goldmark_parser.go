@@ -454,7 +454,7 @@ func adaptGoldmarkList(source []byte, node *ast.List) (listBlock, []conversionDi
 					return listBlock{}, nil, err
 				}
 				diagnostics = append(diagnostics, inlineDiagnostics...)
-				if len(item.Inlines) != 0 {
+				if len(item.Inlines) != 0 || len(item.Blocks) != 0 {
 					item.Blocks = append(item.Blocks, paragraphBlock{Span: goldmarkNodeSpan(block), Inlines: inlines})
 					flattened = true
 					tailInterrupted = true
@@ -479,6 +479,13 @@ func adaptGoldmarkList(source []byte, node *ast.List) (listBlock, []conversionDi
 				}
 				item.Blocks = append(item.Blocks, continuation)
 				diagnostics = append(diagnostics, continuationDiagnostics...)
+				if _, _, _, ok := listItemLineControl(item); ok && len(item.Blocks) == 1 {
+					// Jira reads this block back from the item's content start, so the
+					// item keeps it and nothing is flattened out of the list. Only the
+					// block the item leads with is read there; a second one still has
+					// nowhere to go.
+					continue
+				}
 				flattened = true
 				tailInterrupted = true
 			}

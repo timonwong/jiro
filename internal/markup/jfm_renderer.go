@@ -17,7 +17,7 @@ func renderJFM(ctx context.Context, document semanticDocument) (string, error) {
 		}
 		switch typed := block.(type) {
 		case headingBlock:
-			content, err := renderJFMInlines(ctx, typed.Inlines, true)
+			content, err := renderJFMInlines(ctx, typed.Inlines, jfmBlockOpeners)
 			if err != nil {
 				return "", err
 			}
@@ -27,7 +27,7 @@ func renderJFM(ctx context.Context, document semanticDocument) (string, error) {
 			}
 			blocks = append(blocks, heading)
 		case paragraphBlock:
-			content, err := renderJFMInlines(ctx, typed.Inlines, true)
+			content, err := renderJFMInlines(ctx, typed.Inlines, jfmBlockOpeners)
 			if err != nil {
 				return "", err
 			}
@@ -83,7 +83,7 @@ func renderJFM(ctx context.Context, document semanticDocument) (string, error) {
 			}
 			blocks = append(blocks, typed.Opening+"\n"+body+ensureLiteralClosingSeparation(body)+typed.Closing)
 		case literalBlock:
-			content, err := escapeTextForJFM(ctx, typed.Text, true)
+			content, err := escapeTextForJFM(ctx, typed.Text, jfmBlockOpeners)
 			if err != nil {
 				return "", err
 			}
@@ -95,7 +95,18 @@ func renderJFM(ctx context.Context, document semanticDocument) (string, error) {
 	return strings.TrimSpace(strings.Join(blocks, "\n\n")), nil
 }
 
-func renderJFMInlines(ctx context.Context, inlines []semanticInline, atLineStart bool) (string, error) {
+// jfmBlockOpeners are the characters that open a block where a JFM line begins,
+// which is why a text fragment written there escapes them. jfmItemContentOpeners
+// are the ones a list item's content start has to escape: Jira renders a heading
+// and a quote there and JFM reads both back, so `#` carries a block that has to
+// survive as text, while a marker written there opens a nested list JFM reads
+// and Jira does not, which is a loss of its own and not this rule's to fix.
+const (
+	jfmBlockOpeners       = "#>+-"
+	jfmItemContentOpeners = "#"
+)
+
+func renderJFMInlines(ctx context.Context, inlines []semanticInline, lineStart string) (string, error) {
 	var result strings.Builder
 	for _, inline := range inlines {
 		if err := ctx.Err(); err != nil {
@@ -103,7 +114,7 @@ func renderJFMInlines(ctx context.Context, inlines []semanticInline, atLineStart
 		}
 		switch typed := inline.(type) {
 		case textInline:
-			content, err := escapeTextForJFM(ctx, typed.Text, atLineStart)
+			content, err := escapeTextForJFM(ctx, typed.Text, lineStart)
 			if err != nil {
 				return "", err
 			}
@@ -117,12 +128,12 @@ func renderJFMInlines(ctx context.Context, inlines []semanticInline, atLineStart
 		case hardBreakInline:
 			result.WriteString("\\\n")
 		case styledInline:
-			content, err := renderJFMInlines(ctx, typed.Children, false)
+			content, err := renderJFMInlines(ctx, typed.Children, "")
 			if err != nil {
 				return "", err
 			}
 			if combined, ok := combinedBoldItalic(typed); ok {
-				content, err = renderJFMInlines(ctx, combined, false)
+				content, err = renderJFMInlines(ctx, combined, "")
 				if err != nil {
 					return "", err
 				}
@@ -146,7 +157,7 @@ func renderJFMInlines(ctx context.Context, inlines []semanticInline, atLineStart
 				result.WriteString(`<font color="` + html.EscapeString(typed.Value) + `">` + content + `</font>`)
 			}
 		case linkInline:
-			label, err := renderJFMInlines(ctx, typed.Label, false)
+			label, err := renderJFMInlines(ctx, typed.Label, "")
 			if err != nil {
 				return "", err
 			}
@@ -205,7 +216,7 @@ func renderJFMInlines(ctx context.Context, inlines []semanticInline, atLineStart
 			// content needs no escaping.
 			result.WriteString(":emoticon[" + typed.Token + "]")
 		case literalInline:
-			content, err := escapeTextForJFM(ctx, typed.Text, atLineStart)
+			content, err := escapeTextForJFM(ctx, typed.Text, lineStart)
 			if err != nil {
 				return "", err
 			}
@@ -213,7 +224,12 @@ func renderJFMInlines(ctx context.Context, inlines []semanticInline, atLineStart
 		default:
 			return "", fmt.Errorf("%w: unsupported semantic inline in JFM renderer", ErrConversion)
 		}
-		atLineStart = inlineEndsAtLineStart(inline)
+		// A newline the run itself writes opens a full line start: what the
+		// enclosing block narrows is only where the run begins.
+		lineStart = ""
+		if inlineEndsAtLineStart(inline) {
+			lineStart = jfmBlockOpeners
+		}
 	}
 	return result.String(), nil
 }
@@ -234,7 +250,11 @@ func renderJFMCodeSpan(ctx context.Context, value string) (string, error) {
 	return delimiter + padding + value + padding + delimiter, nil
 }
 
-func escapeTextForJFM(ctx context.Context, value string, atLineStart bool) (string, error) {
+// escapeTextForJFM writes one plain-text fragment. lineStart names the block
+// openers to escape where the fragment begins, and is "" for a fragment that
+// begins inside a line; every newline inside the fragment opens a full line
+// start of its own.
+func escapeTextForJFM(ctx context.Context, value string, lineStart string) (string, error) {
 	var result strings.Builder
 	for index := 0; index < len(value); {
 		if index&255 == 0 {
@@ -246,11 +266,14 @@ func escapeTextForJFM(ctx context.Context, value string, atLineStart bool) (stri
 		if character == '\\' || strings.ContainsRune("*_~[]`<>", character) {
 			result.WriteByte('\\')
 		}
-		if atLineStart && strings.ContainsRune("#>+-", character) {
+		if strings.ContainsRune(lineStart, character) {
 			result.WriteByte('\\')
 		}
 		result.WriteRune(character)
-		atLineStart = character == '\n'
+		lineStart = ""
+		if character == '\n' {
+			lineStart = jfmBlockOpeners
+		}
 		index += size
 	}
 	if err := ctx.Err(); err != nil {
@@ -390,17 +413,13 @@ func renderJFMList(ctx context.Context, list listBlock, depth int) (string, erro
 		if list.Ordered {
 			marker = "1."
 		}
-		content, err := renderJFMInlines(ctx, item.Inlines, false)
+		line, taken, err := renderJFMListItemLine(ctx, item, indent+marker)
 		if err != nil {
 			return "", err
 		}
-		line := indent + marker
-		if content != "" {
-			line += " " + content
-		}
 		lines = append(lines, line)
 		interrupted, nested := false, false
-		for _, block := range item.Blocks {
+		for _, block := range item.Blocks[taken:] {
 			child, isList := block.(listBlock)
 			if isList && !interrupted && !child.RequiresFlattening {
 				childText, err := renderJFMList(ctx, child, activeDepth+1)
@@ -440,6 +459,36 @@ func renderJFMList(ctx context.Context, list listBlock, depth int) (string, erro
 	return strings.Join(segments, "\n\n"), nil
 }
 
+// renderJFMListItemLine writes one item's own line and reports how many of the
+// item's blocks that line took. A leading line control is written on the item
+// line itself: Jira reads a heading and a quote back from an item's content
+// start (listItemLineControl) and so does JFM, so neither side has to flatten
+// the block out of the list.
+func renderJFMListItemLine(ctx context.Context, item listItem, marker string) (string, int, error) {
+	if level, quote, inlines, ok := listItemLineControl(item); ok {
+		content, err := renderJFMInlines(ctx, inlines, jfmBlockOpeners)
+		if err != nil {
+			return "", 0, err
+		}
+		control := strings.Repeat("#", level)
+		if quote {
+			control = ">"
+		}
+		if content != "" {
+			control += " " + content
+		}
+		return marker + " " + control, 1, nil
+	}
+	content, err := renderJFMInlines(ctx, item.Inlines, jfmItemContentOpeners)
+	if err != nil {
+		return "", 0, err
+	}
+	if content == "" {
+		return marker, 0, nil
+	}
+	return marker + " " + content, 0, nil
+}
+
 func renderJFMTable(ctx context.Context, table tableBlock) (string, error) {
 	if table.Directive || len(table.Header) == 0 {
 		fence, err := safeContainerFence(ctx, table.Raw)
@@ -472,7 +521,7 @@ func renderJFMTable(ctx context.Context, table tableBlock) (string, error) {
 func renderJFMTableRow(ctx context.Context, cells []tableCell) (string, error) {
 	values := make([]string, len(cells))
 	for index, cell := range cells {
-		value, err := renderJFMInlines(ctx, cell.Inlines, false)
+		value, err := renderJFMInlines(ctx, cell.Inlines, "")
 		if err != nil {
 			return "", err
 		}

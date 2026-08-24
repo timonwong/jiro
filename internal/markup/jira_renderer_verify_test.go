@@ -234,34 +234,36 @@ func TestJiraInlineRunVerificationReadsEveryLineStart(t *testing.T) {
 		run      jiraRunContext
 		accepted bool
 	}{
-		{name: "bullet", inlines: text("* item"), rendered: "* item", run: jiraRunContext{atLineStart: true}},
-		{name: "square bullet", inlines: text("- item"), rendered: "- item", run: jiraRunContext{atLineStart: true}},
-		{name: "nested bullets", inlines: text("** item"), rendered: "** item", run: jiraRunContext{atLineStart: true}},
-		{name: "mixed markers", inlines: text("*- item"), rendered: "*- item", run: jiraRunContext{atLineStart: true}},
-		{name: "line control prefix", inlines: text("h1. x"), rendered: "h1. x", run: jiraRunContext{atLineStart: true}},
+		{name: "bullet", inlines: text("* item"), rendered: "* item", run: jiraRunContext{lineStart: jiraLineStartEveryRule}},
+		{name: "square bullet", inlines: text("- item"), rendered: "- item", run: jiraRunContext{lineStart: jiraLineStartEveryRule}},
+		{name: "nested bullets", inlines: text("** item"), rendered: "** item", run: jiraRunContext{lineStart: jiraLineStartEveryRule}},
+		{name: "mixed markers", inlines: text("*- item"), rendered: "*- item", run: jiraRunContext{lineStart: jiraLineStartEveryRule}},
+		{name: "line control prefix", inlines: text("h1. x"), rendered: "h1. x", run: jiraRunContext{lineStart: jiraLineStartEveryRule}},
 		{
 			name:     "after a forced newline",
 			inlines:  []semanticInline{textInline{Text: "x"}, hardBreakInline{}, textInline{Text: "* item"}},
 			rendered: "x\\\\\n* item",
 		},
-		{name: "escaped marker", inlines: text("* item"), rendered: `\* item`, run: jiraRunContext{atLineStart: true}, accepted: true},
-		{name: "marker as a character reference", inlines: text("* item"), rendered: "&#42; item", run: jiraRunContext{atLineStart: true}, accepted: true},
-		{name: "protected line control prefix", inlines: text("h1. x"), rendered: "h1&#46; x", run: jiraRunContext{atLineStart: true}, accepted: true},
-		{name: "marker without a space", inlines: text("*item"), rendered: "*item", run: jiraRunContext{atLineStart: true}, accepted: true},
-		{name: "lone marker", inlines: text("*"), rendered: "*", run: jiraRunContext{atLineStart: true}, accepted: true},
-		{name: "dash run", inlines: text("-- item"), rendered: "-- item", run: jiraRunContext{atLineStart: true}, accepted: true},
-		{name: "inside a list item", inlines: text("* item"), rendered: "* item", accepted: true},
+		{name: "escaped marker", inlines: text("* item"), rendered: `\* item`, run: jiraRunContext{lineStart: jiraLineStartEveryRule}, accepted: true},
+		{name: "marker as a character reference", inlines: text("* item"), rendered: "&#42; item", run: jiraRunContext{lineStart: jiraLineStartEveryRule}, accepted: true},
+		{name: "protected line control prefix", inlines: text("h1. x"), rendered: "h1&#46; x", run: jiraRunContext{lineStart: jiraLineStartEveryRule}, accepted: true},
+		{name: "marker without a space", inlines: text("*item"), rendered: "*item", run: jiraRunContext{lineStart: jiraLineStartEveryRule}, accepted: true},
+		{name: "lone marker", inlines: text("*"), rendered: "*", run: jiraRunContext{lineStart: jiraLineStartEveryRule}, accepted: true},
+		{name: "dash run", inlines: text("-- item"), rendered: "-- item", run: jiraRunContext{lineStart: jiraLineStartEveryRule}, accepted: true},
+		{name: "inside a list item", inlines: text("* item"), rendered: "* item", run: jiraRunContext{lineStart: jiraLineStartItemContent}, accepted: true},
+		{name: "line control inside a list item", inlines: text("h1. x"), rendered: "h1. x", run: jiraRunContext{lineStart: jiraLineStartItemContent}},
+		{name: "protected line control inside a list item", inlines: text("h1. x"), rendered: "h1&#46; x", run: jiraRunContext{lineStart: jiraLineStartItemContent}, accepted: true},
 		{
 			name:     "table cell",
 			inlines:  text("* item"),
 			rendered: "* item",
-			run:      jiraRunContext{atLineStart: true, cellDelimiter: "|"},
+			run:      jiraRunContext{lineStart: jiraLineStartEveryRule, cellDelimiter: "|"},
 		},
 		{
 			name:     "escaped marker in a table cell",
 			inlines:  text("* item"),
 			rendered: `\* item`,
-			run:      jiraRunContext{atLineStart: true, cellDelimiter: "|"},
+			run:      jiraRunContext{lineStart: jiraLineStartEveryRule, cellDelimiter: "|"},
 			accepted: true,
 		},
 	} {
@@ -299,7 +301,7 @@ func TestJiraLineStartMismatchStillCreditsInlineCode(t *testing.T) {
 		t.Fatalf("verdict inside a list item = %#v, want matched", inside)
 	}
 
-	verdict, err := verifyJiraInlineRun(context.Background(), "* {{x}}", intended, inlines, jiraRunContext{atLineStart: true})
+	verdict, err := verifyJiraInlineRun(context.Background(), "* {{x}}", intended, inlines, jiraRunContext{lineStart: jiraLineStartEveryRule})
 	if err != nil {
 		t.Fatal(err)
 	}

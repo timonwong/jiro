@@ -1,0 +1,8 @@
+-- input.md --
+- # y
+  - z
+-- want.jira --
+* h1. y
+** z
+-- warnings.json --
+[]

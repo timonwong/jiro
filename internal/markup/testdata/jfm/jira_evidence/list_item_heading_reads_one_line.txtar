@@ -1,0 +1,12 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A line control consumes the rest of its line and reads no second control inside it, so the heading text keeps the `bq.` visible.
+-- input.jira --
+* h1. bq. y
+-- rendered.html --
+<ul>
+	<li><h1><a name="y"></a>bq. y</h1></li>
+</ul>
+-- want.md --
+- # bq. y
+-- warnings.json --
+[]

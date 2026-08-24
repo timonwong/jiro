@@ -109,7 +109,7 @@ Escaping is interpreted in the source notation before target escaping is applied
 - Ordinary JFM text that matches a known Jira emoticon token MUST remain literal. Parenthesized tokens escape both parentheses with Jira backslashes, so `print(x)` becomes `print\(x\)`. Colon-prefixed tokens encode the leading colon, so `:)`, `:P`, `:D`, and `:(` become `&#58;)`, `&#58;P`, `&#58;D`, and `&#58;(`. The wink token `;)` becomes `&#59;)`. A character reference is used there because a backslash before a colon or a semicolon is one Jira consumes only in front of a token, which would leave the encoding depending on the gate. These neutralizers produce no warning and Jira-to-JFM conversion returns ordinary text.
 - Jira consumes exactly one backslash directly in front of an emoticon token the gate fires on, and shows the token's characters: `\:)` renders as `:)` and `\\(x)` as `\(x)`, while a following word rune suppresses the gate and consumes nothing, so `a\:)b` keeps its backslash. The escape is taken before every other backslash rule, so the run left in front of it is one backslash shorter than it looks and `\\\:)` still renders a forced newline. A delimiter inside a token is likewise part of the icon rather than markup, so `+(+)+` is an inserted effect around the plus icon.
 - An authored backslash is written as the character reference `&#92;` when the next character is one whose backslash Jira consumes, or when an emoticon directive follows it, so that neither the forced newline `\\` nor an escape `\X` nor an emoticon escape can form from authored text. Every other backslash is written as itself, keeping `C:\dir\file`, `a \ b`, and a trailing `x\` readable.
-- A `h1.` through `h6.` or `bq.` prefix at the start of a Jira output line, including every table cell, is protected with the character reference `&#46;`, because Jira shows a backslash before `.` instead of consuming it. Together with `&#92;` above and the `&#124;` a `|` needs inside a link's visible text, these are the only places plain text is written as a character reference rather than as itself or as a backslash escape.
+- A `h1.` through `h6.` or `bq.` prefix at the start of a Jira output line, including every table cell and every list item's content, is protected with the character reference `&#46;`, because Jira shows a backslash before `.` instead of consuming it. Jira reads the prefix whether or not a space follows the `.`, so `h1.x` is protected exactly as `h1. x` is. Together with `&#92;` above and the `&#124;` a `|` needs inside a link's visible text, these are the only places plain text is written as a character reference rather than as itself or as a backslash escape.
 - A run of Jira list markers (`*`, `-`, and `#`, in any mix) followed by a space or a tab at the start of a Jira output line, including every table cell, is protected by backslash-escaping its first character, so `\* item` becomes `\* item` and `\*\* item` becomes `\** item`. Every line of a paragraph is a line start, including the line after a hard break. A marker run that no space or tab follows, and a run of two or more `-`, which Jira reads as a dash, are not list markers and stay literal. This is an ordinary backslash escape from the escapable set, not a character reference.
 - Escaping decisions are proven by re-parsing the rendered inline run. Plain text that cannot be verified is emitted fully escaped with a `plain-text` warning rather than changed in silence.
 - Plain-text characters that would start unintended Markdown formatting are escaped in JFM output.
@@ -117,7 +117,7 @@ Escaping is interpreted in the source notation before target escaping is applied
 
 ## 6. Headings and breaks
 
-Jira `h1.` through `h6.` correspond to Markdown ATX headings `#` through `######`. JFM accepts CommonMark ATX and setext headings and emits canonical ATX headings. ATX input may use up to three leading spaces and an optional closing hash sequence. Canonical output begins at column one, has no closing hashes, and uses one space after a non-empty marker. An empty heading has no trailing space. `h0.`, `h7.`, and malformed Jira heading-like input remain visible and produce warnings.
+Jira `h1.` through `h6.` correspond to Markdown ATX headings `#` through `######`. JFM accepts CommonMark ATX and setext headings and emits canonical ATX headings. ATX input may use up to three leading spaces and an optional closing hash sequence. Canonical output begins at column one, has no closing hashes, and uses one space after a non-empty marker. An empty heading has no trailing space. Jira reads a line control with or without a space after the `.` and skips every space and tab before its content, so `h1.x`, `h1. x`, and `h1.\tx` are the same heading of `x`. A Jira heading level is a single digit from 1 to 6: `h0.`, `h7.`, and multi-digit forms such as `h10.` are heading-like input that remains visible and produces a warning, with or without a following space.
 
 Jira `----` corresponds to canonical JFM `---`. Any CommonMark thematic-break spelling converts to Jira `----`.
 
@@ -510,6 +510,10 @@ JFM accepts CommonMark unordered markers `-`, `*`, and `+` and ordered markers e
 
 Jira has two unordered bullets, the round `*` and the square `-`, and JFM has one. Both become the same JFM bullet, so a square Jira bullet comes back as a round one, and a Jira list that changes bullet shape starts a new list that JFM can only separate with a blank line.
 
+Jira reads its line controls at every list item's content start, at every nesting level and under every marker, so `* h1. y` is a heading inside the item and `* bq. y` a quote inside it. A JFM item that begins with a heading, or with a quote of a single paragraph, is therefore written on the item line itself in both directions and stays in its list; `- # y` and `* h1. y` are the same item. A list marker does not re-form at that position: `* * y` is the item text `* y`, and JFM item text beginning with `#` is escaped so that it comes back as text.
+
+A control that opens an item consumes only its own line. Jira renders the lines below it as further blocks inside the item, which JFM cannot spell there, so those blocks follow the list as independent blocks in source order.
+
 A list item with one inline paragraph followed by nested lists is reversible. When an item contains additional recognized blocks that Jira list markers cannot own:
 
 1. The first paragraph remains the list item.
@@ -521,7 +525,7 @@ A hard break inside a list item cannot retain both the physical break and Jira m
 
 A Jira list marker whose nesting level has no authored parent remains visible and produces a warning; a converter MUST NOT fabricate empty parent items. A top-level change between ordered and unordered markers starts a new canonical block.
 
-JFM block quotes map to Jira `{quote}` containers. Jira `bq.` and `{quote}` are both accepted; canonical Jira output uses `{quote}`. CommonMark lazy-continuation forms are accepted. Paragraphs, lists, headings, tables, code blocks, panels, and nested quotes are supported inside a quote. Every quoted line in canonical JFM begins with `> `, while blank quoted lines contain only `>`.
+JFM block quotes map to Jira `{quote}` containers. Jira `bq.` and `{quote}` are both accepted; canonical Jira output uses `{quote}`, except inside a list item, where `bq.` is the only quote Jira reads. CommonMark lazy-continuation forms are accepted. Paragraphs, lists, headings, tables, code blocks, panels, and nested quotes are supported inside a quote. Every quoted line in canonical JFM begins with `> `, while blank quoted lines contain only `>`.
 
 Structured quote nesting MUST NOT exceed 64 levels. A deeper quote remains visible as literal content and produces a warning rather than causing a fatal conversion failure. Adjacent nested Jira `{quote}` close/open delimiters without a blank separator are syntactically ambiguous because opening and closing markers are identical; the containing quote therefore uses literal fallback with a warning.
 
@@ -554,6 +558,24 @@ Output:
 ~~~jfm
 - alpha
 - beta
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+<!-- jfm-spec-example: list-item-heading; direction: jira-to-jfm -->
+Input:
+~~~jira
+* h1. Findings
+* next
+~~~
+
+Output:
+~~~jfm
+- # Findings
+- next
 ~~~
 
 Warnings:

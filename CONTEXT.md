@@ -81,7 +81,7 @@ The single Jira Markup form jiro produces for a given Jiro Flavored Markdown doc
 _Avoid_: Escaped markup, wire format
 
 **Jira Line Start**:
-A position where Jira begins reading block syntax: the first character of a physical line after the spaces and tabs it skips, the character after a forced newline, and the start of every table cell. A Marker Run, `h1.` through `h6.`, `bq.`, and `----` open a block only there.
+A position where Jira begins reading block syntax: the first character of a physical line after the spaces and tabs it skips, the character after a forced newline, the start of every table cell, and the start of every list item's content. A Marker Run, `h1.` through `h6.`, `bq.`, and `----` open a block only there, and a list item's content start is the one that reads no Marker Run: `* * y` is the item text `* y` while `* h1. y` is a heading inside the item.
 _Avoid_: Line beginning, column zero, block start
 
 **Marker Run**:

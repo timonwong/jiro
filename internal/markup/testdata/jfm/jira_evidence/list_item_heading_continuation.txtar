@@ -1,0 +1,16 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Jira renders the line below a heading item as a second block inside the item. JFM has no such item, so jiro keeps the heading in the item and writes the paragraph after the list.
+-- input.jira --
+* h1. y
+z
+-- rendered.html --
+<ul>
+	<li><h1><a name="y"></a>y</h1>
+<p>z</p></li>
+</ul>
+-- want.md --
+- # y
+
+z
+-- warnings.json --
+[]

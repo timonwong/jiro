@@ -30,32 +30,17 @@ func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, start, end,
 		}
 		line := lines[index]
 		if level, quote, prefixEnd := jiraLineControlPrefix(line.Text); prefixEnd != 0 {
-			contentStart := line.Start + prefixEnd
-			if contentStart < line.End && source[contentStart] == ' ' {
-				contentStart++
-			}
-			domain := jiraLineDomain{End: line.End}
-			if !quote {
-				// A JFM ATX heading is one line and cannot carry a hard break,
-				// so a forced newline Jira renders here stays literal and is
-				// reported.
-				domain.Unbreakable = ConstructHeading
-			}
-			inlines, inlineDiagnostics, err := parseJiraInlines(ctx, source, contentStart, line.End, domain)
+			span := sourceSpan{Start: line.Start, End: line.End}
+			block, controlDiagnostics, err := parseJiraLineControlBlock(ctx, source, span, line.Start+prefixEnd, level, quote)
 			if err != nil {
 				return semanticDocument{}, nil, err
 			}
-			diagnostics = append(diagnostics, inlineDiagnostics...)
-			span := sourceSpan{Start: line.Start, End: line.End}
-			if quote {
-				document.Blocks = append(document.Blocks, quoteBlock{Span: span, Blocks: []semanticBlock{paragraphBlock{Span: sourceSpan{Start: contentStart, End: line.End}, Inlines: inlines}}})
-			} else {
-				document.Blocks = append(document.Blocks, headingBlock{Span: span, Level: level, Inlines: inlines})
-			}
+			document.Blocks = append(document.Blocks, block)
+			diagnostics = append(diagnostics, controlDiagnostics...)
 			index++
 			continue
 		}
-		if malformedHeading, _ := jiraLineControlLikePrefix(line.Text); malformedHeading {
+		if jiraLineMalformedHeadingPrefix(line.Text) {
 			document.Blocks = append(document.Blocks, literalBlock{Span: sourceSpan{Start: line.Start, End: line.End}, Text: line.Text})
 			diagnostics = append(diagnostics, conversionDiagnostic{offset: line.Start, warning: ConversionWarning{Construct: ConstructHeading, Reason: "malformed Jira heading remains literal"}})
 			index++

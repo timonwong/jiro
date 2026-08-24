@@ -96,6 +96,68 @@ func inlineEndsAtLineStart(inline semanticInline) bool {
 	}
 }
 
+// listItemLineControl reports the line control a list item leads with, as the
+// heading level or the quote flag Jira reads at the item's content start, and
+// the inlines that control carries. Jira reads `h1.` and `bq.` at the content
+// start of every item and renders the heading or the quote inside the item, so
+// an item that carries no inline text and leads with one of those blocks is
+// written on the item line itself by both renderers rather than flattened out
+// of the list. A run that cannot be written on one line is not one of them: the
+// item line has nowhere to put a second line, so such an item keeps the
+// flattening path both renderers already agree on.
+func listItemLineControl(item listItem) (level int, quote bool, inlines []semanticInline, ok bool) {
+	if len(item.Inlines) != 0 || len(item.Blocks) == 0 {
+		return 0, false, nil, false
+	}
+	switch typed := item.Blocks[0].(type) {
+	case headingBlock:
+		if typed.Level < 1 || typed.Level > 6 || !inlinesFitOneLine(typed.Inlines) {
+			return 0, false, nil, false
+		}
+		return typed.Level, false, typed.Inlines, true
+	case quoteBlock:
+		// A quote with no blocks in it is the one Jira renders empty, which `bq.`
+		// spells with nothing after it and Markdown spells as a bare `>`.
+		if len(typed.Blocks) == 0 {
+			return 0, true, nil, true
+		}
+		paragraph, isParagraph := typed.Blocks[0].(paragraphBlock)
+		if len(typed.Blocks) != 1 || !isParagraph || !inlinesFitOneLine(paragraph.Inlines) {
+			return 0, false, nil, false
+		}
+		return 0, true, paragraph.Inlines, true
+	}
+	return 0, false, nil, false
+}
+
+// inlinesFitOneLine reports whether a run can be written on one line, which a
+// run that breaks a line itself or carries an authored newline cannot.
+func inlinesFitOneLine(inlines []semanticInline) bool {
+	for _, inline := range inlines {
+		switch typed := inline.(type) {
+		case hardBreakInline:
+			return false
+		case textInline:
+			if strings.Contains(typed.Text, "\n") {
+				return false
+			}
+		case literalInline:
+			if strings.Contains(typed.Text, "\n") {
+				return false
+			}
+		case styledInline:
+			if !inlinesFitOneLine(typed.Children) {
+				return false
+			}
+		case linkInline:
+			if !inlinesFitOneLine(typed.Label) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // startsCharacterReference reports whether the `&` at offset begins something a
 // reader decodes back into a different character: the reference syntax itself,
 // or one of the legacy named references Go's html.UnescapeString resolves

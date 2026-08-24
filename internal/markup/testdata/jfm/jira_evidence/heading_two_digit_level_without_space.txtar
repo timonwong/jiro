@@ -1,0 +1,12 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A heading level is one digit, so `h10.` is text with or without a space after it; jiro keeps the line literal and warns rather than guessing a level.
+-- input.jira --
+h10.x
+-- rendered.html --
+<p>h10.x</p>
+-- want.md --
+h10.x
+-- warnings.json --
+[
+  {"Line":1,"Column":1,"Construct":"heading","Reason":"malformed Jira heading remains literal"}
+]

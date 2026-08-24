@@ -46,11 +46,29 @@ type jiraRenderState struct {
 	diagnostics []conversionDiagnostic
 }
 
+// jiraLineStartRules names the line-start rules that re-form where a rendered
+// run begins, which is not the same set everywhere. A paragraph and a table
+// cell begin where Jira reads every rule, while a list item's content begins
+// where Jira reads its line controls and no list marker: `* * y` is the item
+// text `* y`, so a marker written there needs no protection and escaping one
+// would only show the backslash.
+type jiraLineStartRules uint8
+
+const (
+	jiraLineStartInline      jiraLineStartRules = 0
+	jiraLineStartControls    jiraLineStartRules = 1 << 0
+	jiraLineStartMarkers     jiraLineStartRules = 1 << 1
+	jiraLineStartEveryRule                      = jiraLineStartControls | jiraLineStartMarkers
+	jiraLineStartItemContent                    = jiraLineStartControls
+)
+
+func (rules jiraLineStartRules) reads(rule jiraLineStartRules) bool { return rules&rule != 0 }
+
 // jiraRunContext describes the block position of one top-level inline run,
 // which is everything the inline grammar and the verification re-parse need to
 // know about the enclosing block.
 type jiraRunContext struct {
-	atLineStart bool
+	lineStart jiraLineStartRules
 	// cellDelimiter is "" outside a table row and otherwise the delimiter the
 	// Jira block parser splits that row on.
 	cellDelimiter string
@@ -62,7 +80,7 @@ func (run jiraRunContext) inTableCell() bool { return run.cellDelimiter != "" }
 type jiraInlineRender struct {
 	inTableCell bool
 	mode        jiraEscapeMode
-	atLineStart bool
+	lineStart   jiraLineStartRules
 	// inLinkLabel marks a run rendered inside a link's visible text, which is
 	// the one plain-text context where a `|` may not be backslash-escaped.
 	inLinkLabel bool
@@ -73,7 +91,7 @@ type jiraInlineRender struct {
 }
 
 func (render jiraInlineRender) nested() jiraInlineRender {
-	render.atLineStart = false
+	render.lineStart = jiraLineStartInline
 	return render
 }
 
@@ -125,7 +143,7 @@ func renderJiraInlineRun(ctx context.Context, state *jiraRenderState, inlines []
 // exercise the later modes without an input Jira actually misreads.
 func renderJiraInlineRunWith(ctx context.Context, state *jiraRenderState, inlines []semanticInline, run jiraRunContext, verify jiraInlineRunVerifier) (string, error) {
 	collectEmoticonDiagnostics(state, inlines)
-	render := jiraInlineRender{inTableCell: run.inTableCell(), atLineStart: run.atLineStart}
+	render := jiraInlineRender{inTableCell: run.inTableCell(), lineStart: run.lineStart}
 	rendered, err := renderJiraInlineRunIn(ctx, inlines, render)
 	if err != nil || !jiraRunNeedsVerification(inlines, rendered) {
 		return rendered, err
@@ -309,7 +327,7 @@ func verifyJiraInlineRun(ctx context.Context, rendered, intended string, inlines
 	if err != nil {
 		return jiraVerificationVerdict{}, err
 	}
-	matched := jiraVerificationKey(parsed, true) == intended && jiraLineStartsReadAsText(rendered, run.atLineStart)
+	matched := jiraVerificationKey(parsed, true) == intended && jiraLineStartsReadAsText(rendered, run.lineStart)
 	if matched {
 		return jiraVerificationVerdict{matched: true}, nil
 	}
@@ -318,14 +336,16 @@ func verifyJiraInlineRun(ctx context.Context, rendered, intended string, inlines
 
 // jiraLineStartsReadAsText reports whether every line start of a rendered run is
 // one Jira keeps inside the block it was rendered for. A forced newline opens a
-// line start wherever it stands, so the scan follows the newlines of the run
-// itself and only the run's own first offset depends on the block context.
-func jiraLineStartsReadAsText(rendered string, atLineStart bool) bool {
+// line start wherever it stands, and it opens the full one: only the run's own
+// first offset inherits the narrower reading its block gives it.
+func jiraLineStartsReadAsText(rendered string, lineStart jiraLineStartRules) bool {
 	for offset := 0; offset < len(rendered); {
-		if atLineStart {
+		if lineStart.reads(jiraLineStartMarkers) {
 			if _, markerEnd := jiraListMarkerPrefix(rendered[offset:]); markerEnd != 0 {
 				return false
 			}
+		}
+		if lineStart.reads(jiraLineStartControls) {
 			if _, _, controlEnd := jiraLineControlPrefix(rendered[offset:]); controlEnd != 0 {
 				return false
 			}
@@ -334,7 +354,7 @@ func jiraLineStartsReadAsText(rendered string, atLineStart bool) bool {
 		if newline < 0 {
 			break
 		}
-		offset, atLineStart = offset+newline+1, true
+		offset, lineStart = offset+newline+1, jiraLineStartEveryRule
 	}
 	return true
 }
