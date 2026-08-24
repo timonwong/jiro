@@ -43,7 +43,9 @@ func TestJiraMonospaceSpanEndMatchesRenderer(t *testing.T) {
 		{name: "zero width space before the consumed backslash", source: "{{a​\\}}", close: 7, bodyEnd: 6, forms: true},
 		{name: "zero width space alone before the consumed backslash", source: "{{​\\}}", close: 6, bodyEnd: 5, forms: true},
 		{name: "word rune after a consumed backslash closer", source: `{{a\}}b}}`, close: 4, bodyEnd: 3},
-		{name: "word rune after a later closer", source: `x{{a\\}}y`, close: -1, bodyEnd: -1},
+		{name: "hidden closer leaves no candidate whatever surrounds it", source: `x{{a\\}}y`, close: -1, bodyEnd: -1},
+		{name: "hidden closer swallows a later opener", source: `{{a\\}} {{b}}`, close: 11, bodyEnd: 11, forms: true},
+		{name: "reference is body content not a hiding run", source: `{{a&#92;}}`, close: 8, bodyEnd: 8, forms: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
