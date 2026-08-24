@@ -642,27 +642,39 @@ func adaptGoldmarkInlines(source []byte, parent ast.Node) ([]semanticInline, []c
 	inlines := make([]semanticInline, 0, parent.ChildCount())
 	diagnostics := make([]conversionDiagnostic, 0)
 	for child := parent.FirstChild(); child != nil; {
-		if textNode, ok := child.(*ast.Text); ok && textNode.HardLineBreak() {
-			span := sourceSpan{Start: textNode.Segment.Start, End: textNode.Segment.Stop}
-			value := decodedMarkdownText(textNode.Segment.Value(source), textNode.IsRaw())
-			if len(value) != 0 {
-				inlines = append(inlines, textInline{Span: span, Text: string(value)})
-			}
-			inlines = append(inlines, hardBreakInline{Span: span})
-			child = child.NextSibling()
-			continue
-		}
-		inline, inlineDiagnostics, next, err := adaptGoldmarkInline(source, child)
+		adapted, inlineDiagnostics, next, err := adaptInlineSibling(source, child)
 		if err != nil {
 			return nil, nil, err
 		}
-		if inline != nil {
-			inlines = append(inlines, inline)
-		}
+		inlines = append(inlines, adapted...)
 		diagnostics = append(diagnostics, inlineDiagnostics...)
 		child = next
 	}
 	return mergeAdjacentTextInlines(inlines), diagnostics, nil
+}
+
+// adaptInlineSibling adapts one node of an inline sibling chain and is the only
+// entry point those walks may use. A text node ending in a hard break expands to
+// the text plus the break, a pair adaptGoldmarkInline's single return value
+// cannot express, so a walk calling adaptGoldmarkInline directly drops the text
+// before the break (#109).
+func adaptInlineSibling(source []byte, node ast.Node) ([]semanticInline, []conversionDiagnostic, ast.Node, error) {
+	if textNode, isText := node.(*ast.Text); isText && textNode.HardLineBreak() {
+		span := sourceSpan{Start: textNode.Segment.Start, End: textNode.Segment.Stop}
+		inlines := make([]semanticInline, 0, 2)
+		if value := decodedMarkdownText(textNode.Segment.Value(source), textNode.IsRaw()); len(value) != 0 {
+			inlines = append(inlines, textInline{Span: span, Text: string(value)})
+		}
+		return append(inlines, hardBreakInline{Span: span}), nil, node.NextSibling(), nil
+	}
+	inline, diagnostics, next, err := adaptGoldmarkInline(source, node)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if inline == nil {
+		return nil, diagnostics, next, nil
+	}
+	return []semanticInline{inline}, diagnostics, next, nil
 }
 
 func adaptGoldmarkInline(source []byte, node ast.Node) (semanticInline, []conversionDiagnostic, ast.Node, error) {
@@ -671,9 +683,6 @@ func adaptGoldmarkInline(source []byte, node ast.Node) (semanticInline, []conver
 	case *ast.Text:
 		value := decodedMarkdownText(typed.Segment.Value(source), typed.IsRaw())
 		spanEnd := typed.Segment.Stop
-		if typed.HardLineBreak() {
-			return hardBreakInline{Span: sourceSpan{Start: typed.Segment.Start, End: spanEnd}}, nil, next, nil
-		}
 		text := string(value)
 		if typed.SoftLineBreak() {
 			text += " "
@@ -903,13 +912,11 @@ func adaptControlledHTML(source []byte, opening *ast.RawHTML) (semanticInline, [
 			span := sourceSpan{Start: rawHTMLSpan(opening).Start, End: rawHTMLSpan(closing).End}
 			return styledInline{Span: span, Style: controlledStyle(tag), Value: color, Children: children}, diagnostics, closing.NextSibling(), nil
 		}
-		child, childDiagnostics, next, err := adaptGoldmarkInline(source, sibling)
+		adapted, childDiagnostics, next, err := adaptInlineSibling(source, sibling)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		if child != nil {
-			children = append(children, child)
-		}
+		children = append(children, adapted...)
 		diagnostics = append(diagnostics, childDiagnostics...)
 		if next == nil {
 			break
