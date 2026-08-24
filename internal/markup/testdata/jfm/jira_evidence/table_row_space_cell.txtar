@@ -1,0 +1,25 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A cell holding one space is a cell of its own: Jira renders the two data cells `a` and `&nbsp;`. The space stands at the cell's edge, where GFM keeps none, so jiro keeps the rows raw.
+-- input.jira --
+||h||i||
+|a| |
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+<th class='confluenceTh'>i</th>
+</tr>
+<tr>
+<td class='confluenceTd'>a</td>
+<td class='confluenceTd'>&nbsp;</td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+:::table
+||h||i||
+|a| |
+:::
+-- warnings.json --
+[]

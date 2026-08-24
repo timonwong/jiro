@@ -1,0 +1,30 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: The delimiters of a row that spans two lines still split it: Jira renders two data cells, one holding `a`, a break and `b`, the other `c`, a break and `d`.
+-- input.jira --
+||h||
+|a
+b|c
+d|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+</tr>
+<tr>
+<td class='confluenceTd'>a<br/>
+b</td>
+<td class='confluenceTd'>c<br/>
+d</td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+:::table
+||h||
+|a
+b|c
+d|
+:::
+-- warnings.json --
+[]

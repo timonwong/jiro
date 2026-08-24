@@ -781,7 +781,7 @@ JFM accepts GFM pipe tables. Jira header cells use `||`; body cells use `|`. Tab
 
 JFM-to-Jira conversion accepts representable inline content in a parsed GFM cell, including standard images. Such content MUST be converted rather than causing the table to become literal.
 
-Canonical Jira-to-JFM conversion uses a GFM table only when every cell contains text, bold, italic, strikethrough, inline code, or standard Markdown links. Images, hard breaks, controlled HTML, directives, significant cell-edge whitespace, headerless tables, inconsistent row shapes, and other Jira-only cell semantics use the reversible `:::table` container instead. A GFM table cannot contain a physical-line-spanning hard break because the line ending terminates the row.
+Canonical Jira-to-JFM conversion uses a GFM table only when every cell contains text, bold, italic, strikethrough, inline code, or standard Markdown links. Images, hard breaks, controlled HTML, directives, significant cell-edge whitespace, headerless tables, inconsistent row shapes, rows Jira reads across several physical lines or behind an indent, and other Jira-only cell semantics use the reversible `:::table` container instead. A GFM table cannot contain a physical-line-spanning hard break because the line ending terminates the row.
 
 The `:::table` body contains canonical Jira table rows and is not parsed as Markdown. `:::table` accepts no attributes. Selecting this directive is canonicalization, not literal fallback, and does not produce a warning.
 

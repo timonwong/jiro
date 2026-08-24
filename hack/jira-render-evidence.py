@@ -8,7 +8,7 @@ Equivalent single-case curl:
     -H 'Content-Type: application/json' -H 'X-Atlassian-Token: no-check' \
     -d '{"rendererType":"atlassian-wiki-renderer","unrenderedMarkup":"{{*bold*}}"}'
 
-Usage: python3 hack/jira-render-evidence.py [round1|...|round13|all] [--json]   (default: all)
+Usage: python3 hack/jira-render-evidence.py [round1|...|round14|all] [--json]   (default: all)
 
 --json prints one {"in": ..., "out": ...} object per line so captures can be
 turned into evidence fixtures without reparsing the human-readable output.
@@ -673,6 +673,53 @@ ROUND13 = [
 ]
 
 
+# Probe strings backing the row a Jira table reads across physical lines (#102):
+# where a row ends, which lines open a row of their own, which ones an open row
+# absorbs, and which `|` the cell split honours.
+ROUND14 = [
+    # --- a row runs on past the end of its line, whether or not the pair that
+    #     ends the line renders a forced newline ---
+    "||h||\n|a\\\\\nb|", "||h||\n|a\nb|", "||h||\n|a\\\\\nb\\\\\nc|",
+    "||h||\n|a\\\\\nb\nc", "||h||\n|a \\\\\nb|", "||h||\n|a\\\\ \nb|",
+    "||h||\n|a\\b\\\\\nc|", "||h||\n|\\\\\nb|", "||h||\n|a\\\nb|",
+    "||h||\n|a\\\\\\\nb|", "||h||\n|a\\\\\\\\\nb|",
+    # --- and its cells are still the ones its delimiters name ---
+    "||h||\n|a\\\\\nb|c|", "||h||\n|a|\\\\\nb|", "||h||\n|a|x\\\\\nb|",
+    "||h||\n|a|b\\\\\nc|d|", "||h||\n|a\nb|c|", "||h||\n|a|b\nc|",
+    "||h||\n|a\nb|c\nd|",
+    # --- a header row is one the delimiter it opens with names, and it runs on
+    #     the same way ---
+    "||h\\\\\ni||\n|a|", "||h||x\\\\\n|a|", "||h\nx||\n|a|", "||h||\n||x\ny||",
+    # --- a line whose `|` stands at a line start, in front of it or behind the
+    #     spaces and tabs Jira skips, opens a row of its own ---
+    "||h||\n|a\\\\\n|b|", "||h||\n|a\\\\\n||b||", "||h||\n|a\\\\\n |b|",
+    "||h||\n|a\\\\\n\t|b|", "||h||\n|a|\n |b|", "||h||\n|a|\n\t|b|",
+    " |a|",
+    # --- while an open row takes every other line into the cell it left open,
+    #     and Jira reads a block at the start of each one ---
+    "||h||\n|a\\\\\nbq. b|", "||h||\n|a\\\\\n# b|", "||h||\n|a\\\\\nh1. t|",
+    "||h||\n|a\\\\\n----\nb|", "||h||\n|a\\\\\n---- x|",
+    "||h||\n|a\\\\\n{quote}\nq\n{quote}\nb|",
+    # --- the table ends at a blank or whitespace-only line, at the end of the
+    #     document, and at the first line outside a row that is closed ---
+    "||h||\n|a\\\\\n\nb|", "||h||\n|a\\\\\n \nb|", "|a\n\nb|",
+    "||h||\n|a\\\\\nb|\nplain", "||h||\n|a\\\\\nb", "||h||\n|a", "|a\\\\\nb|",
+    "x\\\\\n|a|",
+    # --- a row closes on the `|` its last line ends with, whatever stands in
+    #     front of that `|` and whatever spaces or tabs trail it ---
+    "||h||\n|a| \nb|", "||h||\n|a|\t\nb|", "||h||\n|a\\|\nb|",
+    "||h||\n|a\\\\|\nb|", "||h||\n|a\\\\ |\nb|", "||h||\n|a\\\\|",
+    "||h|", "||h|\nx|", "||h||\n|\nb|",
+    # --- and the `|` it closes on leaves no cell behind it ---
+    "|a||", "|a||\nx|", "||h||i||\n|a| |", "||h||i||\n|a|&#32;|",
+    # --- a `|` one backslash byte stands in front of separates no cells ---
+    "||h||\n|a\\\\|b|c|", "||h||\n|a\\\\|b|\nc|", "||h||\n|a\\\\\nb\\| c|",
+    "||h||i||\n|a|\\\\ \\\\|", "|x\\\\y|", "||h||\n|a&#92;|",
+    # --- while `||` inside a data row opens a header cell (unimplemented) ---
+    "||h||\n|a||b|",
+]
+
+
 def render(markup, timeout=30):
     body = json.dumps({"rendererType": "atlassian-wiki-renderer",
                        "unrenderedMarkup": markup}).encode()
@@ -713,6 +760,7 @@ if __name__ == "__main__":
           "round5": ROUND5, "round6": ROUND6, "round7": ROUND7, "round8": ROUND8,
           "round9": ROUND9, "round10": ROUND10, "round11": ROUND11,
           "round12": ROUND12, "round13": ROUND13,
+          "round14": ROUND14,
           "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5 + ROUND6 + ROUND7
                  + ROUND8 + ROUND9 + ROUND10 + ROUND11 + ROUND12
-                 + ROUND13}[which], as_json=as_json)
+                 + ROUND13 + ROUND14}[which], as_json=as_json)

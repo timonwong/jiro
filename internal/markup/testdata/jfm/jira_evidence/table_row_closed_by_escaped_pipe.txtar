@@ -1,0 +1,27 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A row closes on the `|` its line ends with even with a backslash in front of it: Jira renders one data cell holding `a&#124;` and reads `b|` as a paragraph below the table.
+-- input.jira --
+||h||
+|a\|
+b|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+</tr>
+<tr>
+<td class='confluenceTd'>a&#124;</td>
+</tr>
+</tbody></table>
+</div>
+
+<p>b|</p>
+-- want.md --
+| h |
+| --- |
+| a\| |
+
+b|
+-- warnings.json --
+[]

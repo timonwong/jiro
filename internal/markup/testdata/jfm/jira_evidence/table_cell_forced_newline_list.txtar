@@ -1,5 +1,5 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: Jira keeps reading the cell past the forced newline and renders both markers as items of one list inside it. jiro ends the row at the first physical line, keeps that cell's text with one table warning, and reads the continuation line outside the table, which is how it has always read a row.
+observed: Jira keeps reading the cell past the forced newline and renders both markers as items of one list inside it. jiro reads the row across both lines and keeps the whole table as raw Jira Markup, which is what preserves the list a GFM cell could not hold.
 -- input.jira --
 ||h||
 |* a\\
@@ -20,17 +20,10 @@ observed: Jira keeps reading the cell past the forced newline and renders both m
 </tbody></table>
 </div>
 -- want.md --
-| h |
-| --- |
-| \|\* a\\\\ |
-
-- b|
+:::table
+||h||
+|* a\\
+* b|
+:::
 -- warnings.json --
-[
-  {
-    "Line": 2,
-    "Column": 1,
-    "Construct": "table",
-    "Reason": "Jira renders a list inside this table cell; JFM keeps its text"
-  }
-]
+[]

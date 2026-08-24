@@ -1,0 +1,26 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Jira reads the row on past the end of its line with no forced newline in front of the break: it renders one data cell holding `a`, a break and `b`. A GFM cell is one line, so jiro keeps the whole table as raw Jira Markup.
+-- input.jira --
+||h||
+|a
+b|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+</tr>
+<tr>
+<td class='confluenceTd'>a<br/>
+b</td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+:::table
+||h||
+|a
+b|
+:::
+-- warnings.json --
+[]
