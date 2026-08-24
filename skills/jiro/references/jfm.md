@@ -7,10 +7,9 @@ For a Jira mutation, use this branch together with the core `inspect -> prefligh
 ## Select the contract
 
 - Jira Markup is the default Description and Comment Body input contract; `--input-format=jira` passes supplied Jira Markup through unchanged to the Jira REST payload.
-- Typed Issue and Comment reads expose Jira Markup. Reuse that text as Jira Markup with an omitted `--input-format` or `--input-format=jira`; reserve `--input-format=jfm` for newly authored Markdown.
-- Use the canonical `--input-format=jfm` value for JFM. `markdown` is a permanent, warning-free compatibility alias, but generate new commands with `jfm`.
+- Typed Issue and Comment reads expose only Jira Markup; there is no JFM read projection. Reuse that text as Jira Markup with an omitted `--input-format` or `--input-format=jira`; reserve `--input-format=jfm` for newly authored Markdown.
+- Write `--input-format=jfm`; `markdown` is a permanent, warning-free compatibility alias.
 - Use `--input-format` only where the current schema and command help expose it: Issue creation, Issue update, Comment creation, and the inline transition comment on `issue move`. Custom fields retain their declared Jira value contract.
-- Treat Jira Markup as the only typed Issue and Comment read representation; the current contract has no JFM projection flags or sibling fields such as `--jfm`, `descriptionJfm`, or `bodyJfm`.
 
 ## Supply JFM to a Jira mutation
 
@@ -25,15 +24,11 @@ jiro issue move OPS-42 --to Done --comment "**Verified** in staging." \
   --input-format=jfm --resolution Fixed --output=json
 ```
 
-Keep inline and file inputs mutually exclusive. Use `-` as the file value to read long input from stdin. `issue move --comment` is inline-only, and an explicitly supplied `--input-format` without `--comment` is invalid.
+On `issue move`, an explicitly supplied `--input-format` without `--comment` is invalid.
 
 JFM conversion is best-effort. Conversion warnings retain every target-representable semantic, keep the mutation successful, and use code `jfm_conversion`. In JSON output, inspect `warnings[].details.direction`, `field`, `line`, `column`, `construct`, and `reason`; in text output, preserve stderr alongside the successful result. A fatal conversion failure stops before the Jira write and returns no successful mutation result.
 
-JFM inline code follows Jira renderer behavior rather than treating `{{...}}` as an opaque literal container. Canonical output keeps a body readable wherever Jira would leave it alone, protects exactly what Jira would otherwise reinterpret or swallow, and separates inline code from an adjacent word character or authored U+200B so Jira still renders the span. Warning-free inline code is byte-lossless, so its body survives JFM → Jira Markup → JFM unchanged; a body that cannot be proven safe becomes plain text with an `inline-code` warning. A Jira → JFM `jfm_conversion` warning with `construct` `inline-code` means Jira would have rendered a Text Effect, citation, or link inside a Monospace Span and jiro kept the characters literal in the inline code. Emoticon and dash reinterpretations inside a Monospace Span are not warned, and Jira-specific rendering behavior around a `}}` boundary is not by itself a `jfm_conversion` warning.
-
-Plain text follows the same rule. An effect delimiter is escaped only where Jira would read it as one delimiter of a complete span, so `foo_bar_baz`, `release-note` and `what??` stay readable while `a -b- c` becomes `a \-b\- c`; a Text Effect that touches a letter or digit is written in Jira's brace form (`a**b**c` becomes `a{*}b{*}c`); a `h1.` or `bq.` line start is protected with `&#46;`; and an authored backslash becomes `&#92;` only where a bare one would start a Jira escape or forced newline, so `C:\dir\file` stays readable. Plain text that cannot be verified becomes fully escaped with a `plain-text` warning.
-
-A Jira emoticon has its own JFM spelling, the attrless inline directive `:emoticon[token]`, whose content is exactly one supported token such as `(x)`, `(*)` or `:)`; `(*y)` is accepted on input and written back as `(*)`. Jira → JFM emits the directive for an unescaped token in visible inline text and leaves an escaped one, a token in code, in a Monospace Span, or in a link, image or macro value as ordinary text. Emoticon-shaped prose stays literal without a warning: `print(x)` becomes `print\(x\)` and `:)`, `:P`, `:D`, `:(` and `;)` become `&#58;)`, `&#58;P`, `&#58;D`, `&#58;(` and `&#59;)`. A directive whose token a word character follows still emits the token and reports an `emoticon` warning, because Jira suppresses the icon there; an unknown token, an attribute list, or any other content leaves the whole directive literal with the same warning.
+Canonical conversion keeps a body readable wherever Jira would leave it alone and protects exactly what Jira would otherwise reinterpret or swallow; warning-free inline code round-trips byte-lossless, and a body that cannot be proven safe becomes plain text or fully escaped text with an `inline-code` or `plain-text` warning. A Jira emoticon has a dedicated JFM spelling, the attrless inline directive `:emoticon[token]` with exactly one supported token such as `(x)` or `:)`; emoticon-shaped prose stays literal without a warning, and a directive Jira would suppress or reject reports an `emoticon` warning. For exact escaping and canonicalization rules, use the specification named below.
 
 ## Convert documents offline
 

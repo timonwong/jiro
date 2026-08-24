@@ -19,7 +19,7 @@ Bulk move dry-run proves transition availability but does not ask Jira to valida
 
 ## Execute and verify
 
-After the user authorizes the preflighted write, repeat the exact JQL and target with `--yes`. Keep dry-run and execution output distinct.
+Repeat the exact JQL and target with `--yes` only when the dry-run result matches the user-requested scope; a mismatched or surprising selection needs the user's decision before execution. Keep dry-run and execution output distinct.
 
 Bulk writes run serially. Preserve every `succeeded`, `failed`, `unknown`, and `not_attempted` item in its returned order. Never infer that an unattempted Issue changed.
 
