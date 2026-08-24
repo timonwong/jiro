@@ -272,7 +272,7 @@ func adaptContainerDirective(source []byte, node *jfmContainerDirective) (semant
 	}
 	switch strings.ToLower(node.Name) {
 	case "panel":
-		attributes, validationDiagnostics := validateContainerAttributes(attributes, panelAttributeOrder(), nil, true, "panel")
+		_, attributes, validationDiagnostics, _ := validateDirectiveAttributes(attributes, containerDirectiveAttributeSchema(panelAttributeOrder(), nil, "panel"))
 		diagnostics = append(diagnostics, validationDiagnostics...)
 		panel := panelBlock{Span: span, Attributes: attributes}
 		for child := node.FirstChild(); child != nil; child = child.NextSibling() {
@@ -289,7 +289,7 @@ func adaptContainerDirective(source []byte, node *jfmContainerDirective) (semant
 		return panel, diagnostics, nil
 	case "code":
 		booleanAttributes := map[string]bool{"collapse": true, "linenumbers": true}
-		attributes, validationDiagnostics := validateContainerAttributes(attributes, codeAttributeOrder(), booleanAttributes, true, "code")
+		_, attributes, validationDiagnostics, _ := validateDirectiveAttributes(attributes, containerDirectiveAttributeSchema(codeAttributeOrder(), booleanAttributes, "code"))
 		diagnostics = append(diagnostics, validationDiagnostics...)
 		language := ""
 		for index := range attributes {
@@ -419,41 +419,6 @@ func trimOneTrailingLineEnding(value string) string {
 		return value[:len(value)-1]
 	}
 	return value
-}
-
-func validateContainerAttributes(attributes []directiveAttribute, known []string, booleans map[string]bool, allowUnknown bool, directive string) ([]directiveAttribute, []conversionDiagnostic) {
-	diagnostics := make([]conversionDiagnostic, 0)
-	seen := map[string]bool{}
-	for index := range attributes {
-		key := strings.ToLower(attributes[index].Name)
-		canonical := ""
-		for _, name := range known {
-			if strings.EqualFold(name, attributes[index].Name) {
-				canonical = name
-				break
-			}
-		}
-		if canonical == "" {
-			if allowUnknown {
-				diagnostics = append(diagnostics, conversionDiagnostic{offset: attributes[index].Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "unknown " + directive + " directive attribute is preserved"}})
-			}
-			continue
-		}
-		attributes[index].Name = canonical
-		if seen[key] {
-			diagnostics = append(diagnostics, conversionDiagnostic{offset: attributes[index].Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "duplicate " + directive + " directive attribute is preserved"}})
-		}
-		seen[key] = true
-		if booleans[key] {
-			value := strings.ToLower(attributes[index].Value)
-			if attributes[index].Bare || value != "true" && value != "false" {
-				diagnostics = append(diagnostics, conversionDiagnostic{offset: attributes[index].Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "invalid boolean directive attribute value is preserved"}})
-			} else {
-				attributes[index].Value = value
-			}
-		}
-	}
-	return attributes, diagnostics
 }
 
 func panelAttributeOrder() []string {
@@ -1083,43 +1048,16 @@ func adaptInlineDirective(source []byte, node *jfmInlineDirective, next ast.Node
 		}
 		return linkInline{Span: span, Label: label, Target: target, Directive: true, Dangerous: dangerous}, diagnostics, next, nil
 	case "image":
-		known := map[string]string{"src": "src", "thumbnail": "thumbnail", "align": "align", "border": "border", "bordercolor": "bordercolor", "hspace": "hspace", "vspace": "vspace", "width": "width", "height": "height", "title": "title"}
-		canonical := make([]directiveAttribute, 0, len(attributes))
-		sourceValue, foundSource := "", false
-		seen := map[string]bool{}
-		for _, attribute := range attributes {
-			key := strings.ToLower(attribute.Name)
-			canonicalName, knownAttribute := known[key]
-			if !knownAttribute {
-				diagnostics = append(diagnostics, conversionDiagnostic{offset: attribute.Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "unknown image directive attribute is preserved"}})
-				canonical = append(canonical, attribute)
-				continue
-			}
-			attribute.Name = canonicalName
-			if seen[key] {
-				diagnostics = append(diagnostics, conversionDiagnostic{offset: attribute.Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "duplicate image directive attribute is preserved"}})
-			}
-			seen[key] = true
-			if key == "thumbnail" && !attribute.Bare {
-				diagnostics = append(diagnostics, conversionDiagnostic{offset: attribute.Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "thumbnail is a presence-only image attribute"}})
-			}
-			if key != "thumbnail" && attribute.Bare {
-				diagnostics = append(diagnostics, conversionDiagnostic{offset: attribute.Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "image directive attribute requires a value"}})
-			}
-			if key == "src" && !attribute.Bare && !foundSource {
-				sourceValue, foundSource = attribute.Value, true
-				continue
-			}
-			canonical = append(canonical, attribute)
-		}
-		if !foundSource {
+		destination, canonical, validationDiagnostics, _ := validateDirectiveAttributes(attributes, imageDirectiveAttributeSchema)
+		diagnostics = append(diagnostics, validationDiagnostics...)
+		if destination.Name == "" {
 			return literalInline{Span: span, Text: raw}, append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "image directive is missing required src attribute"}}), next, nil
 		}
-		_, dangerous := dangerousDestinationScheme([]byte(strings.TrimLeftFunc(sourceValue, unicodeSpaceOrControl)))
+		_, dangerous := dangerousDestinationScheme([]byte(strings.TrimLeftFunc(destination.Value, unicodeSpaceOrControl)))
 		if dangerous {
 			diagnostics = append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructImage, Reason: "dangerous destination scheme remains reversible through the image directive"}})
 		}
-		return imageInline{Span: span, Alt: decodeInlineDirectiveContent(string(node.Content.Value(source))), Source: sourceValue, Attributes: canonical, Directive: true, Dangerous: dangerous}, diagnostics, next, nil
+		return imageInline{Span: span, Alt: decodeInlineDirectiveContent(string(node.Content.Value(source))), Source: destination.Value, Attributes: canonical, Directive: true, Dangerous: dangerous}, diagnostics, next, nil
 	default:
 		return literalInline{Span: span, Text: raw}, []conversionDiagnostic{{offset: span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "unknown JFM directive remains literal"}}}, next, nil
 	}

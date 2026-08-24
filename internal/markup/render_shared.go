@@ -18,7 +18,14 @@ func combinedBoldItalic(inline styledInline) ([]semanticInline, bool) {
 }
 
 func imageAttributeOrder() []string {
-	return []string{"src", "thumbnail", "align", "border", "bordercolor", "hspace", "vspace", "width", "height", "title"}
+	return imageAttributeNames("src")
+}
+
+// imageAttributeNames spells the image attribute set. The first name is the one
+// the surrounding syntax carries: `src` for a JFM image directive, `alt` for a
+// Jira image, whose destination precedes the parameters.
+func imageAttributeNames(carried string) []string {
+	return []string{carried, "thumbnail", "align", "border", "bordercolor", "hspace", "vspace", "width", "height", "title"}
 }
 
 func escapeSelectedRunes(ctx context.Context, value, selected string) (string, error) {
