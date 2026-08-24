@@ -907,7 +907,7 @@ func adaptControlledHTML(source []byte, opening *ast.RawHTML) ([]semanticInline,
 			for sibling := opening.NextSibling(); sibling != nil; sibling = sibling.NextSibling() {
 				if closing, isHTML := sibling.(*ast.RawHTML); isHTML && isControlledClosingTag(string(closing.Segments.Value(source)), strings.ToLower(match[1])) {
 					complete := sourceSpan{Start: span.Start, End: rawHTMLSpan(closing).End}
-					return []semanticInline{literalInline{Span: complete, Text: string(source[complete.Start:complete.End])}}, unsupported, closing.NextSibling(), nil
+					return literalSourceInlines(source, complete, opening.NextSibling(), closing), unsupported, closing.NextSibling(), nil
 				}
 			}
 		}
@@ -938,6 +938,55 @@ func adaptControlledHTML(source []byte, opening *ast.RawHTML) ([]semanticInline,
 	span := rawHTMLSpan(opening)
 	inlines := append([]semanticInline{literalInline{Span: span, Text: raw}}, children...)
 	return inlines, append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructHTML, Reason: "unclosed controlled HTML remains literal"}}), nil, nil
+}
+
+// literalSourceInlines keeps one span of JFM source as the literal text it was
+// authored as, with the hard breaks inside it lifted out. A hard break is the
+// one thing the source bytes cannot carry through: the `\` in front of the
+// newline is JFM syntax and no character of the text, so written as authored it
+// reaches Jira as a backslash Jira shows in front of an ordinary line break and
+// comes back as that backslash and a space instead of the break (#119). Lifted
+// out, the writer spells it as Jira's forced newline, which reads back as the
+// break it was.
+func literalSourceInlines(source []byte, span sourceSpan, first, limit ast.Node) []semanticInline {
+	inlines := make([]semanticInline, 0, 1)
+	cursor := span.Start
+	for _, offset := range inlineHardBreakOffsets(first, limit) {
+		newline := bytes.IndexByte(source[offset:span.End], '\n')
+		if offset < cursor || newline < 0 {
+			continue
+		}
+		if offset > cursor {
+			inlines = append(inlines, literalInline{Span: sourceSpan{Start: cursor, End: offset}, Text: string(source[cursor:offset])})
+		}
+		cursor = offset + newline + 1
+		inlines = append(inlines, hardBreakInline{Span: sourceSpan{Start: offset, End: cursor}})
+	}
+	if cursor < span.End {
+		inlines = append(inlines, literalInline{Span: sourceSpan{Start: cursor, End: span.End}, Text: string(source[cursor:span.End])})
+	}
+	return inlines
+}
+
+// inlineHardBreakOffsets reports where each hard break begins in the sibling
+// chain that runs from first up to but not including limit, descendants
+// included, in source order. A break begins where the text before it stops,
+// which is the first byte of the `\` or the two spaces that spell it.
+func inlineHardBreakOffsets(first, limit ast.Node) []int {
+	offsets := []int(nil)
+	var visit func(ast.Node)
+	visit = func(node ast.Node) {
+		if text, isText := node.(*ast.Text); isText && text.HardLineBreak() {
+			offsets = append(offsets, text.Segment.Stop)
+		}
+		for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+			visit(child)
+		}
+	}
+	for sibling := first; sibling != nil && sibling != limit; sibling = sibling.NextSibling() {
+		visit(sibling)
+	}
+	return offsets
 }
 
 func parseControlledOpeningTag(raw string) (tag, color string, ok bool) {

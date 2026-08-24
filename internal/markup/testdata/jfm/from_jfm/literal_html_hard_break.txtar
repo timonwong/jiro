@@ -1,0 +1,17 @@
+-- input.md --
+<mark>a\
+b</mark>
+
+x <mark>c\
+d</mark> y
+-- want.jira --
+<mark>a\\
+b</mark>
+
+x <mark>c\\
+d</mark> y
+-- warnings.json --
+[
+  {"Line":1,"Column":1,"Construct":"html","Reason":"unsupported or malformed inline HTML remains literal"},
+  {"Line":4,"Column":3,"Construct":"html","Reason":"unsupported or malformed inline HTML remains literal"}
+]

@@ -1090,6 +1090,6 @@ Warnings:
 
 Unknown Jira macros retain their opening and closing notation while recognized body content continues through conversion. A warning identifies the unknown macro and the fact that its render mode is unknown.
 
-Unknown JFM directives and malformed supported directives use literal fallback because their semantic boundary or required data is not trustworthy. Unsupported or malformed controlled HTML likewise remains literal. Literal fallback escapes target control characters so the preserved source remains visible rather than becoming accidental formatting.
+Unknown JFM directives and malformed supported directives use literal fallback because their semantic boundary or required data is not trustworthy. Unsupported or malformed controlled HTML likewise remains literal. Literal fallback escapes target control characters so the preserved source remains visible rather than becoming accidental formatting. A hard break inside a literal is preserved as a break rather than as the characters that spell it, because the `\` in front of the newline is JFM syntax and no character of the preserved text.
 
 Source-content problems are never fatal. A conforming conversion produces the best complete result it can, with warnings identifying every loss or fallback occurrence.

@@ -8,7 +8,7 @@ Equivalent single-case curl:
     -H 'Content-Type: application/json' -H 'X-Atlassian-Token: no-check' \
     -d '{"rendererType":"atlassian-wiki-renderer","unrenderedMarkup":"{{*bold*}}"}'
 
-Usage: python3 hack/jira-render-evidence.py [round1|...|round15|all] [--json]   (default: all)
+Usage: python3 hack/jira-render-evidence.py [round1|...|round16|all] [--json]   (default: all)
 
 --json prints one {"in": ..., "out": ...} object per line so captures can be
 turned into evidence fixtures without reparsing the human-readable output.
@@ -752,6 +752,13 @@ ROUND15 = [
 ]
 
 
+ROUND16 = [
+    # --- a lone backslash at the end of a line is no forced newline: Jira
+    #     shows it and breaks the line as it breaks any other (#119) ---
+    "a\\\nb", "a\\", "a&#92;\nb",
+]
+
+
 def render(markup, timeout=30):
     body = json.dumps({"rendererType": "atlassian-wiki-renderer",
                        "unrenderedMarkup": markup}).encode()
@@ -792,7 +799,7 @@ if __name__ == "__main__":
           "round5": ROUND5, "round6": ROUND6, "round7": ROUND7, "round8": ROUND8,
           "round9": ROUND9, "round10": ROUND10, "round11": ROUND11,
           "round12": ROUND12, "round13": ROUND13,
-          "round14": ROUND14, "round15": ROUND15,
+          "round14": ROUND14, "round15": ROUND15, "round16": ROUND16,
           "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5 + ROUND6 + ROUND7
                  + ROUND8 + ROUND9 + ROUND10 + ROUND11 + ROUND12
-                 + ROUND13 + ROUND14 + ROUND15}[which], as_json=as_json)
+                 + ROUND13 + ROUND14 + ROUND15 + ROUND16}[which], as_json=as_json)
