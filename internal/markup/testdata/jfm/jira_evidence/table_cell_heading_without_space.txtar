@@ -1,0 +1,29 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A table cell reads the control with no space after the `.` as well, and Jira renders the heading inside the cell; a GFM cell holds inline content only, so jiro keeps the text and warns.
+-- input.jira --
+||h||
+|h1.y|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+</tr>
+<tr>
+<td class='confluenceTd'><h1><a name="y"></a>y</h1></td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+| h |
+| --- |
+| h1.y |
+-- warnings.json --
+[
+  {
+    "Line": 2,
+    "Column": 2,
+    "Construct": "table",
+    "Reason": "Jira renders a heading inside this table cell; JFM keeps its text"
+  }
+]

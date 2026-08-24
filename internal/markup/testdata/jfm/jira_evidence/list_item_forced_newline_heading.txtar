@@ -1,0 +1,17 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Jira keeps reading the item past the forced newline and renders the heading inside it. jiro ends the item at the physical line, keeps the break's backslashes as item text, and writes the heading after the list.
+-- input.jira --
+* a\\
+h1. y
+-- rendered.html --
+<ul>
+	<li>a<br class="atl-forced-newline" />
+<h1><a name="y"></a>y</h1></li>
+</ul>
+-- want.md --
+- a\
+
+
+# y
+-- warnings.json --
+[]

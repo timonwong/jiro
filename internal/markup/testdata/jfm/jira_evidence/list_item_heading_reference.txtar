@@ -1,0 +1,12 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A `&#46;` keeps the control off a list item's content start as it does off any other line start, so the item keeps its text.
+-- input.jira --
+* h1&#46; y
+-- rendered.html --
+<ul>
+	<li>h1&#46; y</li>
+</ul>
+-- want.md --
+- h1&#46; y
+-- warnings.json --
+[]

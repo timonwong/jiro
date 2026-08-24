@@ -1,0 +1,12 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: The item content start reads the same controls under a `#` marker as under a `*` one.
+-- input.jira --
+# h1. y
+-- rendered.html --
+<ol>
+	<li><h1><a name="y"></a>y</h1></li>
+</ol>
+-- want.md --
+1. # y
+-- warnings.json --
+[]

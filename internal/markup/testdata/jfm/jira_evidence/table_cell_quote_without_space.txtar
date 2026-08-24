@@ -1,0 +1,29 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: The same holds for `bq.` with no space after the `.`: Jira renders the quote inside the cell and jiro keeps the text with a warning.
+-- input.jira --
+||h||
+|bq.y|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h</th>
+</tr>
+<tr>
+<td class='confluenceTd'><blockquote><p>y</p></blockquote></td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+| h |
+| --- |
+| bq.y |
+-- warnings.json --
+[
+  {
+    "Line": 2,
+    "Column": 2,
+    "Construct": "table",
+    "Reason": "Jira renders a block quote inside this table cell; JFM keeps its text"
+  }
+]

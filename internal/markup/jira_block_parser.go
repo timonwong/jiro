@@ -7,6 +7,30 @@ import (
 	"unicode"
 )
 
+// parseJiraLineControlBlock reads the block one line control opens. span is the
+// physical line the control stands on, or the item content that begins with it,
+// and controlEnd is the offset one past the control's `.`. Jira ends the block
+// at the end of that one line and reads no second control inside it, so
+// `h1. bq. y` is a heading whose text is `bq. y`.
+func parseJiraLineControlBlock(ctx context.Context, source string, span sourceSpan, controlEnd, level int, quote bool) (semanticBlock, []conversionDiagnostic, error) {
+	contentStart := jiraLineControlContentStart(source[:span.End], controlEnd)
+	domain := jiraLineDomain{End: span.End}
+	if !quote {
+		// A JFM ATX heading is one line and cannot carry a hard break, so a forced
+		// newline Jira renders here stays literal and is reported.
+		domain.Unbreakable = ConstructHeading
+	}
+	inlines, diagnostics, err := parseJiraInlines(ctx, source, contentStart, span.End, domain)
+	if err != nil {
+		return nil, nil, err
+	}
+	if quote {
+		paragraph := paragraphBlock{Span: sourceSpan{Start: contentStart, End: span.End}, Inlines: inlines}
+		return quoteBlock{Span: span, Blocks: []semanticBlock{paragraph}}, diagnostics, nil
+	}
+	return headingBlock{Span: span, Level: level, Inlines: inlines}, diagnostics, nil
+}
+
 func isJiraBlockStart(line string) bool {
 	if _, markerEnd := jiraListMarkerPrefix(line); markerEnd != 0 {
 		return true
@@ -20,9 +44,9 @@ func isJiraBlockStartBesidesList(line string) bool {
 	if _, _, controlEnd := jiraLineControlPrefix(line); controlEnd != 0 {
 		return true
 	}
-	if _, controlLike := jiraLineControlLikePrefix(line); controlLike {
-		return true
-	}
+	// A heading level Jira has none of opens nothing: Jira keeps `h10. x` and
+	// `h10.x` in the paragraph or the item above them, and only the levels it
+	// does have interrupt one.
 	if jiraLineThematicBreak(line) || strings.HasPrefix(line, "||") || strings.HasPrefix(line, "|") {
 		return true
 	}
@@ -148,20 +172,41 @@ func parseJiraLists(ctx context.Context, source string, lines []sourceLine, star
 		}
 		item := listItem{Span: sourceSpan{Start: line.Start, End: line.End}}
 		index++
-		continuation := index
-		for continuation < len(lines) && jiraListItemContinues(lines[continuation].Text) {
-			continuation++
+		if level, quote, controlEnd := jiraLineControlPrefix(line.Text[contentStart:]); controlEnd != 0 {
+			// Jira reads its line controls at every item's content start and renders
+			// the block inside the item. The control takes its own line and no more:
+			// the lines below it that Jira keeps in the item are blocks of their own
+			// rather than more of this one, so the item takes none of them and the
+			// list ends there -- the reading a control line already gets below a
+			// plain item (jiraListItemContinues).
+			block, controlDiagnostics, err := parseJiraLineControlBlock(ctx, source, sourceSpan{Start: line.Start + contentStart, End: line.End}, line.Start+contentStart+controlEnd, level, quote)
+			if err != nil {
+				return nil, 0, nil, err
+			}
+			item.Blocks = append(item.Blocks, block)
+			diagnostics = append(diagnostics, controlDiagnostics...)
+			if index < len(lines) && jiraListItemContinues(lines[index].Text) {
+				diagnostics = append(diagnostics, conversionDiagnostic{offset: lines[index].Start, warning: ConversionWarning{
+					Construct: ConstructList,
+					Reason:    "Jira keeps this line inside the list item above it; a JFM item holds nothing after its line control, so the line follows the list",
+				}})
+			}
+		} else {
+			continuation := index
+			for continuation < len(lines) && jiraListItemContinues(lines[continuation].Text) {
+				continuation++
+			}
+			inlines, inlineDiagnostics, err := parseJiraListItemContent(ctx, source, line, contentStart, lines[index:continuation])
+			if err != nil {
+				return nil, 0, nil, err
+			}
+			if continuation != index {
+				item.Span.End = lines[continuation-1].End
+				index = continuation
+			}
+			diagnostics = append(diagnostics, inlineDiagnostics...)
+			item.Inlines = inlines
 		}
-		inlines, inlineDiagnostics, err := parseJiraListItemContent(ctx, source, line, contentStart, lines[index:continuation])
-		if err != nil {
-			return nil, 0, nil, err
-		}
-		if continuation != index {
-			item.Span.End = lines[continuation-1].End
-			index = continuation
-		}
-		diagnostics = append(diagnostics, inlineDiagnostics...)
-		item.Inlines = inlines
 		frame := &stack[depth-1]
 		frame.items = append(frame.items, item)
 		frame.end = item.Span.End

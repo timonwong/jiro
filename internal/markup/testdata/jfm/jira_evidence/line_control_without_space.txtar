@@ -5,6 +5,6 @@ h1.x
 -- rendered.html --
 <h1><a name="x"></a>x</h1>
 -- want.md --
-h1.x
+# x
 -- warnings.json --
 []

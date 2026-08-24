@@ -85,8 +85,14 @@ func TestJiraLineControlPrefixMatchesRenderer(t *testing.T) {
 		{name: "twice tab indented heading", line: "\t\th1. x", level: 1, end: 5},
 		{name: "indented quote", line: " bq. x", quote: true, end: 4},
 		{name: "twice indented quote", line: "  bq. x", quote: true, end: 5},
-		{name: "heading without a space", line: "h1.x"},
-		{name: "quote without a space", line: "bq.x"},
+		{name: "heading without a space", line: "h1.x", level: 1, end: 3},
+		{name: "quote without a space", line: "bq.x", quote: true, end: 3},
+		{name: "heading with two spaces", line: "h1.  x", level: 1, end: 3},
+		{name: "heading with a tab", line: "h1.\tx", level: 1, end: 3},
+		{name: "indented heading without a space", line: "  h1.x", level: 1, end: 5},
+		{name: "two digit heading level", line: "h10. x"},
+		{name: "two digit heading level without a space", line: "h10.x"},
+		{name: "heading level zero", line: "h0.x"},
 		{name: "protected heading", line: "h1&#46; x"},
 		{name: "indented protected heading", line: " h1&#46; x"},
 		{name: "heading level Jira has none of", line: "h7. x"},
@@ -103,25 +109,55 @@ func TestJiraLineControlPrefixMatchesRenderer(t *testing.T) {
 	}
 }
 
-// TestJiraLineControlLikePrefixKeepsTheLineVisible covers the shapes jiro reads
-// as an attempt at a line control it does not convert: a heading level Jira has
-// none of stays literal with a warning, and both shapes still end the paragraph
-// above them because Jira opens a block where jiro keeps text.
-func TestJiraLineControlLikePrefixKeepsTheLineVisible(t *testing.T) {
+// TestJiraLineControlContentStartSkipsEveryGap holds the other half of the rule
+// above: Jira keeps none of the spaces and tabs between the `.` and the content,
+// so every row below renders the heading or the quote with the content `x`.
+func TestJiraLineControlContentStartSkipsEveryGap(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name             string
-		line             string
-		malformedHeading bool
-		blockStart       bool
+		name string
+		line string
+		want int
 	}{
-		{name: "heading level Jira has none of", line: "h7. x", malformedHeading: true, blockStart: true},
-		{name: "two digit heading level", line: "h12. x", malformedHeading: true, blockStart: true},
-		{name: "heading level alone", line: "h7.", malformedHeading: true, blockStart: true},
-		{name: "heading jiro converts", line: "h1. x", malformedHeading: true, blockStart: true},
-		{name: "heading without a space", line: "h7.x"},
-		{name: "quote without a space", line: "bq.x", blockStart: true},
-		{name: "quote jiro converts", line: "bq. x", blockStart: true},
+		{name: "no gap", line: "h1.x", want: 3},
+		{name: "one space", line: "h1. x", want: 4},
+		{name: "two spaces", line: "h1.  x", want: 5},
+		{name: "tab", line: "h1.\tx", want: 4},
+		{name: "spaces and a tab", line: "h2.  \tx", want: 6},
+		{name: "quote", line: "bq.\tx", want: 4},
+		{name: "nothing after the control", line: "h1.", want: 3},
+		{name: "gap and nothing else", line: "h1. ", want: 4},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, _, end := jiraLineControlPrefix(test.line)
+			if got := jiraLineControlContentStart(test.line, end); got != test.want {
+				t.Fatalf("jiraLineControlContentStart(%q, %d) = %d; want %d", test.line, end, got, test.want)
+			}
+		})
+	}
+}
+
+// TestJiraLineMalformedHeadingPrefixKeepsTheLineVisible covers the shapes jiro
+// reads as an attempt at a heading it does not convert: a level Jira has none of
+// stays literal with a warning, whether or not a space follows the `.`, because
+// Jira renders both as text.
+func TestJiraLineMalformedHeadingPrefixKeepsTheLineVisible(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		line string
+		want bool
+	}{
+		{name: "heading level Jira has none of", line: "h7. x", want: true},
+		{name: "two digit heading level", line: "h12. x", want: true},
+		{name: "heading level alone", line: "h7.", want: true},
+		{name: "heading jiro converts", line: "h1. x", want: true},
+		{name: "heading without a space", line: "h7.x", want: true},
+		{name: "two digit heading level without a space", line: "h10.x", want: true},
+		{name: "heading level zero without a space", line: "h0.x", want: true},
+		{name: "quote without a space", line: "bq.x"},
+		{name: "quote jiro converts", line: "bq. x"},
 		{name: "letter after the h", line: "hx. y"},
 		{name: "no period", line: "h1 x"},
 		{name: "indented heading level Jira has none of", line: " h7. x"},
@@ -129,9 +165,8 @@ func TestJiraLineControlLikePrefixKeepsTheLineVisible(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			malformedHeading, blockStart := jiraLineControlLikePrefix(test.line)
-			if malformedHeading != test.malformedHeading || blockStart != test.blockStart {
-				t.Fatalf("jiraLineControlLikePrefix(%q) = %t, %t; want %t, %t", test.line, malformedHeading, blockStart, test.malformedHeading, test.blockStart)
+			if got := jiraLineMalformedHeadingPrefix(test.line); got != test.want {
+				t.Fatalf("jiraLineMalformedHeadingPrefix(%q) = %t; want %t", test.line, got, test.want)
 			}
 		})
 	}
@@ -152,6 +187,9 @@ func TestEscapeTextForJiraTextProtectsLineStarts(t *testing.T) {
 		{name: "tab indented bullet", text: "\t* item", want: "\t\\* item"},
 		{name: "nested markers", text: "** item", want: `\** item`},
 		{name: "heading", text: "h1. x", want: "h1&#46; x"},
+		{name: "heading without a space", text: "h1.x", want: "h1&#46;x"},
+		{name: "quote without a space", text: "bq.x", want: "bq&#46;x"},
+		{name: "heading level Jira has none of", text: "h7.x", want: "h7.x"},
 		{name: "indented heading", text: " h1. x", want: " h1&#46; x"},
 		{name: "tab indented heading", text: "\th1. x", want: "\th1&#46; x"},
 		{name: "indented quote", text: " bq. x", want: " bq&#46; x"},
@@ -161,7 +199,7 @@ func TestEscapeTextForJiraTextProtectsLineStarts(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			got, _, err := escapeTextForJiraText(context.Background(), test.text, jiraInlineRender{atLineStart: true})
+			got, _, err := escapeTextForJiraText(context.Background(), test.text, jiraInlineRender{lineStart: jiraLineStartEveryRule})
 			if err != nil {
 				t.Fatal(err)
 			}

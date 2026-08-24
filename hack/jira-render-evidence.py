@@ -8,7 +8,7 @@ Equivalent single-case curl:
     -H 'Content-Type: application/json' -H 'X-Atlassian-Token: no-check' \
     -d '{"rendererType":"atlassian-wiki-renderer","unrenderedMarkup":"{{*bold*}}"}'
 
-Usage: python3 hack/jira-render-evidence.py [round1|...|round12|all] [--json]   (default: all)
+Usage: python3 hack/jira-render-evidence.py [round1|...|round13|all] [--json]   (default: all)
 
 --json prints one {"in": ..., "out": ...} object per line so captures can be
 turned into evidence fixtures without reparsing the human-readable output.
@@ -631,6 +631,47 @@ ROUND12 = [
     ":emoticon[(x)]",
 ]
 
+# Probe strings backing the line controls a list item's content start reads
+# (#101) and the forms that need no space after the `.` (#121): the controls
+# at every item content start, the levels Jira has none of, and the line a
+# malformed one keeps in the paragraph above it.
+ROUND13 = [
+    # --- `h1.` to `h6.` and `bq.` form at every list item's content start, at
+    #     every nesting level and under every marker ---
+    "* h1. y", "* h2. y", "* h6. y", "* h7. y", "* bq. y", "** h1. y",
+    "# h1. y", "- h3. y", "#* bq. y", "*  h1. y", "* \th1. y",
+    "* h1. *b*", "* bq. *b*",
+    # --- a control item stays in the list, and the lines below it are blocks
+    #     of their own inside the item ---
+    "* h1. y\n* z", "* a\n* h1. y\n* z", "* h1. y\nz", "* bq. y\n* z",
+    "* h1. y\n** z", "* h1. y\nh2. z", "* bq. y\nz", "* a\n  h1. y",
+    "* a\\\\\nh1. y", "* a\\\\\nbq. y",
+    # --- but a list marker does not re-form there, and a `&#46;` keeps the
+    #     control off wherever it stands ---
+    "* * y", "* # y", "* - y", "* h1&#46; y", "* bq&#46; y", "* h1&#46;y",
+    # --- one control consumes its whole line and reads no second one ---
+    "* h1. bq. y", "* bq. h1. y",
+    # --- no space is needed after the `.`, at any line start Jira reads ---
+    "h1.y", "bq.y", "h1.*b*", "h7.y", "h1. y", "* h1.y", "* bq.y",
+    "||h||\n|h1.y|", "||h||\n|bq.y|",
+    # --- and every space and tab before the content is skipped ---
+    "* h1.  y", "* h1.\ty", "h2.  \ty", "bq.\tx",
+    # --- the level is one digit of 1 to 6, with or without the space ---
+    "h10. x", "h10.x", "* h10. y", "h123. x", "h0. x", "h0.x",
+    # --- a control with nothing after it renders the block empty ---
+    "h1.", "* h1.", "* bq.", "h1. y\\\\",
+    # --- the dash run draws its rule inside an item too (#122, unimplemented) ---
+    "* ---- ", "* ----", "* -----", "* ----x", "* ---- y",
+    # --- a level Jira has none of opens no block: the paragraph and the item
+    #     above it keep the line, while a level it has ends them ---
+    "a\nh10.x", "a\nh10. x", "a\nh0.x", "a\nh7.y", "h10.x\nb",
+    "a\nh1.x", "a\nh1. y", "a\nbq.y",
+    # --- `bq.` is not the only quote an item reads ---
+    "* {quote}y{quote}", "* a\n* {quote}b{quote}",
+    # --- rows the unit tables read, so that every one of them is a render ---
+    "* h1.  \ty", "  h1.x", "h1. ",
+]
+
 
 def render(markup, timeout=30):
     body = json.dumps({"rendererType": "atlassian-wiki-renderer",
@@ -671,6 +712,7 @@ if __name__ == "__main__":
     run({"round1": ROUND1, "round2": ROUND2, "round3": ROUND3, "round4": ROUND4,
           "round5": ROUND5, "round6": ROUND6, "round7": ROUND7, "round8": ROUND8,
           "round9": ROUND9, "round10": ROUND10, "round11": ROUND11,
-          "round12": ROUND12,
+          "round12": ROUND12, "round13": ROUND13,
           "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5 + ROUND6 + ROUND7
-                 + ROUND8 + ROUND9 + ROUND10 + ROUND11 + ROUND12}[which], as_json=as_json)
+                 + ROUND8 + ROUND9 + ROUND10 + ROUND11 + ROUND12
+                 + ROUND13}[which], as_json=as_json)

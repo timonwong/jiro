@@ -1,0 +1,12 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A list item's line control needs no space after the `.` either.
+-- input.jira --
+* h1.y
+-- rendered.html --
+<ul>
+	<li><h1><a name="y"></a>y</h1></li>
+</ul>
+-- want.md --
+- # y
+-- warnings.json --
+[]
