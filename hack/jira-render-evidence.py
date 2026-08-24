@@ -8,7 +8,7 @@ Equivalent single-case curl:
     -H 'Content-Type: application/json' -H 'X-Atlassian-Token: no-check' \
     -d '{"rendererType":"atlassian-wiki-renderer","unrenderedMarkup":"{{*bold*}}"}'
 
-Usage: python3 hack/jira-render-evidence.py [round1|...|round14|all] [--json]   (default: all)
+Usage: python3 hack/jira-render-evidence.py [round1|...|round15|all] [--json]   (default: all)
 
 --json prints one {"in": ..., "out": ...} object per line so captures can be
 turned into evidence fixtures without reparsing the human-readable output.
@@ -720,6 +720,36 @@ ROUND14 = [
 ]
 
 
+# Probe strings backing the link title, the third part of a bracket body (#104):
+# what the title decodes, what it trims, which spellings a title has no way to
+# write, and which targets carry one. ROUND9 already holds `[x|http://x|t]`,
+# `t|u`, `t|u|v`, `t\|u`, `t\]u`, `t\=u` and `[x|http://x/a\|b]`.
+ROUND15 = [
+    # --- the title decodes nothing: no backslash and no character reference ---
+    r"[x|http://x|t\\u]", r"[x|http://x|t\u]",
+    "[x|http://x|t&#124;u]", "[x|http://x|t&#93;u]", "[x|http://x|t&#92;u]",
+    # --- and no markup runs inside it; Jira escapes it into the attribute ---
+    '[x|http://x|a"b]', "[x|http://x|a'b]", "[x|http://x|<i>t</i>]",
+    "[x|http://x|*t*]", "[x|http://x|:)]", "[x|http://x|café中]",
+    # --- what the edges do: trimmed, and an empty part is no title ---
+    "[x|http://x| t ]", "[x|http://x|\tt\t]", "[x|http://x|]",
+    # --- a body ending in a backslash refuses the link, and one trailing space
+    #     is what lets a title end in one ---
+    "[x|http://x|t\\]", "[x|http://x|t\\\\]", "[x|http://x|t\\ ]",
+    # --- a raw `]` ends the link wherever it stands ---
+    "[x|http://x|t]u]",
+    # --- which targets carry a title, and which resolve nothing with or
+    #     without one ---
+    "[x|#anchor|t]", "[x|mailto:a@b.c|t]", "[x|~admin|t]",
+    "[http://x|http://x|t]", "[x|^file.pdf|t]", "[x|^file.pdf]",
+    "[x|javascript:alert(1)|t]",
+    # --- and no link at all forms across a physical line, whichever part the
+    #     line break falls in ---
+    "[y|http://y|a\nb]", "[y|http://y|a \nb]", "[y|http://y/a\nb]",
+    "[y|http://y|a\n]",
+]
+
+
 def render(markup, timeout=30):
     body = json.dumps({"rendererType": "atlassian-wiki-renderer",
                        "unrenderedMarkup": markup}).encode()
@@ -760,7 +790,7 @@ if __name__ == "__main__":
           "round5": ROUND5, "round6": ROUND6, "round7": ROUND7, "round8": ROUND8,
           "round9": ROUND9, "round10": ROUND10, "round11": ROUND11,
           "round12": ROUND12, "round13": ROUND13,
-          "round14": ROUND14,
+          "round14": ROUND14, "round15": ROUND15,
           "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5 + ROUND6 + ROUND7
                  + ROUND8 + ROUND9 + ROUND10 + ROUND11 + ROUND12
-                 + ROUND13 + ROUND14}[which], as_json=as_json)
+                 + ROUND13 + ROUND14 + ROUND15}[which], as_json=as_json)

@@ -20,6 +20,12 @@ import (
 // makes a reference the only encoding able to carry a separator into a value,
 // since Jira splits these values on the raw character, and it is why every
 // encoder rewrites an authored `&` that a reader would decode.
+//
+// A link title is the one value that resolves nothing at all: Jira HTML-escapes
+// it into the `title` attribute instead of passing it through, so a reference
+// arrives as its own characters and no encoding can carry a delimiter into it.
+// decodeJiraLinkTitle and spellJiraLinkTitle below hold what is left of a
+// grammar there.
 
 // jiraValueEncoding is what one context does to each byte of a value: a
 // replacement per byte, plus the replacement a leading space needs where the
@@ -170,6 +176,70 @@ func decodeJiraLinkTarget(ctx context.Context, value string) (string, error) {
 		return "", err
 	}
 	return decodeJiraEntities(result.String()), nil
+}
+
+// decodeJiraLinkTitle reads the third part of a link body, which Jira shows as
+// the link's title. Nothing in it is decoded -- `t\|u`, `t\]u` and `t&#124;u`
+// each keep every character they were written with -- and the only rule left is
+// the ASCII space and tab Jira trims off both edges after the split. A newline
+// reads as the space that joins the two lines, which is what every other inline
+// run does with one; Jira itself never reads a title across a line, because a
+// bracket body that spans one is not a link at all.
+func decodeJiraLinkTitle(value string) string {
+	if strings.ContainsAny(value, "\r\n") {
+		value = jiraLinkTitleLineBreaks.Replace(value)
+	}
+	return strings.Trim(value, " \t")
+}
+
+// jiraLinkTitleSpelling is how one title is written between the last `|` and the
+// closing `]`, together with the parts of it the spelling could not carry. It is
+// the single answer to every question the renderer, its diagnostics and the
+// verification key ask about one title: Text is what goes out, readBack is what
+// Jira reads out of it again, and the flags are what the reader lost. Every one
+// of them is a rule the probes pin: a raw `]` ends the link wherever it stands
+// and a backslash in front of it stays visible in the title, so a title holding
+// one has no Jira spelling at all; a body whose last character is a backslash
+// refuses the whole link, which one trailing space undoes because the trim
+// removes it again; and a link body is one line.
+type jiraLinkTitleSpelling struct {
+	Text                  string
+	LineBreakFlattened    bool
+	EdgeWhitespaceTrimmed bool
+	WhitespaceDropped     bool
+	BracketDropped        bool
+}
+
+func spellJiraLinkTitle(value string) jiraLinkTitleSpelling {
+	spelling := jiraLinkTitleSpelling{Text: value}
+	if strings.ContainsAny(spelling.Text, "\r\n") {
+		spelling.Text = jiraLinkTitleLineBreaks.Replace(spelling.Text)
+		spelling.LineBreakFlattened = true
+	}
+	if trimmed := strings.Trim(spelling.Text, " \t"); trimmed != spelling.Text {
+		spelling.Text, spelling.EdgeWhitespaceTrimmed = trimmed, true
+	}
+	// A dropped title takes the smaller losses with it: they are no longer what
+	// the reader is missing. A title of nothing but whitespace is one of them,
+	// because the trim leaves Jira no title to show at all.
+	if strings.Contains(spelling.Text, "]") {
+		return jiraLinkTitleSpelling{BracketDropped: true}
+	}
+	if spelling.Text == "" && value != "" {
+		return jiraLinkTitleSpelling{WhitespaceDropped: true}
+	}
+	if strings.HasSuffix(spelling.Text, `\`) {
+		spelling.Text += " "
+	}
+	return spelling
+}
+
+var jiraLinkTitleLineBreaks = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ")
+
+// readBack reports the title Jira reads back out of this spelling, which is the
+// title the rendered link actually carries.
+func (spelling jiraLinkTitleSpelling) readBack() string {
+	return decodeJiraLinkTitle(spelling.Text)
 }
 
 // decodeJiraImageValue reads an image source or an image parameter value, where

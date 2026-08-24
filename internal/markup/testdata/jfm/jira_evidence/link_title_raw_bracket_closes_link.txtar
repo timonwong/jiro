@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A raw `]` ends the link wherever it stands, so the title stops in front of it and the rest is text.
+-- input.jira --
+[x|http://x|t]u]
+-- rendered.html --
+<p><a href="http://x" title="t" class="external-link" target="_blank" rel="nofollow noopener">x</a>u]</p>
+-- want.md --
+[x](http://x "t")u\]
+-- warnings.json --
+[]

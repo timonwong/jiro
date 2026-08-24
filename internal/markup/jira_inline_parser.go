@@ -244,11 +244,13 @@ func parseJiraInlines(ctx context.Context, source string, start, end int, domain
 				// visible text, the second the target, and everything after it
 				// the link title.
 				separator := jiraUnprotectedSplit(body, 0, '|')
-				labelEnd, labelPart, targetPart, unnamed, titled := close, "", body, true, false
+				labelEnd, labelPart, targetPart, title, unnamed := close, "", body, "", true
 				if separator >= 0 {
 					labelEnd, labelPart, targetPart, unnamed = offset+1+separator, body[:separator], body[separator+1:], false
 					if titleStart := jiraUnprotectedSplit(targetPart, 0, '|'); titleStart >= 0 {
-						targetPart, titled = targetPart[:titleStart], true
+						// Every further `|` belongs to the title, which is why the
+						// split is not repeated here: `[x|u|t|v]` is titled `t|v`.
+						targetPart, title = targetPart[:titleStart], decodeJiraLinkTitle(targetPart[titleStart+1:])
 					}
 				}
 				target, err := decodeJiraLinkTarget(ctx, targetPart)
@@ -264,9 +266,6 @@ func parseJiraInlines(ctx context.Context, source string, start, end int, domain
 					diagnostics = append(diagnostics, conversionDiagnostic{offset: offset, warning: ConversionWarning{Construct: ConstructLink, Reason: "backslash before a Jira link separator leaves a target Jira cannot resolve; complete link remains literal"}})
 					offset, textStart = close+1, close+1
 					continue
-				}
-				if titled {
-					diagnostics = append(diagnostics, conversionDiagnostic{offset: offset, warning: ConversionWarning{Construct: ConstructLink, Reason: "Jira link title is dropped; jiro carries no link title (#104)"}})
 				}
 				// The label is parsed from the source rather than from a decoded
 				// copy: Jira shows an escaped delimiter in link text as the
@@ -285,6 +284,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int, domain
 					Span:      sourceSpan{Start: offset, End: close + 1},
 					Label:     label,
 					Target:    target,
+					Title:     title,
 					Unnamed:   unnamed,
 					Directive: linkNeedsDirective(target) || dangerous,
 					Dangerous: dangerous,

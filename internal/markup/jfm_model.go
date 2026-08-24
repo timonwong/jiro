@@ -148,9 +148,14 @@ type codeInline struct {
 func (codeInline) semanticInline() {}
 
 type linkInline struct {
-	Span      sourceSpan
-	Label     []semanticInline
-	Target    string
+	Span   sourceSpan
+	Label  []semanticInline
+	Target string
+	// Title is the advisory title both notations carry beside the target: the
+	// third part of a Jira bracket body and the quoted title after a Markdown
+	// destination. It is held as the characters a reader sees, which on the Jira
+	// side means verbatim (decodeJiraLinkTitle).
+	Title     string
 	Unnamed   bool
 	Directive bool
 	Dangerous bool

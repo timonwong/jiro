@@ -1,8 +1,0 @@
--- input.md --
-[Title](https://example.com "Read")
--- want.jira --
-[Title|https://example.com]
--- warnings.json --
-[
-  {"Line":1,"Column":1,"Construct":"link","Reason":"Markdown link title is dropped; jiro carries no link title (#104)"}
-]

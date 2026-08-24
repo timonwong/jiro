@@ -1,0 +1,6 @@
+-- input.md --
+:link[x]{target="~admin" title="a\}b"}
+-- want.jira --
+[x|~admin|a}b]
+-- warnings.json --
+[]

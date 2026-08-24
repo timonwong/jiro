@@ -197,7 +197,9 @@ func parseDirectiveQuotedValue(source []byte, start, end int) (string, int, stri
 			return "", 0, warning, false
 		}
 		switch source[offset+1] {
-		case '"', '\\':
+		case '"', '\\', '}':
+			// `\}` is what carries a brace past findDirectiveClosure, which ends
+			// the attribute list at the first `}` no backslash stands in front of.
 			result.WriteByte(source[offset+1])
 		case 'n':
 			result.WriteByte('\n')

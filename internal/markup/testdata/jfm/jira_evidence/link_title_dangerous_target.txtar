@@ -1,0 +1,17 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Jira resolves no dangerous scheme and renders an error span; jiro keeps the target and its title reversible in the link directive.
+-- input.jira --
+[x|javascript:alert(1)|t]
+-- rendered.html --
+<p><span class="error">&#91;x|javascript:alert(1)|t&#93;</span></p>
+-- want.md --
+:link[x]{target="javascript:alert(1)" title="t"}
+-- warnings.json --
+[
+ {
+  "Line": 1,
+  "Column": 1,
+  "Construct": "link",
+  "Reason": "dangerous destination scheme requires a reversible link directive"
+ }
+]

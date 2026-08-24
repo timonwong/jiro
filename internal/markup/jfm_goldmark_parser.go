@@ -728,14 +728,12 @@ func adaptGoldmarkInline(source []byte, node ast.Node) (semanticInline, []conver
 			diagnostics = append(diagnostics, conversionDiagnostic{offset: constructStart, warning: ConversionWarning{Construct: ConstructLink, Reason: "hard break in Markdown link label was converted to a space"}})
 		}
 		target := string(decodedMarkdownText(typed.Destination, false))
-		if len(typed.Title) != 0 {
-			diagnostics = append(diagnostics, conversionDiagnostic{offset: constructStart, warning: ConversionWarning{Construct: ConstructLink, Reason: "Markdown link title is dropped; jiro carries no link title (#104)"}})
-		}
+		title := string(decodedMarkdownText(typed.Title, false))
 		_, dangerous := dangerousDestinationScheme([]byte(strings.TrimLeftFunc(target, unicodeSpaceOrControl)))
 		if dangerous {
 			diagnostics = append(diagnostics, conversionDiagnostic{offset: constructStart, warning: ConversionWarning{Construct: ConstructLink, Reason: "dangerous destination scheme remains reversible through Jira Markup"}})
 		}
-		return linkInline{Span: inlineNodeSpan(typed), Label: label, Target: target, Dangerous: dangerous, Directive: dangerous}, diagnostics, next, nil
+		return linkInline{Span: inlineNodeSpan(typed), Label: label, Target: target, Title: title, Dangerous: dangerous, Directive: dangerous}, diagnostics, next, nil
 	case *ast.AutoLink:
 		label := string(typed.Label(source))
 		target := string(typed.URL(source))
@@ -995,18 +993,26 @@ func adaptInlineDirective(source []byte, node *jfmInlineDirective, next ast.Node
 	}
 	switch strings.ToLower(node.Name) {
 	case "link":
-		target, found := "", false
+		// An unknown name, a second spelling of a known one, and a value-less
+		// attribute each leave the complete directive literal rather than render a
+		// link jiro read only half of. The walk is kept here rather than in
+		// validateDirectiveAttributes because that answer is the opposite of the
+		// shared validator's, which preserves an unknown attribute; only the
+		// canonical spellings come from the schema.
+		values := map[string]string{}
 		for _, attribute := range attributes {
-			if !strings.EqualFold(attribute.Name, "target") || attribute.Bare || found {
-				reason := "link directive has an unknown or duplicate attribute"
-				if strings.EqualFold(attribute.Name, "target") && attribute.Bare {
-					reason = "link directive target requires a value"
-				}
-				diagnostics = append(diagnostics, conversionDiagnostic{offset: attribute.Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: reason}})
+			name, known := linkDirectiveAttributeSchema.canonicalName(attribute.Name)
+			if _, duplicate := values[name]; !known || duplicate {
+				diagnostics = append(diagnostics, conversionDiagnostic{offset: attribute.Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "link directive has an unknown or duplicate attribute"}})
 				return literalInline{Span: span, Text: raw}, diagnostics, next, nil
 			}
-			target, found = attribute.Value, true
+			if attribute.Bare {
+				diagnostics = append(diagnostics, conversionDiagnostic{offset: attribute.Span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: linkDirectiveValueRequired[name]}})
+				return literalInline{Span: span, Text: raw}, diagnostics, next, nil
+			}
+			values[name] = attribute.Value
 		}
+		target, found := values["target"]
 		if !found {
 			return literalInline{Span: span, Text: raw}, append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructDirective, Reason: "link directive is missing required target attribute"}}), next, nil
 		}
@@ -1020,7 +1026,7 @@ func adaptInlineDirective(source []byte, node *jfmInlineDirective, next ast.Node
 		if dangerous {
 			diagnostics = append(diagnostics, conversionDiagnostic{offset: span.Start, warning: ConversionWarning{Construct: ConstructLink, Reason: "dangerous destination scheme remains reversible through the link directive"}})
 		}
-		return linkInline{Span: span, Label: label, Target: target, Directive: true, Dangerous: dangerous}, diagnostics, next, nil
+		return linkInline{Span: span, Label: label, Target: target, Title: values["title"], Directive: true, Dangerous: dangerous}, diagnostics, next, nil
 	case "image":
 		destination, canonical, validationDiagnostics, _ := validateDirectiveAttributes(attributes, imageDirectiveAttributeSchema)
 		diagnostics = append(diagnostics, validationDiagnostics...)

@@ -133,6 +133,19 @@ var imageDirectiveAttributeSchema = directiveAttributeSchema{
 	bare:          directiveAttributeRule{ConstructDirective, "image directive attribute requires a value"},
 }
 
+// linkDirectiveAttributeSchema names the attributes of a JFM `:link[]{}`. The
+// directive has no location for anything else, so its reader answers an unknown
+// or repeated attribute by leaving the complete directive literal rather than by
+// preserving it; only the canonical spellings come from here.
+var linkDirectiveAttributeSchema = directiveAttributeSchema{known: []string{"target", "title"}}
+
+// linkDirectiveValueRequired is the reason one `:link` attribute reports when it
+// is written without a value.
+var linkDirectiveValueRequired = map[string]string{
+	"target": "link directive target requires a value",
+	"title":  "link directive title requires a value",
+}
+
 // jiraMacroAttributeSchema reads the parameters of a `{code}` or `{panel}`
 // header, where a parameter JFM cannot spell keeps the complete macro literal.
 func jiraMacroAttributeSchema(known []string, booleans map[string]bool, macro string) directiveAttributeSchema {

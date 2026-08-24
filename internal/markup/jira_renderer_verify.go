@@ -167,7 +167,7 @@ func renderJiraInlineRun(ctx context.Context, state *jiraRenderState, inlines []
 // renderJiraInlineRunWith takes the verifier as a value so that a test can
 // exercise the later modes without an input Jira actually misreads.
 func renderJiraInlineRunWith(ctx context.Context, state *jiraRenderState, inlines []semanticInline, run jiraRunContext, verify jiraInlineRunVerifier) (string, error) {
-	collectEmoticonDiagnostics(state, inlines)
+	collectRenderLossDiagnostics(state, inlines)
 	render := jiraInlineRender{inTableCell: run.inTableCell(), lineStart: run.lineStart}
 	rendered, err := renderJiraInlineRunIn(ctx, inlines, render)
 	if err != nil || !jiraRunNeedsVerification(inlines, rendered) {
@@ -291,32 +291,66 @@ func jiraInlineSpanStart(inline semanticInline) int {
 	}
 }
 
-// collectEmoticonDiagnostics reports every emoticon directive of one top-level
-// run whose token a word rune follows in the rendered output. Jira suppresses
-// the icon there and jiro emits the token all the same, so the loss is reported
-// rather than papered over with a boundary character Jira never showed
-// (ADR-0019). It runs once per run, before the escaping modes the verifier may
-// render several times.
-func collectEmoticonDiagnostics(state *jiraRenderState, inlines []semanticInline) {
+// collectRenderLossDiagnostics reports the semantics one top-level run loses in
+// the Jira spelling itself rather than in its escaping: an emoticon token a word
+// rune follows, where Jira suppresses the icon and jiro emits the token all the
+// same rather than papering over it with a boundary character Jira never showed
+// (ADR-0019), and a link title Jira's third bracket part cannot hold. It runs
+// once per run, before the escaping modes the verifier may render several times,
+// so a run rendered twice still reports each loss once.
+func collectRenderLossDiagnostics(state *jiraRenderState, inlines []semanticInline) {
+	report := func(offset int, construct, reason string) {
+		state.diagnostics = append(state.diagnostics, conversionDiagnostic{
+			offset:  offset,
+			warning: ConversionWarning{Construct: construct, Reason: reason},
+		})
+	}
 	for index, inline := range inlines {
 		switch typed := inline.(type) {
 		case emoticonInline:
 			if !isJiraWordRune(jiraFirstRuneOfInlines(inlines[index+1:])) {
 				continue
 			}
-			state.diagnostics = append(state.diagnostics, conversionDiagnostic{
-				offset: typed.Span.Start,
-				warning: ConversionWarning{
-					Construct: ConstructEmoticon,
-					Reason:    "Jira emoticon token is followed by a word character and cannot be guaranteed to render as an icon",
-				},
-			})
+			report(typed.Span.Start, ConstructEmoticon, "Jira emoticon token is followed by a word character and cannot be guaranteed to render as an icon")
 		case styledInline:
-			collectEmoticonDiagnostics(state, typed.Children)
+			collectRenderLossDiagnostics(state, typed.Children)
 		case linkInline:
-			collectEmoticonDiagnostics(state, typed.Label)
+			for _, reason := range spellJiraLinkTitle(typed.Title).losses() {
+				report(typed.Span.Start, ConstructLink, reason)
+			}
+			collectRenderLossDiagnostics(state, typed.Label)
 		}
 	}
+}
+
+// The losses one link title can report. A dropped title is one reason on its
+// own: the reader has to be told the title is gone rather than adjusted.
+const (
+	jiraLinkTitleBracketDropped        = "link title was dropped; a Jira link title cannot carry a closing bracket"
+	jiraLinkTitleWhitespaceDropped     = "link title was dropped; Jira reads a title of only whitespace as no title"
+	jiraLinkTitleLineBreakFlattened    = "line break in link title was converted to a space"
+	jiraLinkTitleEdgeWhitespaceTrimmed = "surrounding whitespace in link title was removed; Jira trims every title it reads"
+)
+
+// losses names every semantic this spelling could not carry, in the order a
+// reader meets them. It is the one reading of the spelling's flags, so the
+// renderer and its diagnostics cannot come to different conclusions about the
+// same title.
+func (spelling jiraLinkTitleSpelling) losses() []string {
+	switch {
+	case spelling.BracketDropped:
+		return []string{jiraLinkTitleBracketDropped}
+	case spelling.WhitespaceDropped:
+		return []string{jiraLinkTitleWhitespaceDropped}
+	}
+	reasons := make([]string, 0, 2)
+	if spelling.LineBreakFlattened {
+		reasons = append(reasons, jiraLinkTitleLineBreakFlattened)
+	}
+	if spelling.EdgeWhitespaceTrimmed {
+		reasons = append(reasons, jiraLinkTitleEdgeWhitespaceTrimmed)
+	}
+	return reasons
 }
 
 func inlinesContainCode(inlines []semanticInline) bool {
@@ -427,9 +461,9 @@ func appendJiraCodeBodyKey(builder *strings.Builder, inlines []semanticInline) {
 // must preserve, as a sequence of length-prefixed `tag<length>:<value>;`
 // scalars with parentheses around nested runs. The tags are: t text, c inline
 // code, br hard break, e emoticon token, s Text Effect kind, v Text Effect
-// value, a link target, u link is unnamed, m image source, l image alt, and
-// n/w/b for one image attribute's name, value and bare flag; ? is an inline no
-// rule below claims.
+// value, a link target, i link title, u link is unnamed, m image source, l
+// image alt, and n/w/b for one image attribute's name, value and bare flag; ?
+// is an inline no rule below claims.
 //
 // Source offsets are absent because the rendered run has its own, and adjacent
 // text is merged because the split between text inlines is an artifact of how
@@ -491,11 +525,22 @@ func appendJiraVerificationKey(builder *strings.Builder, inlines []semanticInlin
 		case linkInline:
 			flush()
 			appendVerificationScalar(builder, "a", typed.Target)
-			appendVerificationScalar(builder, "u", strconv.FormatBool(typed.Unnamed))
+			// The intended side is keyed by the title Jira reads back from the
+			// spelling the renderer writes; a title the spelling trims or cannot
+			// hold is a loss collectRenderLossDiagnostics has already reported. The
+			// unnamed spelling has no title slot, so a link that keeps a title is
+			// written named and reads back named.
+			title := typed.Title
+			if !reparsed {
+				title = spellJiraLinkTitle(typed.Title).readBack()
+			}
+			appendVerificationScalar(builder, "i", title)
+			unnamed := typed.Unnamed && title == ""
+			appendVerificationScalar(builder, "u", strconv.FormatBool(unnamed))
 			builder.WriteByte('(')
 			// An unnamed link shows its target, so its label is derived rather
 			// than authored and each side derives it from its own conventions.
-			if !typed.Unnamed {
+			if !unnamed {
 				appendJiraVerificationKey(builder, typed.Label, reparsed)
 			}
 			builder.WriteByte(')')

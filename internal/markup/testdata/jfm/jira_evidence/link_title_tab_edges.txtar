@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Jira trims tabs off a title's edges the way it trims spaces.
+-- input.jira --
+[x|http://x|	t	]
+-- rendered.html --
+<p><a href="http://x" title="t" class="external-link" target="_blank" rel="nofollow noopener">x</a></p>
+-- want.md --
+[x](http://x "t")
+-- warnings.json --
+[]

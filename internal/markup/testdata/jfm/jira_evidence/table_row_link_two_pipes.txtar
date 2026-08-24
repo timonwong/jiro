@@ -1,5 +1,5 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: Every `|` inside `[...]` stays with the link; the row is two cells. Jira reads the third part as the link title, which jiro drops with a warning.
+observed: Every `|` inside `[...]` stays with the link; the row is two cells. Jira reads the third part as the link title and resolves nothing for the target it is left with.
 -- input.jira --
 ||h1||h2||
 |[a|b|c]|d|
@@ -22,11 +22,4 @@ observed: Every `|` inside `[...]` stays with the link; the row is two cells. Ji
 |[a|b|c]|d|
 :::
 -- warnings.json --
-[
- {
-  "Line": 2,
-  "Column": 2,
-  "Construct": "link",
-  "Reason": "Jira link title is dropped; jiro carries no link title (#104)"
- }
-]
+[]
