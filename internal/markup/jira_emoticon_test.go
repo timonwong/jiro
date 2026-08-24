@@ -6,8 +6,7 @@ import "testing"
 // renderer. Every row is a render that was observed; the rows whose reading jiro
 // has to produce are checked in as archives under testdata/jfm/jira_evidence,
 // and every row is a probe in hack/jira-render-evidence.py, which reproduces
-// each capture. The two rows the renderer disagrees with are marked where they
-// stand.
+// each capture.
 func TestJiraEmoticonAtMatchesRenderer(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
@@ -21,7 +20,7 @@ func TestJiraEmoticonAtMatchesRenderer(t *testing.T) {
 		{"(on)", 0, 4}, {"(off)", 0, 5}, {"(*)", 0, 3}, {"(*r)", 0, 4},
 		{"(*g)", 0, 4}, {"(*b)", 0, 4}, {"(*y)", 0, 4},
 		{"(flag)", 0, 6}, {"(flagoff)", 0, 9},
-		{":)", 0, 2}, {":(", 0, 2}, {":P", 0, 2}, {":D", 0, 2}, {";)", 0, 2},
+		{":-)", 0, 3}, {":-(", 0, 3}, {":p", 0, 2}, {":)", 0, 2}, {":(", 0, 2}, {":P", 0, 2}, {":D", 0, 2}, {";-)", 0, 3}, {";)", 0, 2},
 		// The gate is asymmetric: a following letter or digit suppresses the
 		// icon, a preceding one leaves it.
 		{"(y)foo", 0, 0}, {":)x", 0, 0}, {"a;)b", 1, 0}, {"(*y)x", 0, 0},
@@ -33,12 +32,10 @@ func TestJiraEmoticonAtMatchesRenderer(t *testing.T) {
 		// parenthesized letter that names no icon is nothing.
 		{"(flag)off", 0, 0}, {"(a)", 0, 0},
 		// Matching is exact and case-sensitive. `:d` and every upper-case
-		// parenthesized spelling name no icon. Jira 8.20.10 does render `:p` and
-		// `:-)`, but neither is in the token set the grammar evidence
-		// established, and #83 bounds the set to that evidence rather than
-		// widening it here; both stay ordinary text in each direction.
+		// parenthesized spelling name no icon; the renderer also keeps these
+		// unsupported hyphenated variants as literal text.
 		{":d", 0, 0}, {"(X)", 0, 0}, {"(FLAG)", 0, 0},
-		{":p", 0, 0}, {":-)", 0, 0},
+		{":-P", 0, 0}, {":-D", 0, 0}, {":-p", 0, 0},
 		// A backslash inside the token leaves nothing to match. A backslash in
 		// front of one is not this gate's business: Jira consumes it as the
 		// token's own escape, which parseJiraInlines and the plain-text escaper
@@ -67,11 +64,14 @@ func TestCanonicalJiraEmoticonTokenAcceptsTheSupportedSet(t *testing.T) {
 			t.Errorf("canonicalJiraEmoticonToken(%q) = %q, which canonicalizes on to %q", token, canonical, again)
 		}
 	}
-	// `(*y)` and `(*)` render the same yellow star; nothing else is aliased.
-	if canonical, _ := canonicalJiraEmoticonToken("(*y)"); canonical != "(*)" {
-		t.Errorf("canonicalJiraEmoticonToken(\"(*y)\") = %q, want \"(*)\"", canonical)
+	// These spellings render the same Jira icons, so JFM keeps one canonical
+	// token for each icon family.
+	for input, want := range map[string]string{"(*y)": "(*)", ":p": ":P", ":-)": ":)", ":-(": ":(", ";-)": ";)"} {
+		if canonical, _ := canonicalJiraEmoticonToken(input); canonical != want {
+			t.Errorf("canonicalJiraEmoticonToken(%q) = %q, want %q", input, canonical, want)
+		}
 	}
-	for _, token := range []string{"", "(rocket)", "(x) ", "(x)(y)", ":p", "*x*", "(X)", " (x)"} {
+	for _, token := range []string{"", "(rocket)", "(x) ", "(x)(y)", ":-P", ":-D", ":-p", "*x*", "(X)", " (x)"} {
 		if _, supported := canonicalJiraEmoticonToken(token); supported {
 			t.Errorf("canonicalJiraEmoticonToken(%q) is supported", token)
 		}

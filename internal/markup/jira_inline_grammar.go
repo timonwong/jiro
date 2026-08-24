@@ -552,7 +552,7 @@ var jiraEmoticonTokens = []string{
 	"(flagoff)", "(flag)", "(off)", "(on)",
 	"(*r)", "(*g)", "(*b)", "(*y)", "(*)",
 	"(y)", "(n)", "(i)", "(/)", "(x)", "(!)", "(?)", "(+)", "(-)",
-	":(", ":)", ":P", ":D", ";)",
+	":-)", ":-(", ":(", ":)", ":p", ":P", ":D", ";-)", ";)",
 }
 
 // jiraEmoticonFirstBytes are the bytes a supported token can begin with, which
@@ -565,9 +565,15 @@ var jiraEmoticonFirstBytes = func() (bytes [256]bool) {
 }()
 
 // jiraEmoticonAliases maps a token onto the spelling JFM writes for the icon it
-// renders. `(*y)` and `(*)` are the same yellow star, so JFM has one canonical
-// form for it; every other token names an icon of its own.
-var jiraEmoticonAliases = map[string]string{"(*y)": "(*)"}
+// renders. These aliases are renderer-backed spellings of the same icon, so
+// JFM has one canonical form for each family.
+var jiraEmoticonAliases = map[string]string{
+	"(*y)": "(*)",
+	":p":   ":P",
+	":-)":  ":)",
+	":-(":  ":(",
+	";-)":  ";)",
+}
 
 // jiraEmoticonLeadingReferences are the character references plain text writes
 // for the first byte of a colon or semicolon token. Neither byte is escapable
@@ -590,8 +596,8 @@ var jiraEmoticonNeutralizations = func() map[string]string {
 }()
 
 // canonicalJiraEmoticonToken reports the canonical spelling of one supported
-// emoticon token. Matching is exact and case-sensitive, because Jira reads `:P`
-// as a token and `:p` as text.
+// emoticon token. Matching is exact and case-sensitive, except for spellings
+// explicitly listed in jiraEmoticonAliases.
 func canonicalJiraEmoticonToken(token string) (string, bool) {
 	for _, supported := range jiraEmoticonTokens {
 		if token != supported {

@@ -106,7 +106,7 @@ Escaping is interpreted in the source notation before target escaping is applied
 - Valid CommonMark named and numeric character references decode to their Unicode characters.
 - Invalid character references remain visible text without a warning.
 - Plain-text Jira effect delimiters (`*`, `_`, `-`, `+`, `^`, and `~`) are escaped in Jira output only when they participate in a complete formatting span. Unmatched effect delimiters and word-internal punctuation that Jira cannot tokenize as formatting remain unescaped. `?` is escaped only as part of a complete `??…??` citation, so `what??` stays readable. Jira structural delimiters (`\`, `{`, `}`, `[`, `]`, `!`, `|`, and `#`) retain their safety escaping.
-- Ordinary JFM text that matches a known Jira emoticon token MUST remain literal. Parenthesized tokens escape both parentheses with Jira backslashes, so `print(x)` becomes `print\(x\)`. Colon-prefixed tokens encode the leading colon, so `:)`, `:P`, `:D`, and `:(` become `&#58;)`, `&#58;P`, `&#58;D`, and `&#58;(`. The wink token `;)` becomes `&#59;)`. A character reference is used there because a backslash before a colon or a semicolon is one Jira consumes only in front of a token, which would leave the encoding depending on the gate. These neutralizers produce no warning and Jira-to-JFM conversion returns ordinary text.
+- Ordinary JFM text that matches a known Jira emoticon token MUST remain literal. Parenthesized tokens escape both parentheses with Jira backslashes, so `print(x)` becomes `print\(x\)`. Colon-prefixed tokens encode the leading colon, so `:)`, `:P`, `:D`, `:(`, `:p`, `:-)`, and `:-(` become `&#58;)`, `&#58;P`, `&#58;D`, `&#58;(`, `&#58;p`, `&#58;-)`, and `&#58;-(`. The wink tokens `;)` and `;-)` become `&#59;)` and `&#59;-)`. A character reference is used there because a backslash before a colon or a semicolon is one Jira consumes only in front of a token, which would leave the encoding depending on the gate. These neutralizers produce no warning and Jira-to-JFM conversion returns ordinary text.
 - Jira consumes exactly one backslash directly in front of an emoticon token the gate fires on, and shows the token's characters: `\:)` renders as `:)` and `\\(x)` as `\(x)`, while a following word rune suppresses the gate and consumes nothing, so `a\:)b` keeps its backslash. The escape is taken before every other backslash rule, so the run left in front of it is one backslash shorter than it looks and `\\\:)` still renders a forced newline. A delimiter inside a token is likewise part of the icon rather than markup, so `+(+)+` is an inserted effect around the plus icon.
 - An authored backslash is written as the character reference `&#92;` when the next character is one whose backslash Jira consumes, or when an emoticon directive follows it, so that neither the forced newline `\\` nor an escape `\X` nor an emoticon escape can form from authored text. Every other backslash is written as itself, keeping `C:\dir\file`, `a \ b`, and a trailing `x\` readable.
 - A `h1.` through `h6.` or `bq.` prefix at the start of a Jira output line, including every table cell and every list item's content, is protected with the character reference `&#46;`, because Jira shows a backslash before `.` instead of consuming it. Jira reads the prefix whether or not a space follows the `.`, so `h1.x` is protected exactly as `h1. x` is. Together with `&#92;` above and the `&#124;` a `|` needs inside a link's visible text, these are the only places plain text is written as a character reference rather than as itself or as a backslash escape.
@@ -985,7 +985,7 @@ The defined directives are `:emoticon`, `:link`, `:image`, `:::code`, `:::table`
 
 - Inline directive content never spans a physical line. `]` and backslash are escaped as `\]` and `\\`.
 - `:link` content is inline JFM; `:image` content is plain alternative text. A content-model violation invokes literal fallback with a warning.
-- `:emoticon` is attrless and its content MUST be exactly one supported Jira emoticon token. It has no nested inline content and no attribute list. The canonical form is `:emoticon[(x)]`; `(*y)` is accepted as an input alias and canonicalizes to `(*)`. Unknown tokens, attributes, extra content, and malformed forms use literal fallback with an `emoticon` warning.
+- `:emoticon` is attrless and its content MUST be exactly one supported Jira emoticon token. It has no nested inline content and no attribute list. The canonical form is `:emoticon[(x)]`; `(*y)`, `:p`, `:-)`, `:-(`, and `;-)` are accepted as input aliases and canonicalize to `(*)`, `:P`, `:)`, `:(`, and `;)`. Unknown tokens, attributes, extra content, and malformed forms use literal fallback with an `emoticon` warning.
 - Jira-to-JFM recognizes the same supported tokens only in visible inline text. An unescaped token becomes `:emoticon[...]`; an escaped token remains ordinary text. Link targets, image and macro values, inline code, fenced code, and Jira Monospace Spans never produce an emoticon directive.
 
 <!-- jfm-spec-example: emoticon-directive; direction: jfm-to-jira -->
@@ -1007,12 +1007,12 @@ Warnings:
 <!-- jfm-spec-example: emoticon-neutralizers; direction: jfm-to-jira -->
 Input:
 ~~~jfm
-print(x) hello :) hello :P hello ;)
+print(x) hello :) hello :P hello ;) hello :p hello :-)
 ~~~
 
 Output:
 ~~~jira
-print\(x\) hello &#58;) hello &#58;P hello &#59;)
+print\(x\) hello &#58;) hello &#58;P hello &#59;) hello &#58;p hello &#58;-)
 ~~~
 
 Warnings:
