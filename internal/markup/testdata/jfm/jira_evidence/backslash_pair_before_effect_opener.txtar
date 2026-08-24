@@ -1,0 +1,11 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A delimiter a backslash precedes opens nothing, so Jira breaks and shows the asterisks literally; jiro reads a hard break and plain text.
+-- input.jira --
+a\\*b*
+-- rendered.html --
+<p>a<br class="atl-forced-newline" />*b*</p>
+-- want.md --
+a\
+\*b\*
+-- warnings.json --
+[]

@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: The pair ending the line is the token's last run, so Jira shows the earlier pair and breaks at the end; jiro reads two literal backslashes and a trailing hard break.
+-- input.jira --
+x\\y\\
+-- rendered.html --
+<p>x\\y<br class="atl-forced-newline" /></p>
+-- want.md --
+x\\\\y\
+-- warnings.json --
+[]

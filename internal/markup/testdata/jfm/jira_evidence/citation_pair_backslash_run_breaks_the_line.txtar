@@ -1,0 +1,11 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: The pair is the token's last run so Jira breaks there, and the `??` behind it closes nothing; jiro reads a hard break and keeps the question marks as text.
+-- input.jira --
+??ab\\??
+-- rendered.html --
+<p>??ab<br class="atl-forced-newline" />??</p>
+-- want.md --
+??ab\
+??
+-- warnings.json --
+[]

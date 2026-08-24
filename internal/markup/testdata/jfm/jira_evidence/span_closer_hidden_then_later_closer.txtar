@@ -1,10 +1,17 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
-observed: The hidden `}}` stays inside the body and the span closes at the later one; jiro pairs the same braces and keeps the legacy reading of one literal backslash where Jira renders a forced newline.
+observed: The hidden `}}` stays inside the body and the span closes at the later one, and the pair inside that body is its token's last run, so Jira renders a forced newline there; jiro pairs the same braces, keeps both backslashes as code and warns.
 -- input.jira --
 {{a\\}}b}}
 -- rendered.html --
 <p><tt>a<br class="atl-forced-newline" />}}b</tt></p>
 -- want.md --
-`a\}}b`
+`a\\}}b`
 -- warnings.json --
-[]
+[
+  {
+    "Line": 1,
+    "Column": 1,
+    "Construct": "inline-code",
+    "Reason": "Jira would render a forced newline inside this Monospace Span; inline code keeps the characters literal"
+  }
+]

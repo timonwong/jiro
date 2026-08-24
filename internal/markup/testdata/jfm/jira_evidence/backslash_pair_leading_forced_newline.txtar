@@ -1,10 +1,11 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: A `\\` pair opening a line is a forced newline. Jira-to-JFM reads it as one literal backslash, which is a separate defect.
+observed: A `\\` pair opening a line is a forced newline; jiro reads a hard break.
 -- input.jira --
 \\a
 -- rendered.html --
 <p><br class="atl-forced-newline" />a</p>
 -- want.md --
-\\a
+\
+a
 -- warnings.json --
 []

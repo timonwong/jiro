@@ -270,7 +270,7 @@ func verifyJiraInlineRun(ctx context.Context, rendered, intended string, inlines
 			return jiraVerificationVerdict{}, err
 		}
 	}
-	parsed, _, err := parseJiraInlines(ctx, rendered, 0, len(rendered))
+	parsed, _, err := parseJiraInlines(ctx, rendered, 0, len(rendered), jiraLineDomain{End: len(rendered)})
 	if err != nil {
 		return jiraVerificationVerdict{}, err
 	}
@@ -520,7 +520,15 @@ func markPredictedMonospaceSpanEncoding(ctx context.Context, body string, encode
 		}
 		offset += size
 	}
-	hazards, err := jiraInlineHazards(ctx, body, 0, len(body), jiraMonospaceContext, inTableCell)
+	// The body is scanned detached, with itself as the line domain, because this
+	// prediction runs while the surrounding run is still being built and the
+	// span has no line position yet. That can only over-report a forced
+	// newline: a run this scan calls literal is made literal by a backslash
+	// inside the body, which stands in the real line too, while a run it calls
+	// breaking may be turned literal by a backslash the rest of the line adds.
+	// Over-reporting is safe here -- it can only encode a character the body
+	// would have kept raw, and the re-parse proves the result either way.
+	hazards, err := jiraInlineHazards(ctx, body, 0, len(body), len(body), jiraMonospaceContext, inTableCell)
 	if err != nil {
 		return false, err
 	}

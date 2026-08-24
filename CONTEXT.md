@@ -100,6 +100,10 @@ _Avoid_: Special character, markup character
 The Jira Markup inline construct written as `{{...}}`. It corresponds one-to-one with Jiro Flavored Markdown inline code, but Jira still applies Text Effects, links, and other inline rules inside it.
 _Avoid_: Code span, inline code (when referring to the Jira side)
 
+**Line Domain**:
+The extent Jira reads a forced newline in: one physical line of a block, or one table cell. A `\\` pair is a forced newline only as the last backslash run of its whitespace-separated token inside that extent, so the same pair breaks in one line and stays two characters in another. A link's visible text has no Line Domain and never breaks.
+_Avoid_: Line, paragraph, inline run
+
 **Delimited Value**:
 A value Jira Markup reads between its own delimiters: a link target, an image source, an image parameter value, or a macro parameter value. Each context consumes backslashes by its own rule and splits on its separator whether or not a backslash precedes it, so a character reference is what carries a delimiter into one.
 _Avoid_: Attribute value, escaped value

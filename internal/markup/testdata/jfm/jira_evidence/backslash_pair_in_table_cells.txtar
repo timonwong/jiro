@@ -1,0 +1,25 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Each cell is its own line domain, so the pair in every cell is that cell's last run and Jira breaks in both. A GFM cell carries no hard break, so jiro keeps the whole row as raw Jira Markup rather than writing a table it could not read back.
+-- input.jira --
+||h1||h2||
+|a\\b|c\\d|
+-- rendered.html --
+<div class='table-wrap'>
+<table class='confluenceTable'><tbody>
+<tr>
+<th class='confluenceTh'>h1</th>
+<th class='confluenceTh'>h2</th>
+</tr>
+<tr>
+<td class='confluenceTd'>a<br class="atl-forced-newline" />b</td>
+<td class='confluenceTd'>c<br class="atl-forced-newline" />d</td>
+</tr>
+</tbody></table>
+</div>
+-- want.md --
+:::table
+||h1||h2||
+|a\\b|c\\d|
+:::
+-- warnings.json --
+[]

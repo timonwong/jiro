@@ -197,7 +197,7 @@ func jiraListItemContinues(line string) bool {
 func parseJiraListItemContent(ctx context.Context, source string, marker sourceLine, contentStart int, continuations []sourceLine) ([]semanticInline, []conversionDiagnostic, error) {
 	itemStart := marker.Start + contentStart
 	if len(continuations) == 0 {
-		return parseJiraInlines(ctx, source, itemStart, marker.End)
+		return parseJiraInlines(ctx, source, itemStart, marker.End, jiraLineDomain{End: marker.End})
 	}
 	var raw strings.Builder
 	raw.WriteString(source[itemStart:marker.End])
@@ -205,7 +205,7 @@ func parseJiraListItemContent(ctx context.Context, source string, marker sourceL
 		raw.WriteByte('\n')
 		raw.WriteString(line.Text)
 	}
-	inlines, diagnostics, err := parseJiraInlines(ctx, raw.String(), 0, raw.Len())
+	inlines, diagnostics, err := parseJiraInlines(ctx, raw.String(), 0, raw.Len(), jiraLineDomain{End: raw.Len()})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -295,7 +295,10 @@ func parseJiraTableRow(ctx context.Context, source string, line sourceLine, head
 			edgeWhitespace = true
 		}
 		span := sourceSpan{Start: line.Start + bound.Start, End: line.Start + bound.End}
-		inlines, inlineDiagnostics, err := parseJiraInlines(ctx, source, span.Start, span.End)
+		// A table cell is its own line domain: `|` separates no token, so a
+		// forced newline is decided inside the cell and both cells of
+		// `|a\\b|c\\d|` break.
+		inlines, inlineDiagnostics, err := parseJiraInlines(ctx, source, span.Start, span.End, jiraLineDomain{End: span.End})
 		if err != nil {
 			return nil, nil, nil, false, err
 		}

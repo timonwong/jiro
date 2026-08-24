@@ -1,0 +1,11 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: The bold closes on the last asterisk and the pair inside it breaks, so Jira renders one bold holding a forced newline and a literal asterisk; jiro reads a hard break inside the bold.
+-- input.jira --
+*ab\\cd*ef*
+-- rendered.html --
+<p><b>ab<br class="atl-forced-newline" />cd*ef</b></p>
+-- want.md --
+**ab\
+cd\*ef**
+-- warnings.json --
+[]

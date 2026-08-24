@@ -1,10 +1,11 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
-observed: With every `}}` hidden behind a backslash pair the run holds no closer at all; jiro refuses the span too, but its plain text reads one backslash of each pair where Jira renders the first pair literally and the second as a forced newline.
+observed: With every `}}` hidden behind a backslash pair the run holds no closer at all, so Jira shows the first pair literally and breaks on the second, the last run of its token; jiro refuses the span too and reads the same two backslashes and hard break.
 -- input.jira --
 {{a\\}}b\\}}
 -- rendered.html --
 <p>{{a\\}}b<br class="atl-forced-newline" />}}</p>
 -- want.md --
-{{a\\}}b\\}}
+{{a\\\\}}b\
+}}
 -- warnings.json --
 []

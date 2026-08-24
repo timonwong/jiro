@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: One rune of content followed by a delimiter a word rune refuses gives the opener up, so Jira renders no effect inside the span; jiro keeps the asterisks as code and stays silent.
+-- input.jira --
+{{*a*b*}}
+-- rendered.html --
+<p><tt>*a*b*</tt></p>
+-- want.md --
+`*a*b*`
+-- warnings.json --
+[]

@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A killed opener settles nothing about the rest of the line, so Jira still bolds the later pair; jiro keeps the first three asterisks as text and reads the bold effect.
+-- input.jira --
+*a*b* *c*
+-- rendered.html --
+<p>*a*b* <b>c</b></p>
+-- want.md --
+\*a\*b\* **c**
+-- warnings.json --
+[]

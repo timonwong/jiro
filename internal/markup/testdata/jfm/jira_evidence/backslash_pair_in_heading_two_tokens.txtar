@@ -1,0 +1,23 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Both tokens of a heading line break; a JFM ATX heading carries no hard break, so jiro keeps all four backslashes as heading text and warns once per forced newline.
+-- input.jira --
+h1. a\\b c\\d
+-- rendered.html --
+<h1><a name="a%5C%5Cbc%5C%5Cd"></a>a<br class="atl-forced-newline" />b c<br class="atl-forced-newline" />d</h1>
+-- want.md --
+# a\\\\b c\\\\d
+-- warnings.json --
+[
+  {
+    "Line": 1,
+    "Column": 6,
+    "Construct": "heading",
+    "Reason": "Jira would render a forced newline inside this heading; a JFM heading cannot carry one, so the characters stay literal"
+  },
+  {
+    "Line": 1,
+    "Column": 11,
+    "Construct": "heading",
+    "Reason": "Jira would render a forced newline inside this heading; a JFM heading cannot carry one, so the characters stay literal"
+  }
+]

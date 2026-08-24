@@ -8,7 +8,7 @@ Equivalent single-case curl:
     -H 'Content-Type: application/json' -H 'X-Atlassian-Token: no-check' \
     -d '{"rendererType":"atlassian-wiki-renderer","unrenderedMarkup":"{{*bold*}}"}'
 
-Usage: python3 hack/jira-render-evidence.py [round1|...|round10|all] [--json]   (default: all)
+Usage: python3 hack/jira-render-evidence.py [round1|...|round11|all] [--json]   (default: all)
 
 --json prints one {"in": ..., "out": ...} object per line so captures can be
 turned into evidence fixtures without reparsing the human-readable output.
@@ -516,6 +516,71 @@ ROUND10 = [
     r"\}",
 ]
 
+# Probe strings backing the mid-line forced newline placement and the one-rune
+# effect kill (#94): backslash runs, token separators, line domains, lookbehind
+# deadness, and the killed openers.
+ROUND11 = [
+    # --- where a `\\` pair is a forced newline: the last run of a token, and
+    #     only when it is exactly two backslashes long ---
+    r"a\\b", r"a \\ b", r"\\a", r"a\\", r"\\", r"C:\\dir", r"C:\\dir\\file",
+    r"ab\\cd\\ef", r"a\\b\\c\\d", r"x\\y z\\w", r"x\\y\\", r"\\a\\", r"\\ a",
+    r"a \\", r"a\\ \\b", r"(\\)", r"a.\\b", r"a\\-b", r"a\\*b",
+    # --- runs of other lengths are characters Jira shows, and escape nothing ---
+    r"a\\\b", r"\\\a", r"a\\\\b", r"\\\\a", r"a\\\\", r"a\\\\\b",
+    r"a\\\\\\b", r"a\\\\b\\c", r"a\\b\\\\c", r"a\\b \\\\c", r"\\\\ \\",
+    r"a\\\*b", "&#92;&#92;",
+    # --- what ends the token the run belongs to ---
+    r"a\\b.c\\d", r"a\\b-c\\d", r"a\\b*c\\d", r"a\\b,c\\d d\\e",
+    r"a\\b\\ c", r"a\\b\\c \\d", "a\\\\b\tc\\\\d", "a\\\\b\u00a0c\\\\d",
+    "a\\\\b\fc\\\\d", "a\\\\b\vc\\\\d", "a\\\\b\nc\\\\d", "\u4e2d\\\\\u6587",
+    # --- the domain the rule is read in: a line, a heading, a list item, a cell ---
+    r"h1. a\\b", "||h||\n|a\\\\b|c\\\\d|", r"* a\\b\\c d\\e",
+    # --- the pair is decided on the raw line, straight through an effect ---
+    r"*x\\y*", r"*a\\*", r"*a\\b*c*", r"*ab\\cd*ef*", r"*x\\y*-z\\w",
+    r"*x\\y* -z\\w", r"a\\b *c*d*", r"x\\ *b*",
+    # --- a delimiter a backslash precedes never acts as markup ---
+    r"a\\*b*", r"a\\\\*b*", r"*ab\\\\* c", r"*ab\\\\*", "&#92;*b*",
+    r"a\\{{b}}", r"a\\[x|http://example.com]",
+    r"C:\dir\file", "x\\", r"x\ y", r"a\ab",
+    # --- a link's visible text is read without the rule; a color macro is not ---
+    r"[a\\b|http://x]", r"[a\\b c\\d|http://x]", r"[a\\\\b|http://x]",
+    r"{color:red}a\\b{color}",
+    # --- a Monospace Span body is read in the line it stands in ---
+    r"{{a\\\\b}}", r"{{ab\\cd\\ef}}", r"{{a\\b c\\d}}", r"{{a\\\b}}",
+    r"{{a\\b}}-c\\d", r"{{a\\b}}c\\d", r"x{{a\\b}}y", r"x {{a\\b}} y",
+    r"{{a\\ b}}", r"{{a\\b}}y", r"a{{b\\c}}", r"{{a}} \\", r"a\\b{{c}}",
+    # --- parked: what trailing backslashes do to span formation (not modelled) ---
+    r"{{a\}}", r"{{\}}", r"{{a\\}}", r"{{a\\\\}}", r"{{\\a}}", r"{{ \\ }}",
+    r"{{\\}}",
+    # --- the one-rune kill: an opener whose only closer candidate sits one rune
+    #     in and is refused by a word rune opens nothing at all ---
+    "*a*b*", "*a*bc*", "_a_b_", "-a-b-", "+a+b+", "~a~b~", "^a^b^", "x^2^3^",
+    "*a*b*c*", "*1*2*", "*\u4e2d*\u6587*", "*a*\u00e9*", "*\u20ac*b*",
+    "*a*1*", "*a*b", "*a*,b*", "*a*-b*",
+    # --- two runes of content, or a candidate nothing refuses, scan on ---
+    "*ab*cd*", "*ab*c*d*", "*aa*b*", "-ab-c-", "_ab_c_", "*abc*d*",
+    "*a\u20ac*b*", "*\u20ac*\u20ac*", "*a**b", "*ab*c", "*a *b*", "*a *b* c*",
+    "*a**b*", "*a* b*", "*ab* c*", "*a* *b*",
+    # --- what a kill settles, and what it does not ---
+    "x *a*b* y", "*a*b* *c*", "*ab*c* *d*", "*a**b*c*", "_a_b_ *c*",
+    "*x _a_b_ y*", "h1. *a*b*", "{{*a*b*}}",
+    # --- the brace form closes before a word rune, so it kills nothing ---
+    "{*}a*b*", "{*}a*b{*}", "*a*b{*}", "*a{*}b*", "*ab{*}c*", "*{*}a*",
+    # --- an escaped candidate is skipped without killing the opener ---
+    r"*a\*b*", r"*a\*b*c*", r"*a\*b* c",
+    # --- the citation obeys the same rule ---
+    "??a??b??", "??ab??c??", "??a??b", "??a??", "??\u20ac??b??",
+    # --- only a backslash Jira keeps blocks the break; a consumed escape does not ---
+    r"a\\b\c", r"a\\b\-c", "a\\\\b\\",
+    r"a\b\\c", r"a\\b\\\c",
+    # --- and the citation obeys the same backslash lookbehind ---
+    r"a\\??x??", r"??ab\??c??", r"??ab\?? c??", r"??ab\\\\??", r"??ab\\??",
+    r"??\??b??",
+    # --- rows the unit tables read, so that every one of them is a render ---
+    r"a\b", r"a\\b|c\\d", "*a_b*", r"*\*b*", r"*ab\*", r"*ab\\*", "*ab*",
+    r"h1. a\\b c\\d",
+]
+
 def render(markup, timeout=30):
     body = json.dumps({"rendererType": "atlassian-wiki-renderer",
                        "unrenderedMarkup": markup}).encode()
@@ -554,6 +619,6 @@ if __name__ == "__main__":
     which = arguments[0] if arguments else "all"
     run({"round1": ROUND1, "round2": ROUND2, "round3": ROUND3, "round4": ROUND4,
           "round5": ROUND5, "round6": ROUND6, "round7": ROUND7, "round8": ROUND8,
-          "round9": ROUND9, "round10": ROUND10,
+          "round9": ROUND9, "round10": ROUND10, "round11": ROUND11,
           "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5 + ROUND6 + ROUND7
-                 + ROUND8 + ROUND9 + ROUND10}[which], as_json=as_json)
+                 + ROUND8 + ROUND9 + ROUND10 + ROUND11}[which], as_json=as_json)

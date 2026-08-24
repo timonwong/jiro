@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A heading reads Effect Delimiters exactly as a paragraph does, so Jira renders the asterisks literally; jiro reads a heading whose content is plain text.
+-- input.jira --
+h1. *a*b*
+-- rendered.html --
+<h1><a name="ab"></a>*a*b*</h1>
+-- want.md --
+# \*a\*b\*
+-- warnings.json --
+[]

@@ -1,10 +1,17 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: A `\\` pair inside a span is a forced newline; jiro keeps the legacy reading of one literal backslash.
+observed: A `\\` pair inside a span is a forced newline; jiro keeps both backslashes as code and warns.
 -- input.jira --
 {{a\\b}}
 -- rendered.html --
 <p><tt>a<br class="atl-forced-newline" />b</tt></p>
 -- want.md --
-`a\b`
+`a\\b`
 -- warnings.json --
-[]
+[
+  {
+    "Line": 1,
+    "Column": 1,
+    "Construct": "inline-code",
+    "Reason": "Jira would render a forced newline inside this Monospace Span; inline code keeps the characters literal"
+  }
+]

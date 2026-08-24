@@ -1,10 +1,11 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: With several `\\` pairs on one line Jira shows the first and breaks on the second; jiro reads both as literal backslashes, which is a separate defect. The renderer avoids the question by never writing a pair.
+observed: With two `\\` pairs in one token Jira shows the first and breaks on the second; jiro reads two literal backslashes and a hard break. The renderer avoids the question by never writing a pair.
 -- input.jira --
 C:\\dir\\file
 -- rendered.html --
 <p>C:\\dir<br class="atl-forced-newline" />file</p>
 -- want.md --
-C:\\dir\\file
+C:\\\\dir\
+file
 -- warnings.json --
 []

@@ -1,0 +1,11 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A color macro keeps the line domain, so the pair inside it breaks; jiro reads a hard break inside the color.
+-- input.jira --
+{color:red}a\\b{color}
+-- rendered.html --
+<p><font color="red">a<br class="atl-forced-newline" />b</font></p>
+-- want.md --
+<font color="red">a\
+b</font>
+-- warnings.json --
+[]

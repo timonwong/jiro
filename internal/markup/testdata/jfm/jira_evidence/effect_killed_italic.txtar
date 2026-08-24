@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: The one-rune rule holds for the italic delimiter, so Jira renders the underscores literally; jiro keeps them as text.
+-- input.jira --
+_a_b_
+-- rendered.html --
+<p>_a_b_</p>
+-- want.md --
+\_a\_b\_
+-- warnings.json --
+[]

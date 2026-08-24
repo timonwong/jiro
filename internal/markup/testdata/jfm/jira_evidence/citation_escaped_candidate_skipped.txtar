@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A closing candidate whose first `?` a backslash precedes is skipped rather than accepted, so Jira closes on the later `??`; jiro has no citation inline and keeps the source characters.
+-- input.jira --
+??ab\?? c??
+-- rendered.html --
+<p><cite>ab&#63;? c</cite></p>
+-- want.md --
+??ab?? c??
+-- warnings.json --
+[]
