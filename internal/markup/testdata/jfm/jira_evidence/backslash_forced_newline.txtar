@@ -1,10 +1,10 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-22
-observed: Jira renders the pair as a forced newline and refuses this span; jiro keeps the legacy backslash decode and emits the backslash as inline code.
+observed: The backslash pair is the whole body and still hides the closer, so no span forms and the pair renders as a forced newline; jiro refuses the span too and keeps the legacy reading of one literal backslash.
 -- input.jira --
 {{\\}}
 -- rendered.html --
 <p>{{<br class="atl-forced-newline" />}}</p>
 -- want.md --
-`\`
+{{\\}}
 -- warnings.json --
 []

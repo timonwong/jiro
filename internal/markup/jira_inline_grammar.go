@@ -567,66 +567,86 @@ func jiraInlineHazards(ctx context.Context, source string, start, end int, inlin
 }
 
 // jiraMonospaceSpanEnd reports the offset of the `}}` closing the Monospace Span
-// that the `{{` at offset opens inside the inline run source[start:end]. A
-// returned close of -1 means the run holds no `}}` at all, which lets callers
-// memoize the failure for every later opener.
-func jiraMonospaceSpanEnd(ctx context.Context, source string, start, offset, end int) (int, bool, error) {
+// that the `{{` at offset opens inside the inline run source[start:end], and the
+// offset where the span body ends: the two differ when Jira consumes a backslash
+// written immediately before the closer. A returned close of -1 means the run
+// holds no closer this opener can reach, which lets callers memoize the failure
+// for every later opener: whether a `}}` is hidden depends only on the raw bytes
+// in front of it, and a later opener's scan converges onto the same skips
+// because `{{` can never start inside a run of `}`.
+func jiraMonospaceSpanEnd(ctx context.Context, source string, start, offset, end int) (int, int, bool, error) {
 	body := offset + 2
-	close := -1
-	// The first `}}` is the only closer candidate, and a backslash does not hide
-	// it: Jira reads `{{a\}}b}}` as literal text rather than pairing the opener
-	// with the second `}}`.
+	close, bodyEnd := -1, -1
+	// Backslashes written in front of a `}}` decide whether it closes anything.
+	// Two or more hide it, and Jira then scans past the whole `}` run it starts,
+	// so `{{a\\}}` and `{{a\\}}}` find no closer at all while `{{a\\}}b}}` pairs
+	// with the second one. A single backslash closes the span and vanishes, so
+	// `{{a\}}` reads `a`. The first `}}` left standing is the only candidate:
+	// `{{a\}}b}}` stays literal text rather than pairing with the second.
 	for index := body; index+1 < end; index++ {
 		if (index-body)&255 == 0 {
 			if err := ctx.Err(); err != nil {
-				return -1, false, err
+				return -1, -1, false, err
 			}
 		}
-		if source[index] == '}' && source[index+1] == '}' {
-			close = index
-			break
+		if source[index] != '}' || source[index+1] != '}' {
+			continue
 		}
+		backslashes := 0
+		for scan := index - 1; scan >= body && source[scan] == '\\'; scan-- {
+			backslashes++
+		}
+		if backslashes >= 2 {
+			for index+1 < end && source[index+1] == '}' {
+				index++
+			}
+			continue
+		}
+		close, bodyEnd = index, index-backslashes
+		break
 	}
 	if err := ctx.Err(); err != nil {
-		return -1, false, err
+		return -1, -1, false, err
 	}
 	if close < 0 {
-		return -1, false, nil
+		return -1, -1, false, nil
 	}
 	// Braces touching a word rune are literal text on either side, so `x{{a}}`,
 	// `{{a}}y` and `中{{a}}文` all stay prose.
 	if previous, size := utf8.DecodeLastRuneInString(source[start:offset]); size != 0 && isJiraWordRune(previous) {
-		return close, false, nil
+		return close, bodyEnd, false, nil
 	}
 	if next, size := utf8.DecodeRuneInString(source[close+2 : end]); size != 0 && isJiraWordRune(next) {
-		return close, false, nil
+		return close, bodyEnd, false, nil
 	}
 	// An empty body, a literal edge space, a tab or a newline all refuse the
 	// span; a space written as a character reference does not, because Jira
-	// resolves references after this rule has run.
-	if close == body {
-		return close, false, nil
+	// resolves references after this rule has run. Each check reads the body a
+	// consumed backslash leaves behind, so `{{\}}` is empty and `{{a \}}` ends in
+	// a space.
+	if bodyEnd == body {
+		return close, bodyEnd, false, nil
 	}
-	if source[body] == ' ' || source[close-1] == ' ' {
-		return close, false, nil
+	if source[body] == ' ' || source[bodyEnd-1] == ' ' {
+		return close, bodyEnd, false, nil
 	}
-	if strings.ContainsAny(source[body:close], "\t\n\r") {
-		return close, false, nil
+	if strings.ContainsAny(source[body:bodyEnd], "\t\n\r") {
+		return close, bodyEnd, false, nil
 	}
 	// U+200B reads as a boundary inside the body too: `{{a<U+200B>b}}` stays
 	// literal text while `{{<U+200B>a}}` and `{{a<U+200B>}}` still render a span.
-	for scan := body; scan < close; {
-		offset := strings.Index(source[scan:close], "\u200b")
+	for scan := body; scan < bodyEnd; {
+		offset := strings.Index(source[scan:bodyEnd], "\u200b")
 		if offset < 0 {
 			break
 		}
 		at := scan + offset
-		if at != body && at+len("\u200b") != close {
-			return close, false, nil
+		if at != body && at+len("\u200b") != bodyEnd {
+			return close, bodyEnd, false, nil
 		}
 		scan = at + len("\u200b")
 	}
-	return close, true, nil
+	return close, bodyEnd, true, nil
 }
 
 // jiraCharacterReference reports the decoded rune and the end offset of the

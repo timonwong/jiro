@@ -8,7 +8,7 @@ Equivalent single-case curl:
     -H 'Content-Type: application/json' -H 'X-Atlassian-Token: no-check' \
     -d '{"rendererType":"atlassian-wiki-renderer","unrenderedMarkup":"{{*bold*}}"}'
 
-Usage: python3 hack/jira-render-evidence.py [round1|...|round9|all] [--json]   (default: all)
+Usage: python3 hack/jira-render-evidence.py [round1|...|round10|all] [--json]   (default: all)
 
 --json prints one {"in": ..., "out": ...} object per line so captures can be
 turned into evidence fixtures without reparsing the human-readable output.
@@ -457,6 +457,65 @@ ROUND9 = [
 ]
 
 
+# Probe strings backing the Monospace Span closer rules (#106): how many
+# backslashes in front of a `}}` hide it, what a single one takes with it, and
+# where the scan resumes once a closer is hidden.
+ROUND10 = [
+    # --- how long a backslash run in front of the closer has to be to hide it ---
+    r"{{a\\\}}",
+    r"{{a\\\\}}",
+    r"{{a\\\\\}}",
+    r"{{a\\\\\\}}",
+    r"{{\}}",
+    r"{{\\\}}",
+    r"{{\\\\}}",
+    r"{{\\\\\}}",
+    # --- runs that do not reach the end of the body ---
+    r"{{\a}}",
+    r"{{\\\a}}",
+    r"{{\\\\a}}",
+    r"{{a\\\b}}",
+    r"{{a\\\\b}}",
+    # --- the body a consumed backslash leaves for the edge-space rules ---
+    r"{{a \}}",
+    r"{{a \\}}",
+    r"{{a\\ }}",
+    r"{{ a\}}",
+    r"{{\ }}",
+    r"{{ \}}",
+    # --- a backslash written as a reference is not part of the run ---
+    r"{{a&#92;}}",
+    r"{{a&#92;&#92;}}",
+    r"{{a\&#92;}}",
+    r"{{a&#92;\}}",
+    r"{{a&#92;\\}}",
+    r"{{a\&#92;\}}",
+    # --- where the scan resumes once a closer is hidden ---
+    r"{{a\\}}b}}",
+    r"{{a\\\}}b}}",
+    r"{{a\\\\}}b}}",
+    r"{{a\\}} b}}",
+    r"{{a\}}b",
+    r"{{a\}} b",
+    r"x{{a\\}}y",
+    r"{{a\\}} {{b}}",
+    r"{{a\}}}",
+    r"{{a\\}}}",
+    r"{{a\\\}}}",
+    r"{{a\\}}}}",
+    r"{{a\\}}b\}}",
+    r"{{a\\}}b\\}}",
+    r"{{a\\}}b\\}}c}}",
+    # --- U+200B at the body edge a consumed backslash leaves ---
+    "{{a​\\}}",
+    "{{​\\}}",
+    "{{a\\​}}",
+    # --- the same escapes outside a span ---
+    r"a\}b",
+    r"a\}}b",
+    r"\}",
+]
+
 def render(markup, timeout=30):
     body = json.dumps({"rendererType": "atlassian-wiki-renderer",
                        "unrenderedMarkup": markup}).encode()
@@ -495,6 +554,6 @@ if __name__ == "__main__":
     which = arguments[0] if arguments else "all"
     run({"round1": ROUND1, "round2": ROUND2, "round3": ROUND3, "round4": ROUND4,
           "round5": ROUND5, "round6": ROUND6, "round7": ROUND7, "round8": ROUND8,
-          "round9": ROUND9,
+          "round9": ROUND9, "round10": ROUND10,
           "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5 + ROUND6 + ROUND7
-                 + ROUND8 + ROUND9}[which], as_json=as_json)
+                 + ROUND8 + ROUND9 + ROUND10}[which], as_json=as_json)

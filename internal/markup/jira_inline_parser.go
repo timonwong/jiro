@@ -95,7 +95,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 		}
 
 		if strings.HasPrefix(source[offset:end], "{{") && (failedMonospaceScan < 0 || offset+2 < failedMonospaceScan) {
-			close, ok, err := jiraMonospaceSpanEnd(ctx, source, start, offset, end)
+			close, bodyEnd, ok, err := jiraMonospaceSpanEnd(ctx, source, start, offset, end)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -103,7 +103,10 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 				failedMonospaceScan = offset + 2
 			}
 			if ok {
-				raw := source[offset+2 : close]
+				// A backslash Jira consumes in front of the closer is gone from
+				// the visible text, so the body jiro reads and round-trips stops
+				// in front of it: `{{a\}}` is the code span `a`.
+				raw := source[offset+2 : bodyEnd]
 				// Jira reads U+200B as a Monospace Span boundary rather than as
 				// content, so a rune touching the outside of the braces is
 				// delimiter protection and never reaches the JFM output.
