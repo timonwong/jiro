@@ -68,6 +68,14 @@ _Avoid_: Jira Markdown, wiki Markdown
 jiro's sole Markdown-based format for representing Jira Markup bidirectionally, including jiro-owned extensions for Jira-specific semantics. Warning-free constructs round-trip canonically; recognized lossy constructs retain every target-representable semantic and report discarded information separately.
 _Avoid_: Markdown Input, Markdown Projection, Jira Flavored Markdown, Jira export
 
+**Jira Emoticon**:
+An inline semantic produced when Jira interprets a supported emoticon token such as `(x)` or `:)` as an icon. It is distinct from the same characters authored as literal text in Jiro Flavored Markdown.
+_Avoid_: Emoji, smiley text
+
+**Jira Emoticon Directive**:
+The Jiro Flavored Markdown inline directive `:emoticon[...]` whose content is one supported Jira Emoticon token. It is the canonical JFM representation of an icon semantic, not a request to preserve arbitrary renderer HTML.
+_Avoid_: Emoji directive, icon HTML
+
 **Canonical Jira Markup**:
 The single Jira Markup form jiro produces for a given Jiro Flavored Markdown document. It is jiro's output, not a stable representation of what a Jira Instance stores.
 _Avoid_: Escaped markup, wire format

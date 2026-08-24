@@ -76,7 +76,7 @@ A warning contains:
 - `Construct`: a stable lowercase kebab-case identifier.
 - `Reason`: a human-readable explanation of the loss or fallback.
 
-`Construct` is an open vocabulary. New identifiers may be added without changing the warning shape. Defined identifiers include `blockquote`, `code-block`, `directive`, `escape`, `heading`, `html`, `image`, `inline-code`, `jira-macro`, `link`, `list`, `plain-text`, `reference-definition`, `table`, and `utf-8`. Consumers MUST NOT treat this set as closed. `Reason` is explanatory prose and is not a machine-stable identifier.
+`Construct` is an open vocabulary. New identifiers may be added without changing the warning shape. Defined identifiers include `blockquote`, `code-block`, `directive`, `emoticon`, `escape`, `heading`, `html`, `image`, `inline-code`, `jira-macro`, `link`, `list`, `plain-text`, `reference-definition`, `table`, and `utf-8`. Consumers MUST NOT treat this set as closed. `Reason` is explanatory prose and is not a machine-stable identifier.
 
 Warnings remain in source occurrence order. Multiple warnings at the same position retain discovery order. Warnings are not merged or deduplicated, and every unsupported or malformed occurrence produces its own warning.
 
@@ -105,6 +105,7 @@ Escaping is interpreted in the source notation before target escaping is applied
 - Valid CommonMark named and numeric character references decode to their Unicode characters.
 - Invalid character references remain visible text without a warning.
 - Plain-text Jira effect delimiters (`*`, `_`, `-`, `+`, `^`, and `~`) are escaped in Jira output only when they participate in a complete formatting span. Unmatched effect delimiters and word-internal punctuation that Jira cannot tokenize as formatting remain unescaped. `?` is escaped only as part of a complete `??…??` citation, so `what??` stays readable. Jira structural delimiters (`\`, `{`, `}`, `[`, `]`, `!`, `|`, and `#`) retain their safety escaping.
+- Ordinary JFM text that matches a known Jira emoticon token MUST remain literal. Parenthesized tokens escape both parentheses with Jira backslashes, so `print(x)` becomes `print\(x\)`. Colon-prefixed tokens encode the leading colon because Jira does not consume a backslash before `:`, so `:)`, `:P`, `:D`, and `:(` become `&#58;)`, `&#58;P`, `&#58;D`, and `&#58;(`. The wink token `;)` becomes `&#59;)`. These neutralizers produce no warning and Jira-to-JFM conversion returns ordinary text.
 - An authored backslash is written as the character reference `&#92;` when the next character is one whose backslash Jira consumes, so that neither the forced newline `\\` nor an escape `\X` can form from authored text. Every other backslash is written as itself, keeping `C:\dir\file`, `a \ b`, and a trailing `x\` readable.
 - A `h1.` through `h6.` or `bq.` prefix at the start of a Jira output line, including every table cell, is protected with the character reference `&#46;`, because Jira shows a backslash before `.` instead of consuming it. Together with `&#92;` above and the `&#124;` a `|` needs inside a link's visible text, these are the only places plain text is written as a character reference rather than as itself or as a backslash escape.
 - A run of Jira list markers (`*`, `-`, and `#`, in any mix) followed by a space or a tab at the start of a Jira output line, including every table cell, is protected by backslash-escaping its first character, so `\* item` becomes `\* item` and `\*\* item` becomes `\** item`. Every line of a paragraph is a line start, including the line after a hard break. A marker run that no space or tab follows, and a run of two or more `-`, which Jira reads as a dash, are not list markers and stay literal. This is an ordinary backslash escape from the escapable set, not a character reference.
@@ -858,9 +859,9 @@ Warnings:
 
 ## 12. Directive syntax
 
-Inline directives have the form `:name[content]{attributes}`. Container directives use a colon fence, a name, optional attributes, a body, and a closing fence of equal length. A container fence contains at least three colons and MUST be longer than any nested colon fence in its body.
+Inline directives have the form `:name[content]{attributes}`; `:emoticon[content]` is the defined attrless exception. Container directives use a colon fence, a name, optional attributes, a body, and a closing fence of equal length. A container fence contains at least three colons and MUST be longer than any nested colon fence in its body.
 
-The defined directives are `:link`, `:image`, `:::code`, `:::table`, and `:::panel`.
+The defined directives are `:emoticon`, `:link`, `:image`, `:::code`, `:::table`, and `:::panel`.
 
 ### Naming
 
@@ -900,6 +901,80 @@ The defined directives are `:link`, `:image`, `:::code`, `:::table`, and `:::pan
 
 - Inline directive content never spans a physical line. `]` and backslash are escaped as `\]` and `\\`.
 - `:link` content is inline JFM; `:image` content is plain alternative text. A content-model violation invokes literal fallback with a warning.
+- `:emoticon` is attrless and its content MUST be exactly one supported Jira emoticon token. It has no nested inline content and no attribute list. The canonical form is `:emoticon[(x)]`; `(*y)` is accepted as an input alias and canonicalizes to `(*)`. Unknown tokens, attributes, extra content, and malformed forms use literal fallback with an `emoticon` warning.
+- Jira-to-JFM recognizes the same supported tokens only in visible inline text. An unescaped token becomes `:emoticon[...]`; an escaped token remains ordinary text. Link targets, image and macro values, inline code, fenced code, and Jira Monospace Spans never produce an emoticon directive.
+
+#### Design example: emoticon directive (JFM to Jira)
+Input:
+~~~jfm
+print:emoticon[(x)]
+~~~
+
+Output:
+~~~jira
+print(x)
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+#### Design example: emoticon literal neutralizers (JFM to Jira)
+Input:
+~~~jfm
+print(x) hello :) hello :P hello ;)
+~~~
+
+Output:
+~~~jira
+print\(x\) hello &#58;) hello &#58;P hello &#59;)
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+#### Design example: emoticon reverse conversion (Jira to JFM)
+Input:
+~~~jira
+print(x) literal \(x\)
+~~~
+
+Output:
+~~~jfm
+print:emoticon[(x)] literal (x)
+~~~
+
+Warnings:
+~~~json
+[]
+~~~
+
+#### Design example: emoticon warning after a word
+Input:
+~~~jfm
+:emoticon[(x)]foo
+~~~
+
+Output:
+~~~jira
+(x)foo
+~~~
+
+Warnings:
+~~~json
+[{"Line":1,"Column":1,"Construct":"emoticon","Reason":"Jira emoticon token is followed by a word character and cannot be guaranteed to render as an icon"}]
+~~~
+
+The emoticon acceptance matrix is:
+
+| Context | Known token | Ordinary token-shaped text | Followed by a word | Code or delimited value |
+| --- | --- | --- | --- | --- |
+| Visible inline text | `:emoticon[token]`, warning-free | Neutralized, warning-free | Raw token plus `emoticon` warning | Literal text |
+| Jira Markup to JFM | Directive | Ordinary text | Ordinary text | Literal text |
+| Unknown or malformed directive | Literal fallback plus `emoticon` warning | n/a | n/a | n/a |
 
 ## 13. Panels
 
