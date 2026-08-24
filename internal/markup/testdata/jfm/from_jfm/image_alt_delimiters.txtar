@@ -1,0 +1,6 @@
+-- input.md --
+![a,b](x.png) ![a!b](x.png) ![a|b](x.png) ![a\\b](x.png) ![a=b](x.png)
+-- want.jira --
+!x.png|alt=a&#44;b! !x.png|alt=a&#33;b! !x.png|alt=a&#124;b! !x.png|alt=a&#92;b! !x.png|alt=a=b!
+-- warnings.json --
+[]

@@ -77,7 +77,7 @@ func renderJiraBlocks(ctx context.Context, state *jiraRenderState, document sema
 					if attribute.Bare {
 						parts = append(parts, attribute.Name)
 					} else {
-						value, err := escapeJiraDelimitedValueWithContext(ctx, attribute.Value, `\{}|`)
+						value, err := encodeJiraMacroParameterValue(ctx, attribute.Value)
 						if err != nil {
 							return "", err
 						}
@@ -129,7 +129,7 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 		return offset
 	}
 	writeText := func(value string) error {
-		content, offsets, err := escapeTextForJiraText(ctx, value, render.atLineStart)
+		content, offsets, err := escapeTextForJiraText(ctx, value, render)
 		if err != nil {
 			return err
 		}
@@ -177,7 +177,7 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 				if err != nil {
 					return jiraInlineOutput{}, err
 				}
-				value, err := escapeJiraDelimitedValueWithContext(ctx, typed.Value, `\{}|`)
+				value, err := encodeJiraMacroParameterValue(ctx, typed.Value)
 				if err != nil {
 					return jiraInlineOutput{}, err
 				}
@@ -204,11 +204,11 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 				before, jiraFirstRuneOfInlines(inlines[index+1:]))
 			writeNested(opener, content, closer)
 		case linkInline:
-			label, err := renderJiraInlines(ctx, typed.Label, render.nested())
+			label, err := renderJiraInlines(ctx, typed.Label, render.nested().linkLabel())
 			if err != nil {
 				return jiraInlineOutput{}, err
 			}
-			target, err := escapeJiraDelimitedValueWithContext(ctx, typed.Target, `\[]|`)
+			target, err := encodeJiraLinkTarget(ctx, typed.Target)
 			if err != nil {
 				return jiraInlineOutput{}, err
 			}
@@ -218,14 +218,14 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 				writeNested("[", label, "|"+target+"]")
 			}
 		case imageInline:
-			source, err := escapeJiraDelimitedValueWithContext(ctx, typed.Source, `\!|`)
+			source, err := encodeJiraImageSource(ctx, typed.Source)
 			if err != nil {
 				return jiraInlineOutput{}, err
 			}
 			markup := "!" + source
 			attributes := make([]string, 0, len(typed.Attributes)+1)
 			if typed.Alt != "" {
-				alt, err := escapeJiraDelimitedValueWithContext(ctx, typed.Alt, `\!|,=`)
+				alt, err := encodeJiraImageParameterValue(ctx, typed.Alt)
 				if err != nil {
 					return jiraInlineOutput{}, err
 				}
@@ -235,7 +235,7 @@ func renderJiraInlines(ctx context.Context, inlines []semanticInline, render jir
 				if attribute.Bare {
 					attributes = append(attributes, attribute.Name)
 				} else {
-					value, err := escapeJiraDelimitedValueWithContext(ctx, attribute.Value, `\!|,=`)
+					value, err := encodeJiraImageParameterValue(ctx, attribute.Value)
 					if err != nil {
 						return jiraInlineOutput{}, err
 					}
@@ -350,7 +350,7 @@ func jiraNeedsMonospaceSeparatorAfter(value string) bool {
 }
 
 func escapeTextForJira(ctx context.Context, value string, atLineStart bool) (string, error) {
-	content, plainEffectOffsets, err := escapeTextForJiraText(ctx, value, atLineStart)
+	content, plainEffectOffsets, err := escapeTextForJiraText(ctx, value, jiraInlineRender{atLineStart: atLineStart})
 	if err != nil {
 		return "", err
 	}
@@ -361,9 +361,10 @@ func escapeTextForJira(ctx context.Context, value string, atLineStart bool) (str
 // of the characters that may still become markup, which the run-level escaper
 // decides on. Only ASCII can carry a Jira rule, so the scan runs over bytes and
 // copies the stretches between two of them whole.
-func escapeTextForJiraText(ctx context.Context, value string, atLineStart bool) (string, []int, error) {
+func escapeTextForJiraText(ctx context.Context, value string, render jiraInlineRender) (string, []int, error) {
 	var result strings.Builder
 	var plainEffectOffsets []int
+	atLineStart := render.atLineStart
 	pending, changed := 0, false
 	flush := func(upto int) {
 		if upto > pending {
@@ -404,6 +405,16 @@ func escapeTextForJiraText(ctx context.Context, value string, atLineStart bool) 
 		atLineStart = character == '\n'
 		switch jiraPlainTextByteClasses[character] {
 		case jiraPlainTextByteStructural:
+			// A backslash before a `|` in a link's visible text protects
+			// nothing: Jira splits the bracket body on every `|` and renders an
+			// error span for the target it is left with, so a character
+			// reference goes in instead.
+			if character == '|' && render.inLinkLabel {
+				flush(offset)
+				result.WriteString("&#124;")
+				pending, changed = offset+1, true
+				break
+			}
 			flush(offset)
 			result.WriteByte('\\')
 			changed = true
@@ -492,10 +503,6 @@ func markPlainJiraDelimiter(escaped, plain []bool, start, end int) {
 			escaped[offset] = true
 		}
 	}
-}
-
-func escapeJiraDelimitedValueWithContext(ctx context.Context, value, delimiters string) (string, error) {
-	return escapeSelectedRunes(ctx, value, delimiters)
 }
 
 func renderJiraList(ctx context.Context, state *jiraRenderState, list listBlock, parentMarkers string) (string, error) {
@@ -640,7 +647,7 @@ func renderJiraCodeBlock(ctx context.Context, block codeBlock) (string, error) {
 	if len(attributes) != 0 {
 		parts := make([]string, 0, len(attributes))
 		for _, attribute := range orderDirectiveAttributes(attributes, codeAttributeOrder()) {
-			value, err := escapeJiraDelimitedValueWithContext(ctx, attribute.Value, `\{}|`)
+			value, err := encodeJiraMacroParameterValue(ctx, attribute.Value)
 			if err != nil {
 				return "", err
 			}

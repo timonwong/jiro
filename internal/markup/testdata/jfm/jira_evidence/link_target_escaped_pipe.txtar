@@ -1,0 +1,17 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: Jira splits the bracket body on every `|`, escaped or not: the backslash stays behind in the target and what follows it becomes the link title, which jiro drops with a warning.
+-- input.jira --
+[x|http://x/a\|b]
+-- rendered.html --
+<p><a href="http://x/a" title="b" class="external-link" target="_blank" rel="nofollow noopener">x</a></p>
+-- want.md --
+[x](http://x/a)
+-- warnings.json --
+[
+ {
+  "Line": 1,
+  "Column": 1,
+  "Construct": "link",
+  "Reason": "Jira link title is dropped; jiro carries no link title (#104)"
+ }
+]

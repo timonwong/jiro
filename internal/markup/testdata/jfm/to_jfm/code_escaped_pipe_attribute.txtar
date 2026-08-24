@@ -3,8 +3,10 @@
 code
 {code}
 -- want.md --
-:::code{language="go" title="A|B"}
+:::code{language="go" language="B" title="A"}
 code
 :::
 -- warnings.json --
-[]
+[
+  {"Line":1,"Column":28,"Construct":"directive","Reason":"duplicate code attribute is preserved"}
+]

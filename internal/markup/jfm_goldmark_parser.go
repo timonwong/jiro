@@ -796,7 +796,7 @@ func adaptGoldmarkInline(source []byte, node ast.Node) (semanticInline, []conver
 		}
 		target := string(decodedMarkdownText(typed.Destination, false))
 		if len(typed.Title) != 0 {
-			diagnostics = append(diagnostics, conversionDiagnostic{offset: constructStart, warning: ConversionWarning{Construct: ConstructLink, Reason: "Markdown link title was discarded because Jira Markup has no equivalent"}})
+			diagnostics = append(diagnostics, conversionDiagnostic{offset: constructStart, warning: ConversionWarning{Construct: ConstructLink, Reason: "Markdown link title is dropped; jiro carries no link title (#104)"}})
 		}
 		_, dangerous := dangerousDestinationScheme([]byte(strings.TrimLeftFunc(target, unicodeSpaceOrControl)))
 		if dangerous {

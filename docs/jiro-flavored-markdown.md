@@ -96,14 +96,17 @@ Invalid UTF-8 bytes are replaced individually with U+FFFD. Each replacement prod
 
 Escaping is interpreted in the source notation before target escaping is applied. Decoded source delimiters MUST NOT become unintended target formatting.
 
-- Jira backslash escapes decode Jira delimiters; doubled backslashes decode to one literal backslash.
-- A Jira backslash before a non-delimiter remains literal, including Windows paths such as `C:\temp`.
+- In text, Jira backslash escapes decode Jira delimiters; doubled backslashes decode to one literal backslash.
+- In text, a Jira backslash before a non-delimiter remains literal, including Windows paths such as `C:\temp`.
+- A value Jira reads between its own delimiters follows the rule of its place rather than the text rule. A link target drops one backslash from every run, whatever character follows it. An image source and an image parameter value keep every backslash. A macro parameter value drops the backslash of every pair. In all of them a character reference names the character the value carries, because Jira passes the reference on to the reader.
+- Jira splits these values on the raw character and a backslash protects none of them: every `|` splits a bracket body and a macro parameter list, the first `|` ends an image source, and every `,` splits an image parameter list. JFM-to-Jira conversion therefore writes a character that would split, close, or vanish as a character reference, and uses a backslash escape only where the value's own rule consumes one. A `|` inside a link's visible text is written the same way, because a backslash there would split the link instead of protecting it.
+- A character reference an author writes inside one of these values stays that reference. Conversion keeps it visible as itself in both notations rather than resolving it into the character it names, so such a value survives a round trip unchanged.
 - An escape that truncates or prevents closure of a recognized construct produces a warning; an otherwise unnecessary escape does not.
 - Valid CommonMark named and numeric character references decode to their Unicode characters.
 - Invalid character references remain visible text without a warning.
 - Plain-text Jira effect delimiters (`*`, `_`, `-`, `+`, `^`, and `~`) are escaped in Jira output only when they participate in a complete formatting span. Unmatched effect delimiters and word-internal punctuation that Jira cannot tokenize as formatting remain unescaped. `?` is escaped only as part of a complete `??…??` citation, so `what??` stays readable. Jira structural delimiters (`\`, `{`, `}`, `[`, `]`, `!`, `|`, and `#`) retain their safety escaping.
 - An authored backslash is written as the character reference `&#92;` when the next character is one whose backslash Jira consumes, so that neither the forced newline `\\` nor an escape `\X` can form from authored text. Every other backslash is written as itself, keeping `C:\dir\file`, `a \ b`, and a trailing `x\` readable.
-- A `h1.` through `h6.` or `bq.` prefix at the start of a Jira output line, including every table cell, is protected with the character reference `&#46;`, because Jira shows a backslash before `.` instead of consuming it. Together with `&#92;` above, these are the only places plain text is written as a character reference rather than as itself or as a backslash escape.
+- A `h1.` through `h6.` or `bq.` prefix at the start of a Jira output line, including every table cell, is protected with the character reference `&#46;`, because Jira shows a backslash before `.` instead of consuming it. Together with `&#92;` above and the `&#124;` a `|` needs inside a link's visible text, these are the only places plain text is written as a character reference rather than as itself or as a backslash escape.
 - A run of Jira list markers (`*`, `-`, and `#`, in any mix) followed by a space or a tab at the start of a Jira output line, including every table cell, is protected by backslash-escaping its first character, so `\* item` becomes `\* item` and `\*\* item` becomes `\** item`. Every line of a paragraph is a line start, including the line after a hard break. A marker run that no space or tab follows, and a run of two or more `-`, which Jira reads as a dash, are not list markers and stay literal. This is an ordinary backslash escape from the escapable set, not a character reference.
 - Escaping decisions are proven by re-parsing the rendered inline run. Plain text that cannot be verified is emitted fully escaped with a `plain-text` warning rather than changed in silence.
 - Plain-text characters that would start unintended Markdown formatting are escaped in JFM output.
@@ -601,7 +604,7 @@ Bare `http://` and `https://` URLs map to unnamed Jira links `[target]`. A `www.
 
 Jira-only targets such as issue keys, attachments, and users use `:link[content]{target="..."}` when ordinary Markdown cannot represent the target safely. The `:link` directive requires exactly one quoted `target` attribute and accepts supported inline JFM in its content. It has no location for extra Jira parameters, so unknown or duplicate attributes make the complete directive malformed and invoke literal fallback.
 
-Jira Markup has no link-title semantic. A Markdown link title is therefore discarded, while the label, target, and label formatting are converted normally. This is a lossy conversion and produces a warning.
+Both notations have a link title: Markdown writes it after the destination, and Jira Markup reads a third bracket part, `[label|target|title]`. JFM carries neither, so a title is dropped in whichever direction it was authored, while the label, target, and label formatting are converted normally. Each of those is a lossy conversion and produces a warning.
 
 Jira link labels cannot contain a physical hard break. A hard break inside a Markdown link label becomes one space, the link remains structural, and a warning records the discarded break semantic.
 
@@ -703,7 +706,7 @@ Output:
 Warnings:
 ~~~json
 [
-  {"Line":1,"Column":1,"Construct":"link","Reason":"Markdown link title was discarded because Jira Markup has no equivalent"}
+  {"Line":1,"Column":1,"Construct":"link","Reason":"Markdown link title is dropped; jiro carries no link title (#104)"}
 ]
 ~~~
 

@@ -1,0 +1,17 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: The same split runs without a visible text part, and Jira shows the error span for the target the backslash left behind; jiro keeps the bracket text literal and warns.
+-- input.jira --
+[http://x/a\|b]
+-- rendered.html --
+<p><span class="error">&#91;http://x/a\|b&#93;</span></p>
+-- want.md --
+\[http://x/a\\|b\]
+-- warnings.json --
+[
+ {
+  "Line": 1,
+  "Column": 1,
+  "Construct": "link",
+  "Reason": "backslash before a Jira link separator leaves a target Jira cannot resolve; complete link remains literal"
+ }
+]

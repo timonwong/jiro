@@ -145,20 +145,39 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 			if err != nil {
 				return nil, nil, err
 			}
-			if close >= 0 {
+			// A link body whose last character is a backslash is not a link:
+			// Jira shows the markup, whether the backslash protected the closing
+			// bracket or was consumed before it.
+			if close >= 0 && !jiraValueEndsInBackslash(source[offset+1:close]) {
 				flushText(offset)
 				body := source[offset+1 : close]
-				separator, err := findUnescaped(ctx, body, 0, len(body), "|")
-				if err != nil {
-					return nil, nil, err
-				}
-				labelEnd, target, unnamed := close, body, true
+				// Jira splits the body on every `|`: the first part is the
+				// visible text, the second the target, and everything after it
+				// the link title.
+				separator := jiraUnprotectedSplit(body, 0, '|')
+				labelEnd, labelPart, targetPart, unnamed, titled := close, "", body, true, false
 				if separator >= 0 {
-					labelEnd, target, unnamed = offset+1+separator, body[separator+1:], false
+					labelEnd, labelPart, targetPart, unnamed = offset+1+separator, body[:separator], body[separator+1:], false
+					if titleStart := jiraUnprotectedSplit(targetPart, 0, '|'); titleStart >= 0 {
+						targetPart, titled = targetPart[:titleStart], true
+					}
 				}
-				target, err = decodeJiraDelimitedText(ctx, target)
+				target, err := decodeJiraLinkTarget(ctx, targetPart)
 				if err != nil {
 					return nil, nil, err
+				}
+				// A backslash before one of those separators protects nothing
+				// and Jira splits there anyway. Where the target it is left with
+				// is not one Markdown can carry, Jira resolves nothing and shows
+				// an error span, so the bracket stays the text Jira shows.
+				if (jiraValueEndsInBackslash(labelPart) || jiraValueEndsInBackslash(targetPart)) && linkNeedsDirective(target) {
+					result = append(result, literalInline{Span: sourceSpan{Start: offset, End: close + 1}, Text: source[offset : close+1]})
+					diagnostics = append(diagnostics, conversionDiagnostic{offset: offset, warning: ConversionWarning{Construct: ConstructLink, Reason: "backslash before a Jira link separator leaves a target Jira cannot resolve; complete link remains literal"}})
+					offset, textStart = close+1, close+1
+					continue
+				}
+				if titled {
+					diagnostics = append(diagnostics, conversionDiagnostic{offset: offset, warning: ConversionWarning{Construct: ConstructLink, Reason: "Jira link title is dropped; jiro carries no link title (#104)"}})
 				}
 				// The label is parsed from the source rather than from a decoded
 				// copy: Jira shows an escaped delimiter in link text as the
@@ -191,13 +210,14 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 			if err != nil {
 				return nil, nil, err
 			}
+			destination, attributes, isImage := "", []directiveAttribute(nil), false
 			if close >= 0 {
+				destination, attributes, isImage = parseJiraImageBody(source[offset+1:close], offset+1)
+			}
+			// An image body Jira refuses is not an image at all: the run stays
+			// text, which is what Jira renders there.
+			if isImage {
 				flushText(offset)
-				body := source[offset+1 : close]
-				destination, attributes, err := parseJiraImageBody(ctx, body, offset+1)
-				if err != nil {
-					return nil, nil, err
-				}
 				alt, preservedAttributes, attributeDiagnostics, invalid := validateJiraImageAttributes(attributes)
 				diagnostics = append(diagnostics, attributeDiagnostics...)
 				if invalid {
@@ -236,7 +256,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 				}
 			}
 			if close >= 0 {
-				value, err := decodeJiraDelimitedText(ctx, source[offset+7:openEnd])
+				value, err := decodeJiraMacroParameterValue(ctx, source[offset+7:openEnd])
 				if err != nil {
 					return nil, nil, err
 				}
@@ -329,8 +349,8 @@ func findUnescaped(ctx context.Context, source string, start, end int, delimiter
 // decodeJiraEscapes resolves the backslash escapes Jira consumes wherever it
 // reads inline markup, which is the grammar's escapable set. A backslash before
 // any other character is text Jira shows, so `C:\temp` survives. A delimited
-// value such as a link target or an image parameter is not this: each has its
-// own per-context escape rule and keeps decodeJiraDelimitedText.
+// value such as a link target or an image parameter is not this: each is read
+// with the decoder of its own context in jira_value_grammar.go.
 func decodeJiraEscapes(ctx context.Context, value string) (string, error) {
 	if !strings.Contains(value, `\`) {
 		return value, ctx.Err()
@@ -344,28 +364,6 @@ func decodeJiraEscapes(ctx context.Context, value string) (string, error) {
 			}
 		}
 		if value[index] == '\\' && index+1 < len(value) && isJiraEscapable(value[index+1]) {
-			result.WriteByte(value[index+1])
-			index += 2
-			continue
-		}
-		result.WriteByte(value[index])
-		index++
-	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	return result.String(), nil
-}
-
-func decodeJiraDelimitedText(ctx context.Context, value string) (string, error) {
-	var result strings.Builder
-	for index := 0; index < len(value); {
-		if index&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return "", err
-			}
-		}
-		if value[index] == '\\' && index+1 < len(value) && strings.ContainsRune(`\{}[]|!*_-+^~,=`, rune(value[index+1])) {
 			result.WriteByte(value[index+1])
 			index += 2
 			continue
@@ -412,44 +410,32 @@ func linkNeedsDirective(target string) bool {
 	return !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") && !strings.HasPrefix(lower, "mailto:")
 }
 
-func parseJiraImageBody(ctx context.Context, body string, base int) (string, []directiveAttribute, error) {
-	separator, err := findUnescaped(ctx, body, 0, len(body), "|")
-	if err != nil {
-		return "", nil, err
+// parseJiraImageBody reads the body of a `!...!` into an image source and its
+// parameters, and reports whether Jira reads an image there at all.
+func parseJiraImageBody(body string, base int) (string, []directiveAttribute, bool) {
+	if jiraValueEndsInBackslash(body) {
+		return "", nil, false
 	}
+	separator := jiraUnprotectedSplit(body, 0, '|')
 	if separator < 0 {
-		destination, err := decodeJiraDelimitedText(ctx, body)
-		return destination, nil, err
+		return decodeJiraImageValue(body), nil, true
 	}
-	destination, err := decodeJiraDelimitedText(ctx, body[:separator])
-	if err != nil {
-		return "", nil, err
-	}
+	destination := decodeJiraImageValue(body[:separator])
 	attributes := make([]directiveAttribute, 0)
 	for attributeStart := separator + 1; attributeStart <= len(body); {
-		next, err := findUnescaped(ctx, body, attributeStart, len(body), ",")
-		if err != nil {
-			return "", nil, err
-		}
+		next := jiraUnprotectedSplit(body, attributeStart, ',')
 		if next < 0 {
 			next = len(body)
 		}
 		part := body[attributeStart:next]
 		name, value, bare := part, "", true
-		equals, err := findUnescaped(ctx, part, 0, len(part), "=")
-		if err != nil {
-			return "", nil, err
-		}
-		if equals >= 0 {
-			value, err = decodeJiraDelimitedText(ctx, part[equals+1:])
-			if err != nil {
-				return "", nil, err
+		if equals := jiraUnprotectedSplit(part, 0, '='); equals >= 0 {
+			if jiraImageParameterValueRefused(part[equals+1:]) {
+				return "", nil, false
 			}
-			name, bare = part[:equals], false
-		}
-		name, err = decodeJiraDelimitedText(ctx, name)
-		if err != nil {
-			return "", nil, err
+			// The name is read verbatim for the same reason as the value: Jira
+			// consumes nothing inside an image.
+			name, value, bare = part[:equals], decodeJiraImageValue(part[equals+1:]), false
 		}
 		attributes = append(attributes, directiveAttribute{Span: sourceSpan{Start: base + attributeStart, End: base + next}, Name: name, Value: value, Bare: bare})
 		if next == len(body) {
@@ -457,7 +443,7 @@ func parseJiraImageBody(ctx context.Context, body string, base int) (string, []d
 		}
 		attributeStart = next + 1
 	}
-	return destination, attributes, nil
+	return destination, attributes, true
 }
 
 func validateJiraImageAttributes(attributes []directiveAttribute) (string, []directiveAttribute, []conversionDiagnostic, bool) {

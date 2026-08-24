@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: Escaped parentheses reach the href bare.
+-- input.jira --
+[x|http://x/a\(b\)]
+-- rendered.html --
+<p><a href="http://x/a(b)" class="external-link" target="_blank" rel="nofollow noopener">x</a></p>
+-- want.md --
+[x](http://x/a\(b\))
+-- warnings.json --
+[]

@@ -1,0 +1,6 @@
+-- input.md --
+![a](x.png "t,u")
+-- want.jira --
+!x.png|alt=a,title=t&#44;u!
+-- warnings.json --
+[]

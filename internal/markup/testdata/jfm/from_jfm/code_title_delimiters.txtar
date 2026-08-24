@@ -1,0 +1,10 @@
+-- input.md --
+:::code{title="a=b,c|d"}
+code
+:::
+-- want.jira --
+{code:title=a\=b\,c&#124;d}
+code
+{code}
+-- warnings.json --
+[]

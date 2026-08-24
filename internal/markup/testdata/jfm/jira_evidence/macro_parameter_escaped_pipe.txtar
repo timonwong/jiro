@@ -1,0 +1,29 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A backslash does not protect the parameter separator: Jira titles the panel `a` and reads the rest as another parameter, which JFM cannot express.
+-- input.jira --
+{panel:title=a\|b}
+text
+{panel}
+-- rendered.html --
+<div class="panel" style="border-width: 1px;"><div class="panelHeader" style="border-bottom-width: 1px;"><b>a</b></div><div class="panelContent">
+<p>text</p>
+</div></div>
+-- want.md --
+{panel:title=a\\|b}
+text
+{panel}
+-- warnings.json --
+[
+ {
+  "Line": 1,
+  "Column": 17,
+  "Construct": "directive",
+  "Reason": "unknown panel attribute is preserved"
+ },
+ {
+  "Line": 1,
+  "Column": 17,
+  "Construct": "jira-macro",
+  "Reason": "Jira parameter without a value cannot be represented by this JFM attribute; complete panel remains literal"
+ }
+]

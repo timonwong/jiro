@@ -1,0 +1,23 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: A comma splits the parameter list even after a backslash, so the alt text ends at the backslash and the rest becomes a parameter of its own.
+-- input.jira --
+!http://x/i.png|alt=a\,b!
+-- rendered.html --
+<p><span class="image-wrap" style=""><img src="http://x/i.png" alt="a\" style="border: 0px solid black" /></span></p>
+-- want.md --
+!http://x/i.png|alt=a\\,b!
+-- warnings.json --
+[
+ {
+  "Line": 1,
+  "Column": 24,
+  "Construct": "directive",
+  "Reason": "unknown image attribute is preserved"
+ },
+ {
+  "Line": 1,
+  "Column": 24,
+  "Construct": "image",
+  "Reason": "Jira image parameter without a value cannot be represented by JFM; complete image remains literal"
+ }
+]

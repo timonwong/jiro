@@ -255,6 +255,11 @@ func escapeTextForJFM(ctx context.Context, value string, atLineStart bool) (stri
 	return result.String(), nil
 }
 
+// escapeMarkdownDestination writes a link target or an image source. Both are
+// values jiro reads with character references resolved, so a `&` that begins one
+// has to leave as `&amp;`: a Markdown reader resolves the reference exactly as
+// Jira does, and without this the value would come back as the character it
+// names instead of the reference the author wrote.
 func escapeMarkdownDestination(ctx context.Context, value string) (string, error) {
 	var result strings.Builder
 	for offset, character := range value {
@@ -271,7 +276,7 @@ func escapeMarkdownDestination(ctx context.Context, value string) (string, error
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	return result.String(), nil
+	return escapeMarkdownCharacterReferences(result.String()), nil
 }
 
 func escapeMarkdownDestinationUnchecked(value string) string {
@@ -279,8 +284,34 @@ func escapeMarkdownDestinationUnchecked(value string) string {
 	return result
 }
 
+// escapeMarkdownLabelText writes an image's alternative text, which is a Jira
+// image parameter value and so is read with character references resolved; a `&`
+// that begins one leaves as `&amp;` for the same reason as in a destination.
 func escapeMarkdownLabelText(ctx context.Context, value string) (string, error) {
-	return escapeSelectedRunes(ctx, value, `\[]`)
+	escaped, err := escapeSelectedRunes(ctx, value, `\[]`)
+	if err != nil {
+		return "", err
+	}
+	return escapeMarkdownCharacterReferences(escaped), nil
+}
+
+// escapeMarkdownCharacterReferences writes every `&` that would begin a
+// character reference as `&amp;`. It runs after the backslash escaping above,
+// which never touches a `&`.
+func escapeMarkdownCharacterReferences(value string) string {
+	if !strings.Contains(value, "&") {
+		return value
+	}
+	var result strings.Builder
+	result.Grow(len(value))
+	for offset := 0; offset < len(value); offset++ {
+		if value[offset] == '&' && startsCharacterReference(value, offset, len(value)) {
+			result.WriteString("&amp;")
+			continue
+		}
+		result.WriteByte(value[offset])
+	}
+	return result.String()
 }
 
 func escapeDirectiveContent(ctx context.Context, value string) (string, error) {

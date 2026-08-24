@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
+observed: Jira shows both backslashes in the visible text of a link; jiro reads the pair as one escaped backslash, which is the mid-line `\\` reading tracked in #94.
+-- input.jira --
+[a\\b|http://x]
+-- rendered.html --
+<p><a href="http://x" class="external-link" target="_blank" rel="nofollow noopener">a\\b</a></p>
+-- want.md --
+[a\\b](http://x)
+-- warnings.json --
+[]
