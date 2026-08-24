@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: The lookbehind holds for an even run too: Jira shows four backslashes and the asterisks literally, and jiro keeps them.
+-- input.jira --
+a\\\\*b*
+-- rendered.html --
+<p>a\\\\*b*</p>
+-- want.md --
+a\\\\\\\\\*b\*
+-- warnings.json --
+[]

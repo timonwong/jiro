@@ -114,6 +114,107 @@ func isJiraEscapable(character byte) bool {
 	return strings.IndexByte(jiraEscapableCharacters, character) >= 0
 }
 
+// isJiraForcedNewlineSeparator reports the bytes that end the token a backslash
+// run belongs to. Only ASCII whitespace separates tokens: `a\\b<U+00A0>c\\d`
+// breaks once while `a\\b c\\d` breaks twice, and `.`, `,`, `-` and `*` end no
+// token at all.
+func isJiraForcedNewlineSeparator(character byte) bool {
+	switch character {
+	case ' ', '\t', '\n', '\r', '\v', '\f':
+		return true
+	default:
+		return false
+	}
+}
+
+// jiraNoForcedNewlineDomain is the line domain of an inline run Jira reads
+// without the forced-newline rule. A link's visible text is such a run: Jira
+// renders `[a\\b|http://x]` with both backslashes visible and no break, while
+// the same pair in the paragraph around it breaks.
+const jiraNoForcedNewlineDomain = -1
+
+// jiraLineDomain is the line context one Jira inline run is read in. It carries
+// the two facts the forced-newline rule needs beyond the scanned range.
+type jiraLineDomain struct {
+	// End is where the scan for the token's last backslash run stops: the end
+	// of a physical line, or of one table cell, since `|` separates no token.
+	// jiraNoForcedNewlineDomain means Jira reads the run without the rule.
+	End int
+	// Unbreakable names the JFM construct whose canonical form cannot carry a
+	// hard break, or "" when it can. Jira renders the forced newline there all
+	// the same, so a run inside one keeps the backslashes as characters and the
+	// conversion warns, rather than writing a break that would read back as
+	// something Jira never showed.
+	Unbreakable string
+}
+
+// jiraUnbreakableConstructNames names each construct whose JFM form cannot
+// carry a hard break, for the warning that reports one.
+var jiraUnbreakableConstructNames = map[string]string{
+	ConstructHeading: "heading",
+}
+
+// jiraBackslashRunEnd reports the end of the maximal run of backslashes
+// beginning at runStart, bounded by the end of the scanned range. No caller's
+// range ever cuts a run, because a range always ends on a delimiter, a brace,
+// a bracket, a cell separator or a line end.
+func jiraBackslashRunEnd(source string, runStart, end int) int {
+	runEnd := runStart
+	for runEnd < end && source[runEnd] == '\\' {
+		runEnd++
+	}
+	return runEnd
+}
+
+// jiraForcedNewlineRun reports whether the backslash run source[runStart:runEnd]
+// is the one Jira renders as a forced newline. Exactly one run per
+// whitespace-separated token breaks -- the last one, and only when it is two
+// backslashes long -- so `ab\\cd\\ef` shows the first pair and breaks on the
+// second. Every other backslash of a run of two or more is a character Jira
+// shows, and none of them escapes what follows.
+//
+// lineEnd is the end of the line Jira reads the run in: a physical line, or one
+// table cell, since `|` separates no token and both cells of `|a\\b|c\\d|`
+// break. It is deliberately not the end of the scanned inline range, because
+// Jira decides the break on the raw line and looks straight through a Text
+// Effect closer: the pair in `*x\\y*-z\\w` stays literal inside the bold
+// because a later backslash stands in the same token.
+func jiraForcedNewlineRun(source string, runStart, runEnd, lineEnd int) bool {
+	if runEnd-runStart != 2 || lineEnd == jiraNoForcedNewlineDomain {
+		return false
+	}
+	for index := runEnd; index < lineEnd; {
+		if isJiraForcedNewlineSeparator(source[index]) {
+			return true
+		}
+		if source[index] == '\\' {
+			// Only a backslash Jira keeps blocks the break. A lone one before an
+			// escapable character is consumed as an escape and never reaches the
+			// decision, which is why `a\\b\-c` breaks while `a\\b\c` and the
+			// trailing one of `a\\b\` stay literal, and why the `\}` of
+			// `{{a\\}}b\}}` leaves the pair inside the span breaking.
+			escape := jiraBackslashRunEnd(source, index, lineEnd)
+			if escape-index != 1 || escape >= lineEnd || !isJiraEscapable(source[escape]) {
+				return false
+			}
+			index = escape + 1
+			continue
+		}
+		index++
+	}
+	return true
+}
+
+// jiraBackslashPrecedes reports whether a backslash byte stands directly before
+// offset in the raw source. Such a character never acts as markup: it opens no
+// Text Effect, closes none, and starts neither a Monospace Span nor a link. The
+// lookbehind is the whole rule, which is what makes an even run behave like an
+// odd one -- `*ab\\\\*` finds no closer -- and it reads past the start of the
+// scanned range, because Jira reads the raw line rather than the range.
+func jiraBackslashPrecedes(source string, offset int) bool {
+	return offset > 0 && source[offset-1] == '\\'
+}
+
 // isJiraWordRune reports whether value blocks an Effect Delimiter from opening
 // (when preceding it) or from closing (when following it). Jira counts every
 // Unicode letter or digit, so CJK and accented text tokenize like ASCII words;
@@ -168,6 +269,9 @@ type jiraEffectToken struct {
 // inside them, while an unrecognized `{*}` leaves its delimiter available and
 // `a{*} b {*}c` pairs the bare `*` characters across the braces.
 func jiraEffectOpener(source string, start, offset, end int) (jiraEffectToken, bool, int) {
+	if jiraBackslashPrecedes(source, offset) {
+		return jiraEffectToken{}, false, offset
+	}
 	if source[offset] == '{' && offset+2 < end && source[offset+2] == '}' {
 		if style, ok := jiraInlineStyle(source[offset+1]); ok && jiraEffectContentFollows(source, offset+3, end) {
 			if source[offset+3] == source[offset+1] {
@@ -198,19 +302,49 @@ func jiraEffectContentFollows(source string, at, end int) bool {
 	return !isJiraEffectSpace(next)
 }
 
+// jiraEffectOpenerKilled reports whether the opener of a scan starting at start
+// opens nothing at all. When an effect's content is one rune followed by that
+// effect's own bare delimiter, and a word rune after the delimiter refuses the
+// close, Jira gives the opener up instead of scanning on for a later closer: it
+// rereads the line from the character after the opener, which is why `*a*b*` is
+// literal text, `{*}a*b*` shows a `{` and bolds `}a*b`, and `*€*b*` bolds the
+// `b` on the very candidate it just refused. Two runes of content are already
+// enough to make the scan continue, so `*ab*c*` bolds `ab*c`.
+//
+// The test reads one fixed position, because a candidate can only sit directly
+// after the first rune; nothing between them can be a delimiter.
+func jiraEffectOpenerKilled(source string, start, end int, delimiter byte) bool {
+	first, size := utf8.DecodeRuneInString(source[start:end])
+	if size == 0 || isJiraEffectSpace(first) {
+		return false
+	}
+	candidate := start + size
+	// A brace form closes even before a word rune, and a delimiter a backslash
+	// precedes is not a candidate at all, so neither kills the opener.
+	if candidate >= end || source[candidate] != delimiter || jiraBackslashPrecedes(source, candidate) {
+		return false
+	}
+	return jiraWordRuneAfter(source, candidate+1, end)
+}
+
 // findJiraEffectClose scans source[start:end] for the Effect Delimiter token
 // closing an opener whose content begins at start, and reports its half-open
 // range or -1. A brace form that cannot close leaves the delimiter inside it
-// available, which is how `a{*}{*}b` closes on the second `*`.
-func findJiraEffectClose(ctx context.Context, source string, start, end int, delimiter byte) (int, int, error) {
+// available, which is how `a{*}{*}b` closes on the second `*`. killed reports
+// the separate outcome of jiraEffectOpenerKilled: no closer, and the opener
+// itself is given up rather than merely left unpaired, so a caller resumes one
+// byte after the opener and may not memoize the scan.
+func findJiraEffectClose(ctx context.Context, source string, start, end int, delimiter byte) (int, int, bool, error) {
+	if jiraEffectOpenerKilled(source, start, end, delimiter) {
+		return -1, -1, true, nil
+	}
 	for index := start; index < end; index++ {
 		if (index-start)&255 == 0 {
 			if err := ctx.Err(); err != nil {
-				return -1, -1, err
+				return -1, -1, false, err
 			}
 		}
-		if source[index] == '\\' {
-			index++
+		if jiraBackslashPrecedes(source, index) {
 			continue
 		}
 		closeEnd, brace := 0, false
@@ -231,9 +365,9 @@ func findJiraEffectClose(ctx context.Context, source string, start, end int, del
 		if !brace && jiraWordRuneAfter(source, closeEnd, end) {
 			continue
 		}
-		return index, closeEnd, nil
+		return index, closeEnd, false, nil
 	}
-	return -1, -1, ctx.Err()
+	return -1, -1, false, ctx.Err()
 }
 
 // jiraEffectPair is one complete Text Effect or citation, as the half-open
@@ -261,8 +395,16 @@ func forEachJiraEffectPair(ctx context.Context, source string, start, end int, v
 					return err
 				}
 			}
-			if source[offset] == '\\' && offset+1 < span.End && strings.ContainsRune(jiraEscapableCharacters, rune(source[offset+1])) {
-				offset += 2
+			if source[offset] == '\\' {
+				// Only a lone backslash escapes; a run of two or more is
+				// characters Jira shows and the delimiter behind it stays dead
+				// by lookbehind.
+				runEnd := jiraBackslashRunEnd(source, offset, span.End)
+				if runEnd-offset == 1 && offset+1 < span.End && isJiraEscapable(source[offset+1]) {
+					offset += 2
+					continue
+				}
+				offset = runEnd
 				continue
 			}
 			if strings.HasPrefix(source[offset:span.End], "??") {
@@ -279,9 +421,16 @@ func forEachJiraEffectPair(ctx context.Context, source string, start, end int, v
 			}
 			token, opens, scanned := jiraEffectOpener(source, span.Start, offset, span.End)
 			if opens {
-				closeStart, closeEnd, err := findJiraEffectClose(ctx, source, token.End, span.End, token.Delimiter)
+				closeStart, closeEnd, killed, err := findJiraEffectClose(ctx, source, token.End, span.End, token.Delimiter)
 				if err != nil {
 					return err
+				}
+				if killed {
+					// A killed opener opens nothing, so the walk rereads from
+					// the byte after it -- inside a brace form too, which is how
+					// `{*}a*b*` still reports the pair around `}a*b`.
+					offset = token.Start + 1
+					continue
 				}
 				if closeStart >= 0 {
 					visit(jiraEffectPair{OpenStart: token.Start, OpenEnd: token.End, CloseStart: closeStart, CloseEnd: closeEnd})
@@ -390,9 +539,11 @@ var jiraEmoticonTokens = []string{
 var jiraAutolinkSchemes = []string{"http://", "https://", "ftp://", "mailto:"}
 
 // jiraInlineHazards reports, in source order, every construct Jira would
-// reinterpret in source[start:end]. inTableCell adds the cell-separator hazard
-// for a run that a table row has already split.
-func jiraInlineHazards(ctx context.Context, source string, start, end int, inlineContext jiraInlineContext, inTableCell bool) ([]jiraInlineHazard, error) {
+// reinterpret in source[start:end]. lineEnd is the end of the line the run
+// stands in, which the forced-newline rule needs and which reaches past end for
+// a run nested inside a line, such as a Monospace Span body. inTableCell adds
+// the cell-separator hazard for a run that a table row has already split.
+func jiraInlineHazards(ctx context.Context, source string, start, end, lineEnd int, inlineContext jiraInlineContext, inTableCell bool) ([]jiraInlineHazard, error) {
 	hazards := make([]jiraInlineHazard, 0)
 	monospace := inlineContext == jiraMonospaceContext
 	add := func(kind jiraHazardKind, style inlineStyle, hazardStart, hazardEnd int, textChanges bool) {
@@ -412,8 +563,14 @@ func jiraInlineHazards(ctx context.Context, source string, start, end int, inlin
 			}
 			return -1, nil
 		}
+		// A killed opener is not an exhausted scan, so it is tested before the
+		// memo and never recorded in it: a later opener carrying the same
+		// delimiter can still pair.
+		if jiraEffectOpenerKilled(source, token.End, end, token.Delimiter) {
+			return token.Start + 1, nil
+		}
 		if failedFrom, known := failedEffectScans[token.Delimiter]; !known || token.End < failedFrom {
-			closeStart, closeEnd, err := findJiraEffectClose(ctx, source, token.End, end, token.Delimiter)
+			closeStart, closeEnd, _, err := findJiraEffectClose(ctx, source, token.End, end, token.Delimiter)
 			if err != nil {
 				return -1, err
 			}
@@ -452,22 +609,27 @@ func jiraInlineHazards(ctx context.Context, source string, start, end int, inlin
 			continue
 		}
 		if character == '\\' {
-			// Jira renders `\\` as a line break and refuses a span whose body is one,
-			// but Jira-to-JFM conversion keeps decoding legacy backslash escapes.
-			if index+1 < end && source[index+1] == '\\' {
-				add(jiraHazardForcedNewline, "", index, index+2, true)
-				index += 2
+			// Only the pair that actually breaks is a forced newline, and the
+			// rule is read on the whole line: the pair in `{{a\\b}}-c\\d` is two
+			// characters Jira shows because the later backslash stands in the
+			// same token. Every other run of two or more is literal too, and
+			// escapes nothing; a lone backslash still starts a legacy escape,
+			// which Jira-to-JFM conversion keeps decoding.
+			runEnd := jiraBackslashRunEnd(source, index, end)
+			if jiraForcedNewlineRun(source, index, runEnd, lineEnd) {
+				add(jiraHazardForcedNewline, "", index, runEnd, true)
+				index = runEnd
 				continue
 			}
-			if index+1 < end && strings.ContainsRune(jiraEscapableCharacters, rune(source[index+1])) {
+			if runEnd-index == 1 && index+1 < end && isJiraEscapable(source[index+1]) {
 				add(jiraHazardEscape, "", index, index+2, true)
 				index += 2
 				continue
 			}
-			if index+1 == end {
-				add(jiraHazardTrailingBackslash, "", index, index+1, true)
+			if runEnd == end {
+				add(jiraHazardTrailingBackslash, "", index, runEnd, true)
 			}
-			index++
+			index = runEnd
 			continue
 		}
 		if character == '}' && index+1 < end && source[index+1] == '}' {
@@ -774,12 +936,30 @@ func jiraEmoticonAt(source string, index, end int) int {
 }
 
 // jiraCitationClose reports the offset of the `??` closing the citation opened at
-// index, gated exactly like the single-character Effect Delimiters.
+// index, gated exactly like the single-character Effect Delimiters: the same
+// word-rune boundaries, the same one-rune kill, and the same backslash
+// lookbehind, which is why `a\\??x??` opens nothing, `??ab\\\\??` finds no closer,
+// and `??ab\?? c??` closes on the later `??`.
 func jiraCitationClose(ctx context.Context, source string, start, index, end int) (int, error) {
-	if next, size := utf8.DecodeRuneInString(source[index+2 : end]); size == 0 || isJiraEffectSpace(next) {
+	if jiraBackslashPrecedes(source, index) {
+		return -1, nil
+	}
+	next, size := utf8.DecodeRuneInString(source[index+2 : end])
+	if size == 0 || isJiraEffectSpace(next) {
 		return -1, nil
 	}
 	if previous, size := utf8.DecodeLastRuneInString(source[start:index]); size != 0 && isJiraWordRune(previous) {
+		return -1, nil
+	}
+	// One rune of content followed by a `??` that a word rune refuses gives the
+	// opener up rather than scanning on, exactly like a bare Effect Delimiter:
+	// `??a??b??` is literal text, while `??ab??c??` is a citation whose content
+	// holds the inner `??` and `??€??b??` cites the `b` alone. A candidate a
+	// backslash precedes is no candidate, so it kills nothing either and
+	// `??\??b??` cites `\??b`.
+	if candidate := index + 2 + size; candidate+1 < end && source[candidate] == '?' &&
+		source[candidate+1] == '?' && !jiraBackslashPrecedes(source, candidate) &&
+		jiraWordRuneAfter(source, candidate+2, end) {
 		return -1, nil
 	}
 	for scan := index + 2; scan+1 < end; scan++ {
@@ -788,7 +968,7 @@ func jiraCitationClose(ctx context.Context, source string, start, index, end int
 				return -1, err
 			}
 		}
-		if source[scan] != '?' || source[scan+1] != '?' {
+		if source[scan] != '?' || source[scan+1] != '?' || jiraBackslashPrecedes(source, scan) {
 			continue
 		}
 		if previous, _ := utf8.DecodeLastRuneInString(source[index+2 : scan]); isJiraEffectSpace(previous) {

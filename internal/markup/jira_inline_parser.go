@@ -7,7 +7,14 @@ import (
 	"unicode/utf8"
 )
 
-func parseJiraInlines(ctx context.Context, source string, start, end int) ([]semanticInline, []conversionDiagnostic, error) {
+// parseJiraInlines reads source[start:end] as one Jira inline run. domain is
+// the line context the run stands in -- a physical line, or one table cell --
+// which the forced-newline rule needs and whose end reaches past end whenever
+// the run is nested inside a line, such as the content of a Text Effect. A
+// recursive call passes it through unchanged, because Jira decides a forced
+// newline on the raw line and sees no inline structure there; the one exception
+// is a link's visible text, which Jira reads with no line domain at all.
+func parseJiraInlines(ctx context.Context, source string, start, end int, domain jiraLineDomain) ([]semanticInline, []conversionDiagnostic, error) {
 	result := make([]semanticInline, 0)
 	diagnostics := make([]conversionDiagnostic, 0)
 	textStart := start
@@ -23,15 +30,16 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 	// opener either, so one exhausted scan settles the rest of the run.
 	failedMonospaceScan := -1
 	// Failed closer scans are memoized per delimiter: every scan below shares
-	// the same end and starts directly after an opener byte that is never a
-	// backslash, so escapedness of any candidate closer is identical for every
-	// scan start and a scan that found no closer cannot succeed from a later
-	// start. The Effect Delimiter gate preserves that property: it reads only
-	// the candidate's own neighbouring runes, which do not depend on the scan
-	// start, and its index > start bound only rejects more candidates as the
-	// start moves right. Do not reuse these helpers for scans over other
-	// strings or ranges; the Monospace Span closer in particular ignores
-	// backslash escapes and uses its own memo.
+	// the same end, and a candidate's deadness is decided by the byte before it
+	// rather than by where the scan began, so a scan that found no closer
+	// cannot succeed from a later start. The Effect Delimiter gate preserves
+	// that property: it reads only the candidate's own neighbouring runes,
+	// which do not depend on the scan start, and its index > start bound only
+	// rejects more candidates as the start moves right. A killed opener is the
+	// one outcome that is not memoizable, and findStyleCloser keeps it out.
+	// Do not reuse these helpers for scans over other strings or ranges; the
+	// Monospace Span closer in particular ignores backslash escapes and uses
+	// its own memo.
 	var failedCloserScans map[string]int
 	findCloser := func(from int, delimiter string) (int, error) {
 		if failedFrom, ok := failedCloserScans[delimiter]; ok && from >= failedFrom {
@@ -47,18 +55,24 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 		return close, err
 	}
 	var failedStyleScans map[byte]int
-	findStyleCloser := func(from int, delimiter byte) (int, int, error) {
-		if failedFrom, ok := failedStyleScans[delimiter]; ok && from >= failedFrom {
-			return -1, -1, nil
+	findStyleCloser := func(from int, delimiter byte) (int, int, bool, error) {
+		// The kill is read before the memo and never recorded in it: it gives
+		// up one opener rather than exhausting the run, so a later opener with
+		// the same delimiter can still pair, as the bold `c` of `*a*b* *c*`.
+		if jiraEffectOpenerKilled(source, from, end, delimiter) {
+			return -1, -1, true, nil
 		}
-		closeStart, closeEnd, err := findJiraEffectClose(ctx, source, from, end, delimiter)
-		if err == nil && closeStart < 0 {
+		if failedFrom, ok := failedStyleScans[delimiter]; ok && from >= failedFrom {
+			return -1, -1, false, nil
+		}
+		closeStart, closeEnd, killed, err := findJiraEffectClose(ctx, source, from, end, delimiter)
+		if err == nil && closeStart < 0 && !killed {
 			if failedStyleScans == nil {
 				failedStyleScans = make(map[byte]int)
 			}
 			failedStyleScans[delimiter] = from
 		}
-		return closeStart, closeEnd, err
+		return closeStart, closeEnd, killed, err
 	}
 
 	for offset := start; offset < end; {
@@ -68,33 +82,47 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 			}
 		}
 		if source[offset] == '\\' {
-			if offset+1 < end && source[offset+1] == '\\' {
-				next := offset + 2
-				if next == end || source[next] == '\n' || source[next] == '\r' {
-					flushText(offset)
-					breakEnd := next
-					if breakEnd < end && source[breakEnd] == '\r' {
-						breakEnd++
-						if breakEnd < end && source[breakEnd] == '\n' {
-							breakEnd++
-						}
-					} else if breakEnd < end && source[breakEnd] == '\n' {
-						breakEnd++
-					}
-					result = append(result, hardBreakInline{Span: sourceSpan{Start: offset, End: breakEnd}})
-					offset, textStart = breakEnd, breakEnd
+			runEnd := jiraBackslashRunEnd(source, offset, end)
+			if jiraForcedNewlineRun(source, offset, runEnd, domain.End) {
+				if name, unbreakable := jiraUnbreakableConstructNames[domain.Unbreakable]; unbreakable {
+					// The construct around this run has no JFM spelling that
+					// carries a hard break, so writing one would read back as
+					// characters Jira never showed. The backslashes stay in the
+					// text and the loss is reported instead.
+					diagnostics = append(diagnostics, conversionDiagnostic{offset: offset, warning: ConversionWarning{Construct: domain.Unbreakable, Reason: "Jira would render a forced newline inside this " + name + "; a JFM " + name + " cannot carry one, so the characters stay literal"}})
+					offset = runEnd
 					continue
 				}
+				flushText(offset)
+				// A run that ends the line takes the newline with it, because
+				// the JFM hard break already carries one.
+				breakEnd := runEnd
+				if breakEnd < end && source[breakEnd] == '\r' {
+					breakEnd++
+					if breakEnd < end && source[breakEnd] == '\n' {
+						breakEnd++
+					}
+				} else if breakEnd < end && source[breakEnd] == '\n' {
+					breakEnd++
+				}
+				result = append(result, hardBreakInline{Span: sourceSpan{Start: offset, End: breakEnd}})
+				offset, textStart = breakEnd, breakEnd
+				continue
 			}
-			if offset+1 < end && strings.ContainsRune(jiraEscapableCharacters, rune(source[offset+1])) {
+			if runEnd-offset == 1 && offset+1 < end && isJiraEscapable(source[offset+1]) {
 				flushText(offset)
 				result = append(result, textInline{Span: sourceSpan{Start: offset, End: offset + 2}, Text: source[offset+1 : offset+2]})
 				offset, textStart = offset+2, offset+2
 				continue
 			}
+			// Every remaining backslash is a character Jira shows, so the run
+			// stays in the flushed text and escapes nothing behind it.
+			offset = runEnd
+			continue
 		}
 
-		if strings.HasPrefix(source[offset:end], "{{") && (failedMonospaceScan < 0 || offset+2 < failedMonospaceScan) {
+		if strings.HasPrefix(source[offset:end], "{{") && !jiraBackslashPrecedes(source, offset) &&
+			(failedMonospaceScan < 0 || offset+2 < failedMonospaceScan) {
 			close, bodyEnd, ok, err := jiraMonospaceSpanEnd(ctx, source, start, offset, end)
 			if err != nil {
 				return nil, nil, err
@@ -127,7 +155,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 				result = append(result, codeInline{Span: sourceSpan{Start: offset, End: close + 2}, Text: body})
 				// The hazard scan reads the undecoded body: character references
 				// and backslash escapes are what stop Jira from reinterpreting it.
-				reinterpreted, warned, err := jiraMonospaceReinterpretation(ctx, raw)
+				reinterpreted, warned, err := jiraMonospaceReinterpretation(ctx, source, offset+2, bodyEnd, domain.End)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -143,7 +171,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 			}
 		}
 
-		if source[offset] == '[' {
+		if source[offset] == '[' && !jiraBackslashPrecedes(source, offset) {
 			close, err := findCloser(offset+1, "]")
 			if err != nil {
 				return nil, nil, err
@@ -186,7 +214,10 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 				// copy: Jira shows an escaped delimiter in link text as the
 				// character, so decoding first would let `[a \-b\- c|url]` read
 				// back as a strikethrough Jira never renders.
-				label, nestedDiagnostics, err := parseJiraInlines(ctx, source, offset+1, labelEnd)
+				// Jira reads a link's visible text without the forced-newline
+				// rule: `[a\\b|http://x]` shows both backslashes, while the
+				// same pair outside the brackets breaks.
+				label, nestedDiagnostics, err := parseJiraInlines(ctx, source, offset+1, labelEnd, jiraLineDomain{End: jiraNoForcedNewlineDomain})
 				if err != nil {
 					return nil, nil, err
 				}
@@ -265,7 +296,7 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 				}
 				if value != "" {
 					flushText(offset)
-					children, nestedDiagnostics, err := parseJiraInlines(ctx, source, openEnd+1, close)
+					children, nestedDiagnostics, err := parseJiraInlines(ctx, source, openEnd+1, close, domain)
 					if err != nil {
 						return nil, nil, err
 					}
@@ -296,13 +327,20 @@ func parseJiraInlines(ctx context.Context, source string, start, end int) ([]sem
 		}
 
 		if token, opens, scanned := jiraEffectOpener(source, start, offset, end); opens {
-			closeStart, closeEnd, err := findStyleCloser(token.End, token.Delimiter)
+			closeStart, closeEnd, killed, err := findStyleCloser(token.End, token.Delimiter)
 			if err != nil {
 				return nil, nil, err
 			}
+			if killed {
+				// A killed opener opens nothing and is text; the scan rereads
+				// from the byte after it, so the `*` inside `{*}` of `{*}a*b*`
+				// still gets its turn.
+				offset = token.Start + 1
+				continue
+			}
 			if closeStart >= 0 {
 				flushText(offset)
-				children, nestedDiagnostics, err := parseJiraInlines(ctx, source, token.End, closeStart)
+				children, nestedDiagnostics, err := parseJiraInlines(ctx, source, token.End, closeStart, domain)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -350,10 +388,13 @@ func findUnescaped(ctx context.Context, source string, start, end int, delimiter
 }
 
 // decodeJiraEscapes resolves the backslash escapes Jira consumes wherever it
-// reads inline markup, which is the grammar's escapable set. A backslash before
-// any other character is text Jira shows, so `C:\temp` survives. A delimited
-// value such as a link target or an image parameter is not this: each is read
-// with the decoder of its own context in jira_value_grammar.go.
+// reads inline markup, which is the grammar's escapable set. Only a lone
+// backslash escapes: a run of two or more is characters Jira shows and escapes
+// nothing behind it, so `a\\\b` keeps all three and `a\\\*b` keeps the `*` as
+// well. A backslash before any other character is text Jira shows, so `C:\temp`
+// survives. A delimited value such as a link target or an image parameter is
+// not this: each is read with the decoder of its own context in
+// jira_value_grammar.go.
 func decodeJiraEscapes(ctx context.Context, value string) (string, error) {
 	if !strings.Contains(value, `\`) {
 		return value, ctx.Err()
@@ -366,9 +407,15 @@ func decodeJiraEscapes(ctx context.Context, value string) (string, error) {
 				return "", err
 			}
 		}
-		if value[index] == '\\' && index+1 < len(value) && isJiraEscapable(value[index+1]) {
-			result.WriteByte(value[index+1])
-			index += 2
+		if value[index] == '\\' {
+			runEnd := jiraBackslashRunEnd(value, index, len(value))
+			if runEnd-index == 1 && index+1 < len(value) && isJiraEscapable(value[index+1]) {
+				result.WriteByte(value[index+1])
+				index += 2
+				continue
+			}
+			result.WriteString(value[index:runEnd])
+			index = runEnd
 			continue
 		}
 		result.WriteByte(value[index])
@@ -554,14 +601,17 @@ func mergeAdjacentTextInlines(inlines []semanticInline) []semanticInline {
 const legacyCodeSpanEscapedDelimiters = `{}[]|-*_`
 
 // jiraMonospaceReinterpretation names the first construct Jira would render
-// inside the undecoded Monospace Span body instead of showing its characters.
-// Emoticon, dash, macro and escape reinterpretations stay silent: they are Jira
-// misrendering code, not semantics jiro drops. An autolink of any scheme,
-// including mailto, is also silent: Jira's autolinker leaves the address
-// visible and a REST read returns the raw markup unchanged, so nothing is
-// lost by leaving it raw.
-func jiraMonospaceReinterpretation(ctx context.Context, body string) (string, bool, error) {
-	hazards, err := jiraInlineHazards(ctx, body, 0, len(body), jiraMonospaceContext, false)
+// inside the undecoded Monospace Span body source[bodyStart:bodyEnd] instead of
+// showing its characters. The body is read in place rather than as a detached
+// string because the forced-newline rule is decided on the whole line: the pair
+// in `{{a\\b}}-c\\d` is two characters Jira shows, while the same body alone
+// would break. Emoticon, dash, macro and escape reinterpretations stay silent:
+// they are Jira misrendering code, not semantics jiro drops. An autolink of any
+// scheme, including mailto, is also silent: Jira's autolinker leaves the
+// address visible and a REST read returns the raw markup unchanged, so nothing
+// is lost by leaving it raw.
+func jiraMonospaceReinterpretation(ctx context.Context, source string, bodyStart, bodyEnd, lineEnd int) (string, bool, error) {
+	hazards, err := jiraInlineHazards(ctx, source, bodyStart, bodyEnd, lineEnd, jiraMonospaceContext, false)
 	if err != nil {
 		return "", false, err
 	}
@@ -571,6 +621,8 @@ func jiraMonospaceReinterpretation(ctx context.Context, body string) (string, bo
 			return jiraEffectReinterpretations[hazard.Style], true, nil
 		case jiraHazardCitation:
 			return "a citation", true, nil
+		case jiraHazardForcedNewline:
+			return "a forced newline", true, nil
 		case jiraHazardLink:
 			if hazard.TextChanges {
 				return "a link", true, nil

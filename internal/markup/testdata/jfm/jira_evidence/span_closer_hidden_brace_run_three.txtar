@@ -1,10 +1,11 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
-observed: A hidden closer takes the whole `}` run with it, so the third brace closes nothing and no span forms.
+observed: A hidden closer takes the whole `}` run with it, so the third brace closes nothing and no span forms; jiro reads the same forced newline between the literal braces.
 -- input.jira --
 {{a\\}}}
 -- rendered.html --
 <p>{{a<br class="atl-forced-newline" />}}}</p>
 -- want.md --
-{{a\\}}}
+{{a\
+}}}
 -- warnings.json --
 []

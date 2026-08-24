@@ -1,0 +1,11 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A run of four is literal and the pair after it is the token's last run, so Jira breaks there and jiro reads four backslashes and a hard break.
+-- input.jira --
+a\\\\b\\c
+-- rendered.html --
+<p>a\\\\b<br class="atl-forced-newline" />c</p>
+-- want.md --
+a\\\\\\\\b\
+c
+-- warnings.json --
+[]

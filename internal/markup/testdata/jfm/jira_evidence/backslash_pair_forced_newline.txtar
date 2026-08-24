@@ -1,10 +1,11 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: A `\\` pair between words is a forced newline, so the plain-text escaper may never write one. Jira-to-JFM reads it as one literal backslash, which is a separate defect.
+observed: A `\\` pair between words is its token's last run, so Jira breaks the line there; jiro reads a hard break.
 -- input.jira --
 a\\b
 -- rendered.html --
 <p>a<br class="atl-forced-newline" />b</p>
 -- want.md --
-a\\b
+a\
+b
 -- warnings.json --
 []

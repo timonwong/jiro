@@ -1,10 +1,11 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: A backslash run right before the closing bracket makes Jira render no link at all; jiro keeps the bracket run as text (the forced newline Jira shows there is not modelled).
+observed: A backslash run right before the closing bracket makes Jira render no link at all and break the line there; jiro keeps the bracket run as text with the same hard break.
 -- input.jira --
 [x|http://x/a\\]
 -- rendered.html --
 <p>[x|http://x/a<br class="atl-forced-newline" />]</p>
 -- want.md --
-\[x|http://x/a\\\]
+\[x|http://x/a\
+\]
 -- warnings.json --
 []

@@ -1,0 +1,17 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Jira shows the first pair inside the span and breaks on the second; jiro keeps every backslash as code and warns about the forced newline.
+-- input.jira --
+{{ab\\cd\\ef}}
+-- rendered.html --
+<p><tt>ab\\cd<br class="atl-forced-newline" />ef</tt></p>
+-- want.md --
+`ab\\cd\\ef`
+-- warnings.json --
+[
+  {
+    "Line": 1,
+    "Column": 1,
+    "Construct": "inline-code",
+    "Reason": "Jira would render a forced newline inside this Monospace Span; inline code keeps the characters literal"
+  }
+]

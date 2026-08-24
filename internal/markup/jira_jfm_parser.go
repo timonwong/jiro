@@ -30,7 +30,14 @@ func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, quoteDepth 
 			if contentStart < line.End && source[contentStart] == ' ' {
 				contentStart++
 			}
-			inlines, inlineDiagnostics, err := parseJiraInlines(ctx, source, contentStart, line.End)
+			domain := jiraLineDomain{End: line.End}
+			if !quote {
+				// A JFM ATX heading is one line and cannot carry a hard break,
+				// so a forced newline Jira renders here stays literal and is
+				// reported.
+				domain.Unbreakable = ConstructHeading
+			}
+			inlines, inlineDiagnostics, err := parseJiraInlines(ctx, source, contentStart, line.End, domain)
 			if err != nil {
 				return semanticDocument{}, nil, err
 			}
@@ -110,7 +117,7 @@ func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, quoteDepth 
 			index++
 		}
 		end := lines[index-1].End
-		inlines, inlineDiagnostics, err := parseJiraInlines(ctx, raw.String(), 0, raw.Len())
+		inlines, inlineDiagnostics, err := parseJiraInlines(ctx, raw.String(), 0, raw.Len(), jiraLineDomain{End: raw.Len()})
 		if err != nil {
 			return semanticDocument{}, nil, err
 		}

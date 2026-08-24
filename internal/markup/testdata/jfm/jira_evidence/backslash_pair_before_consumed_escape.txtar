@@ -1,0 +1,11 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A lone backslash Jira consumes as an escape never reaches the forced-newline decision, so the pair is still its token's last kept run and breaks; jiro reads a hard break and decodes the escape to the hyphen Jira shows.
+-- input.jira --
+a\\b\-c
+-- rendered.html --
+<p>a<br class="atl-forced-newline" />b&#45;c</p>
+-- want.md --
+a\
+b-c
+-- warnings.json --
+[]

@@ -1,0 +1,17 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A heading line is a line domain like any other, so Jira breaks inside the heading. A JFM ATX heading carries no hard break, so jiro keeps both backslashes as heading text and warns rather than writing a break that would read back as a character Jira never showed.
+-- input.jira --
+h1. a\\b
+-- rendered.html --
+<h1><a name="a%5C%5Cb"></a>a<br class="atl-forced-newline" />b</h1>
+-- want.md --
+# a\\\\b
+-- warnings.json --
+[
+  {
+    "Line": 1,
+    "Column": 6,
+    "Construct": "heading",
+    "Reason": "Jira would render a forced newline inside this heading; a JFM heading cannot carry one, so the characters stay literal"
+  }
+]

@@ -1,0 +1,11 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: The break is decided on the raw line, not on the effect content: a later backslash in the same token keeps the pair inside the bold literal, and Jira breaks on the pair after the closer. jiro reads two literal backslashes inside the bold and one hard break after it.
+-- input.jira --
+*x\\y*-z\\w
+-- rendered.html --
+<p><b>x\\y</b>-z<br class="atl-forced-newline" />w</p>
+-- want.md --
+**x\\\\y**-z\
+w
+-- warnings.json --
+[]

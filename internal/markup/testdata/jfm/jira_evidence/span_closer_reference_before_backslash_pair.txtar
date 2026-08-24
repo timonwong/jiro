@@ -1,10 +1,11 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
-observed: The two raw backslashes hide the closer whatever precedes them, and the reference renders as one literal backslash; jiro refuses the span too, but its plain text passes the reference through undecoded and reads the pair as a second literal backslash where Jira renders a forced newline.
+observed: The two raw backslashes hide the closer whatever precedes them, and the reference renders as one literal backslash; jiro refuses the span too, passes the reference through undecoded and reads the pair as the forced newline Jira shows.
 -- input.jira --
 {{a&#92;\\}}
 -- rendered.html --
 <p>{{a&#92;<br class="atl-forced-newline" />}}</p>
 -- want.md --
-{{a&#92;\\}}
+{{a&#92;\
+}}
 -- warnings.json --
 []

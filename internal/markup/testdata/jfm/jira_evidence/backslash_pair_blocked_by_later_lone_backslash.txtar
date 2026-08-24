@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A lone backslash Jira keeps, because the character after it is not escapable, blocks the pair from breaking; jiro reads all three backslashes as literal text.
+-- input.jira --
+a\\b\c
+-- rendered.html --
+<p>a\\b\c</p>
+-- want.md --
+a\\\\b\\c
+-- warnings.json --
+[]

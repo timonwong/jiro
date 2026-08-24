@@ -1,0 +1,10 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: Two runes of content are enough for the scan to continue, so Jira bolds across the refused candidate; jiro reads one bold effect whose content holds the asterisk.
+-- input.jira --
+*ab*cd*
+-- rendered.html --
+<p><b>ab*cd</b></p>
+-- want.md --
+**ab\*cd**
+-- warnings.json --
+[]

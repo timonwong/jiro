@@ -1,0 +1,11 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: The span body is read in the line it stands in, so the later backslash keeps the pair inside the span literal and Jira breaks only after the span; jiro keeps both backslashes as code without a warning and reads the hard break.
+-- input.jira --
+{{a\\b}}-c\\d
+-- rendered.html --
+<p><tt>a\\b</tt>-c<br class="atl-forced-newline" />d</p>
+-- want.md --
+`a\\b`-c\
+d
+-- warnings.json --
+[]

@@ -1,0 +1,11 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A Windows path written with a pair is a forced newline, so Jira breaks after the drive letter and jiro reads a hard break.
+-- input.jira --
+C:\\dir
+-- rendered.html --
+<p>C:<br class="atl-forced-newline" />dir</p>
+-- want.md --
+C:\
+dir
+-- warnings.json --
+[]

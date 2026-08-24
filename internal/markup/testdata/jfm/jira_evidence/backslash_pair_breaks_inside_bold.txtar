@@ -1,0 +1,12 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: With a space after the closer the pair inside the bold is its token's last run, so Jira breaks in both tokens and jiro reads a hard break inside the bold and another after it.
+-- input.jira --
+*x\\y* -z\\w
+-- rendered.html --
+<p><b>x<br class="atl-forced-newline" />y</b> -z<br class="atl-forced-newline" />w</p>
+-- want.md --
+**x\
+y** -z\
+w
+-- warnings.json --
+[]

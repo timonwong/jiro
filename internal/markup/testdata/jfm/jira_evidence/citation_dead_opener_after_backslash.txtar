@@ -1,0 +1,11 @@
+source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-24
+observed: A `??` a backslash precedes opens no citation, so Jira breaks the line and shows the question marks; jiro reads a hard break and keeps the citation characters as text.
+-- input.jira --
+a\\??x??
+-- rendered.html --
+<p>a<br class="atl-forced-newline" />??x??</p>
+-- want.md --
+a\
+??x??
+-- warnings.json --
+[]

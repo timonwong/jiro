@@ -1,10 +1,11 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: A backslash pair ending a parameter value is a forced newline before the closing `!`, so Jira reads no image; jiro keeps the run as text.
+observed: A backslash pair ending a parameter value is a forced newline before the closing `!`, so Jira reads no image; jiro keeps the run as text and reads the same hard break.
 -- input.jira --
 !http://x/i.png|alt=a\\!
 -- rendered.html --
 <p>!http://x/i.png|alt=a<br class="atl-forced-newline" />!</p>
 -- want.md --
-!http://x/i.png|alt=a\\!
+!http://x/i.png|alt=a\
+!
 -- warnings.json --
 []
