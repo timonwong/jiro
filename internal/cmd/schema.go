@@ -130,10 +130,10 @@ func schemaDocument() cliSchema {
 			}, object("issueKey", "comments")),
 			commandWithFlags("issue comment add", nil, true, "ISSUE-KEY", []flagSchema{
 				flag("body", "", "string"), flag("body-file", "", "path-or-stdin"), flagDefault("input-format", "", "enum:jira|jfm|markdown", "jira"),
-			}, object("id", "body", "author", "created")),
+			}, object("id", "body", "author", "created", "updated")),
 			commandWithFlags("issue comment edit", nil, true, "ISSUE-KEY COMMENT-ID", []flagSchema{
 				flag("body", "", "string"), flag("body-file", "", "path-or-stdin"), flagDefault("input-format", "", "enum:jira|jfm|markdown", "jira"),
-			}, object("id", "body", "author", "created", "updated")),
+			}, object("id", "body", "author", "created", "updated", "issueKey", "applied", "verified")),
 			command("issue list-transitions", false, "ISSUE-KEY", object("issueKey", "transitions")),
 			commandWithFlags("issue move", nil, true, "ISSUE-KEY", []flagSchema{
 				requiredFlag("to", "", "string"), flag("comment", "", "string"),

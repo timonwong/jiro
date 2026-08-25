@@ -10,11 +10,11 @@ import (
 	"github.com/timonwong/jiro/internal/apperr"
 )
 
-func TestUpdateCommentReplacesBodyAndReadsBack(t *testing.T) {
+func TestUpdateCommentReplacesBody(t *testing.T) {
 	t.Parallel()
-	var requests []string
+	requests := make(chan string, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests = append(requests, r.Method+" "+r.URL.Path)
+		requests <- r.Method + " " + r.URL.Path
 		switch {
 		case r.Method == http.MethodPut && r.URL.Path == "/rest/api/2/issue/OPS-1/comment/7":
 			var payload CommentInput
@@ -37,36 +37,21 @@ func TestUpdateCommentReplacesBodyAndReadsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	comment, err := client.UpdateComment(context.Background(), "OPS-1", "7", CommentInput{Body: "updated"})
+	if err := client.UpdateComment(context.Background(), "OPS-1", "7", CommentInput{Body: "updated"}); err != nil {
+		t.Fatal(err)
+	}
+	comment, err := client.ShowComment(context.Background(), "OPS-1", "7")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if request := <-requests; request != "PUT /rest/api/2/issue/OPS-1/comment/7" {
+		t.Fatalf("first request = %q", request)
+	}
+	if request := <-requests; request != "GET /rest/api/2/issue/OPS-1/comment/7" {
+		t.Fatalf("second request = %q", request)
 	}
 	if comment.ID != "7" || comment.Body != "updated" || comment.Author == nil || comment.Author.Username != "tpwang" || comment.Updated == "" {
 		t.Fatalf("UpdateComment() = %#v", comment)
-	}
-	if len(requests) != 2 || requests[0] != "PUT /rest/api/2/issue/OPS-1/comment/7" || requests[1] != "GET /rest/api/2/issue/OPS-1/comment/7" {
-		t.Fatalf("requests = %#v", requests)
-	}
-}
-
-func TestUpdateCommentReadbackFailureIsPartial(t *testing.T) {
-	t.Parallel()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPut {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		http.Error(w, `{"errorMessages":["readback unavailable"]}`, http.StatusInternalServerError)
-	}))
-	defer server.Close()
-
-	client, err := NewClient(Config{BaseURL: server.URL})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = client.UpdateComment(context.Background(), "OPS-1", "7", CommentInput{Body: "updated"})
-	if apperr.As(err).Kind != apperr.KindPartialFailure {
-		t.Fatalf("UpdateComment() error = %v, kind = %s", err, apperr.As(err).Kind)
 	}
 }
 
@@ -76,6 +61,7 @@ func TestUpdateCommentRejectsMissingInput(t *testing.T) {
 		t.Fatal("invalid comment edit must fail before network access")
 	}))
 	defer server.Close()
+
 	client, err := NewClient(Config{BaseURL: server.URL})
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +71,7 @@ func TestUpdateCommentRejectsMissingInput(t *testing.T) {
 	}{
 		{"", "7", "body"}, {"OPS-1", "", "body"}, {"OPS-1", "7", ""},
 	} {
-		if _, err := client.UpdateComment(context.Background(), input.key, input.id, CommentInput{Body: input.body}); apperr.As(err).Kind != apperr.KindInvalidInput {
+		if err := client.UpdateComment(context.Background(), input.key, input.id, CommentInput{Body: input.body}); apperr.As(err).Kind != apperr.KindInvalidInput {
 			t.Fatalf("UpdateComment(%q, %q, %q) error = %v", input.key, input.id, input.body, err)
 		}
 	}

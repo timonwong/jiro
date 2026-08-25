@@ -372,22 +372,11 @@ func (a *app) issueCommentCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			format, err := parseInputFormat(inputFormat)
+			bodyValue, err := a.resolveCommentBody(command, body, bodyFile, inputFormat)
 			if err != nil {
 				return err
 			}
-			bodyValue, err := readText(command.Context(), a.stdin, body, command.Flags().Changed("body"), bodyFile)
-			if err != nil {
-				return err
-			}
-			if bodyValue == nil || *bodyValue == "" {
-				return apperr.New(apperr.KindInvalidInput, "comment body is required")
-			}
-			bodyValue, err = a.convertToJiraMarkup(command.Context(), bodyValue, format, "body")
-			if err != nil {
-				return err
-			}
-			input := jira.CommentInput{Body: *bodyValue}
+			input := jira.CommentInput{Body: bodyValue}
 			comment, err := client.Comment(command.Context(), args[0], input)
 			if err != nil {
 				return err
@@ -413,32 +402,28 @@ func (a *app) issueCommentEditCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			format, err := parseInputFormat(inputFormat)
+			bodyValue, err := a.resolveCommentBody(command, body, bodyFile, inputFormat)
 			if err != nil {
 				return err
 			}
-			bodyValue, err := readText(command.Context(), a.stdin, body, command.Flags().Changed("body"), bodyFile)
-			if err != nil {
+			if err := client.UpdateComment(command.Context(), args[0], args[1], jira.CommentInput{Body: bodyValue}); err != nil {
 				return err
 			}
-			if bodyValue == nil || *bodyValue == "" {
-				return apperr.New(apperr.KindInvalidInput, "comment body is required")
-			}
-			bodyValue, err = a.convertToJiraMarkup(command.Context(), bodyValue, format, "body")
+			// Verify through an independent GET so a successful PUT is not
+			// reported as complete without the server's final representation.
+			comment, err := client.ShowComment(command.Context(), args[0], args[1])
 			if err != nil {
-				return err
-			}
-			comment, err := client.UpdateComment(command.Context(), args[0], args[1], jira.CommentInput{Body: *bodyValue})
-			if err == nil {
-				return a.renderMessage(comment, fmt.Sprintf("Updated comment %s on %s", args[1], args[0]))
-			}
-			if apperr.As(err).Kind == apperr.KindPartialFailure {
-				result := map[string]any{"issueKey": args[0], "commentID": args[1], "updated": true}
+				result := map[string]any{
+					"issueKey": args[0], "id": args[1], "body": bodyValue,
+					"applied": true, "verified": false,
+				}
 				if renderErr := a.renderPartial(result, fmt.Sprintf("Updated comment %s on %s; read-back failed", args[1], args[0])); renderErr != nil {
 					return renderErr
 				}
+				return apperr.Wrap(apperr.KindPartialFailure, err,
+					"comment %s/%s was updated but read-back failed: %v", args[0], args[1], err)
 			}
-			return err
+			return a.renderMessage(comment, fmt.Sprintf("Updated comment %s on %s", args[1], args[0]))
 		},
 	}
 	flags := command.Flags()

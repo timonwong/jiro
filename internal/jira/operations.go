@@ -663,23 +663,14 @@ func (c *Client) Comment(ctx context.Context, key string, input CommentInput) (C
 	return normalizeComment(wire), nil
 }
 
-// UpdateComment replaces an issue comment body and reads the final Comment
-// back. Jira's edit endpoint may return no representation, so read-back is
-// required before reporting the normalized result as verified.
-func (c *Client) UpdateComment(ctx context.Context, key, id string, input CommentInput) (Comment, error) {
+// UpdateComment replaces an issue comment body. Callers decide whether a
+// subsequent read-back is required for their result contract.
+func (c *Client) UpdateComment(ctx context.Context, key, id string, input CommentInput) error {
 	if strings.TrimSpace(key) == "" || strings.TrimSpace(id) == "" || input.Body == "" {
-		return Comment{}, apperr.New(apperr.KindInvalidInput, "issue key, comment ID, and comment body are required")
+		return apperr.New(apperr.KindInvalidInput, "issue key, comment ID, and comment body are required")
 	}
 	path := "rest/api/2/issue/" + url.PathEscape(key) + "/comment/" + url.PathEscape(id)
-	if err := c.do(ctx, http.MethodPut, path, nil, input, nil); err != nil {
-		return Comment{}, err
-	}
-	comment, err := c.ShowComment(ctx, key, id)
-	if err != nil {
-		return Comment{}, apperr.Wrap(apperr.KindPartialFailure, err,
-			"comment %s/%s was updated but read-back failed: %v", key, id, err)
-	}
-	return comment, nil
+	return c.do(ctx, http.MethodPut, path, nil, input, nil)
 }
 
 // AddComment is an explicit alias for Comment.
