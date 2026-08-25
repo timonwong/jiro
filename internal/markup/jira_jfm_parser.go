@@ -71,19 +71,17 @@ func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, start, end,
 			index = next
 			continue
 		}
-		if macro, ok := parseJiraBlockMacro(ctx, source, lines, index, quoteDepth); ok {
-			if macro.Err != nil {
-				return semanticDocument{}, nil, macro.Err
-			}
+		if macro, ok, err := parseJiraBlockMacro(ctx, source, lines, index, quoteDepth); err != nil {
+			return semanticDocument{}, nil, err
+		} else if ok {
 			document.Blocks = append(document.Blocks, macro.Block)
 			diagnostics = append(diagnostics, macro.Diagnostics...)
 			index = macro.Next
 			continue
 		}
-		if macro, ok := parseUnsupportedJiraBlockMacro(ctx, source, lines, index, quoteDepth); ok {
-			if macro.Err != nil {
-				return semanticDocument{}, nil, macro.Err
-			}
+		if macro, ok, err := parseUnsupportedJiraBlockMacro(ctx, source, lines, index, quoteDepth); err != nil {
+			return semanticDocument{}, nil, err
+		} else if ok {
 			document.Blocks = append(document.Blocks, macro.Block)
 			diagnostics = append(diagnostics, macro.Diagnostics...)
 			index = macro.Next
