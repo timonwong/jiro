@@ -76,7 +76,11 @@ Jira Markup is the default; use `--input-format=jfm` for newly authored Jiro
 Flavored Markdown. jiro sends the replacement with Jira's Comment endpoint and
 reads the Comment back before reporting success. If Jira accepts the replacement
 but read-back fails, the command returns `partial_failure` because the final
-Comment state is unknown; do not retry without checking Jira.
+Comment state is unknown; do not retry without checking Jira. In JSON output,
+the partial result is `{"issueKey":"OPS-1","id":"10001","body":"...",
+"applied":true,"verified":false}`. `verified:false` is the partial-only
+discriminator; a successful edit returns the normalized Comment with Jira's
+`author`, `created`, and `updated` fields instead.
 
 ### Transition comments and resolution
 
