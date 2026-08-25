@@ -72,26 +72,14 @@ func TestJiraLinkTitleSpellingReadsBack(t *testing.T) {
 func TestJiraDelimitedValueRoundTrips(t *testing.T) {
 	t.Parallel()
 	decodeLinkTarget := func(t *testing.T, value string) string {
-		decoded, err := decodeJiraLinkTarget(context.Background(), value)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return decoded
+		return decodeJiraLinkTarget(context.Background(), value)
 	}
 	decodeMacroParameter := func(t *testing.T, value string) string {
-		decoded, err := decodeJiraMacroParameterValue(context.Background(), value)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return decoded
+		return decodeJiraMacroParameterValue(context.Background(), value)
 	}
-	encodeWith := func(encode func(context.Context, string) (string, error)) func(*testing.T, string) string {
+	encodeWith := func(encode func(context.Context, string) string) func(*testing.T, string) string {
 		return func(t *testing.T, value string) string {
-			encoded, err := encode(context.Background(), value)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return encoded
+			return encode(context.Background(), value)
 		}
 	}
 	for _, test := range []struct {

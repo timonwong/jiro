@@ -66,10 +66,7 @@ func TestInlineCodeBodiesRoundTripLosslessly(t *testing.T) {
 				if len(jira.Warnings) != 0 {
 					t.Fatalf("FromJFM warnings = %#v, want none", jira.Warnings)
 				}
-				document, _, err := parseJiraMarkup(context.Background(), jira.Markup)
-				if err != nil {
-					t.Fatal(err)
-				}
+				document, _ := parseJiraMarkup(context.Background(), jira.Markup)
 				assertSameBodies(t, codeSpanBodies(t, document), want, jfm.Markdown, jira.Markup)
 			})
 		}

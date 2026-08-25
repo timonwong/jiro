@@ -86,34 +86,30 @@ var jiraMacroParameterEncoding = jiraValueEncodingOf("", map[byte]string{
 	'|':  "&#124;",
 })
 
-func encodeJiraLinkTarget(ctx context.Context, value string) (string, error) {
+func encodeJiraLinkTarget(ctx context.Context, value string) string {
 	return encodeJiraDelimitedValue(ctx, value, &jiraLinkTargetEncoding)
 }
 
-func encodeJiraImageSource(ctx context.Context, value string) (string, error) {
+func encodeJiraImageSource(ctx context.Context, value string) string {
 	return encodeJiraDelimitedValue(ctx, value, &jiraImageSourceEncoding)
 }
 
-func encodeJiraImageParameterValue(ctx context.Context, value string) (string, error) {
+func encodeJiraImageParameterValue(ctx context.Context, value string) string {
 	return encodeJiraDelimitedValue(ctx, value, &jiraImageParameterEncoding)
 }
 
-func encodeJiraMacroParameterValue(ctx context.Context, value string) (string, error) {
+func encodeJiraMacroParameterValue(ctx context.Context, value string) string {
 	return encodeJiraDelimitedValue(ctx, value, &jiraMacroParameterEncoding)
 }
 
 // encodeJiraDelimitedValue writes value so that Jira's reader of that context
 // yields it back. Only ASCII carries a rule, so the scan runs over bytes and
 // copies the stretches between two of them whole.
-func encodeJiraDelimitedValue(ctx context.Context, value string, encoding *jiraValueEncoding) (string, error) {
+func encodeJiraDelimitedValue(ctx context.Context, value string, encoding *jiraValueEncoding) string {
 	var result strings.Builder
 	pending := 0
 	for offset := 0; offset < len(value); offset++ {
-		if offset&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return "", err
-			}
-		}
+		sampleConversionCancel(ctx, offset)
 		replacement := encoding.replacements[value[offset]]
 		switch {
 		case value[offset] == '&':
@@ -134,32 +130,25 @@ func encodeJiraDelimitedValue(ctx context.Context, value string, encoding *jiraV
 		result.WriteString(replacement)
 		pending = offset + 1
 	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
 	// A value Jira already reads as itself is the common case and needs no copy.
 	if pending == 0 {
-		return value, nil
+		return value
 	}
 	result.WriteString(value[pending:])
-	return result.String(), nil
+	return result.String()
 }
 
 // decodeJiraLinkTarget reads the value Jira links to. Jira drops exactly one
 // backslash from each run and shows the rest, whatever character follows the
 // run: `\?` is `?`, `\\b` is `\b`, and six backslashes are five.
-func decodeJiraLinkTarget(ctx context.Context, value string) (string, error) {
+func decodeJiraLinkTarget(ctx context.Context, value string) string {
 	if !strings.Contains(value, `\`) {
-		return decodeJiraEntities(value), ctx.Err()
+		return decodeJiraEntities(value)
 	}
 	var result strings.Builder
 	result.Grow(len(value))
 	for index := 0; index < len(value); {
-		if index&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return "", err
-			}
-		}
+		sampleConversionCancel(ctx, index)
 		if value[index] != '\\' {
 			result.WriteByte(value[index])
 			index++
@@ -172,10 +161,7 @@ func decodeJiraLinkTarget(ctx context.Context, value string) (string, error) {
 		result.WriteString(value[index+1 : index+run])
 		index += run
 	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	return decodeJiraEntities(result.String()), nil
+	return decodeJiraEntities(result.String())
 }
 
 // decodeJiraLinkTitle reads the third part of a link body, which Jira shows as
@@ -254,18 +240,14 @@ func decodeJiraImageValue(value string) string {
 // `a\\b` is `a\b`. A trailing lone backslash escapes nothing and Jira shows
 // nothing for it, which is what `{panel:title=a\|b}` leaves behind once the
 // separator has split the parameter.
-func decodeJiraMacroParameterValue(ctx context.Context, value string) (string, error) {
+func decodeJiraMacroParameterValue(ctx context.Context, value string) string {
 	if !strings.Contains(value, `\`) {
-		return decodeJiraEntities(value), ctx.Err()
+		return decodeJiraEntities(value)
 	}
 	var result strings.Builder
 	result.Grow(len(value))
 	for index := 0; index < len(value); {
-		if index&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return "", err
-			}
-		}
+		sampleConversionCancel(ctx, index)
 		if value[index] == '\\' {
 			if index+1 < len(value) {
 				result.WriteByte(value[index+1])
@@ -276,10 +258,7 @@ func decodeJiraMacroParameterValue(ctx context.Context, value string) (string, e
 		result.WriteByte(value[index])
 		index++
 	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	return decodeJiraEntities(result.String()), nil
+	return decodeJiraEntities(result.String())
 }
 
 // jiraUnprotectedSplit reports the offset in value of the first separator at or

@@ -346,16 +346,12 @@ func jiraEffectOpenerKilled(source string, start, end int, delimiter byte) bool 
 // the separate outcome of jiraEffectOpenerKilled: no closer, and the opener
 // itself is given up rather than merely left unpaired, so a caller resumes one
 // byte after the opener and may not memoize the scan.
-func findJiraEffectClose(ctx context.Context, source string, start, end int, delimiter byte) (int, int, bool, error) {
+func findJiraEffectClose(ctx context.Context, source string, start, end int, delimiter byte) (int, int, bool) {
 	if jiraEffectOpenerKilled(source, start, end, delimiter) {
-		return -1, -1, true, nil
+		return -1, -1, true
 	}
 	for index := start; index < end; index++ {
-		if (index-start)&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return -1, -1, false, err
-			}
-		}
+		sampleConversionCancel(ctx, index-start)
 		if jiraBackslashPrecedes(source, index) {
 			continue
 		}
@@ -386,9 +382,9 @@ func findJiraEffectClose(ctx context.Context, source string, start, end int, del
 		if !brace && jiraWordRuneAfter(source, closeEnd, end) {
 			continue
 		}
-		return index, closeEnd, false, nil
+		return index, closeEnd, false
 	}
-	return -1, -1, false, ctx.Err()
+	return -1, -1, false
 }
 
 // jiraEffectPair is one complete Text Effect or citation, as the half-open
@@ -405,17 +401,13 @@ type jiraEffectPair struct {
 // does so that a nested pair is scanned in its own range. It is the plain-text
 // escaper's whole decision: a delimiter this walk does not report is one Jira
 // shows as a character, and escaping it would only add noise.
-func forEachJiraEffectPair(ctx context.Context, source string, start, end int, visit func(jiraEffectPair)) error {
+func forEachJiraEffectPair(ctx context.Context, source string, start, end int, visit func(jiraEffectPair)) {
 	ranges := []sourceSpan{{Start: start, End: end}}
 	for len(ranges) != 0 {
 		span := ranges[len(ranges)-1]
 		ranges = ranges[:len(ranges)-1]
 		for offset := span.Start; offset < span.End; {
-			if (offset-span.Start)&255 == 0 {
-				if err := ctx.Err(); err != nil {
-					return err
-				}
-			}
+			sampleConversionCancel(ctx, offset-span.Start)
 			if source[offset] == '\\' {
 				// Only a lone backslash escapes; a run of two or more is
 				// characters Jira shows and the delimiter behind it stays dead
@@ -429,10 +421,7 @@ func forEachJiraEffectPair(ctx context.Context, source string, start, end int, v
 				continue
 			}
 			if strings.HasPrefix(source[offset:span.End], "??") {
-				close, err := jiraCitationClose(ctx, source, span.Start, offset, span.End)
-				if err != nil {
-					return err
-				}
+				close := jiraCitationClose(ctx, source, span.Start, offset, span.End)
 				if close > 0 {
 					visit(jiraEffectPair{OpenStart: offset, OpenEnd: offset + 2, CloseStart: close, CloseEnd: close + 2})
 					ranges = append(ranges, sourceSpan{Start: offset + 2, End: close})
@@ -442,10 +431,7 @@ func forEachJiraEffectPair(ctx context.Context, source string, start, end int, v
 			}
 			token, opens, scanned := jiraEffectOpener(source, span.Start, offset, span.End)
 			if opens {
-				closeStart, closeEnd, killed, err := findJiraEffectClose(ctx, source, token.End, span.End, token.Delimiter)
-				if err != nil {
-					return err
-				}
+				closeStart, closeEnd, killed := findJiraEffectClose(ctx, source, token.End, span.End, token.Delimiter)
 				if killed {
 					// A killed opener opens nothing, so the walk rereads from
 					// the byte after it -- inside a brace form too, which is how
@@ -468,7 +454,6 @@ func forEachJiraEffectPair(ctx context.Context, source string, start, end int, v
 			offset += size
 		}
 	}
-	return ctx.Err()
 }
 
 // jiraInlineContext selects the rule subset that applies to a scanned run. Jira
@@ -634,7 +619,7 @@ var jiraAutolinkSchemes = []string{"http://", "https://", "ftp://", "mailto:"}
 // stands in, which the forced-newline rule needs and which reaches past end for
 // a run nested inside a line, such as a Monospace Span body. inTableCell adds
 // the cell-separator hazard for a run that a table row has already split.
-func jiraInlineHazards(ctx context.Context, source string, start, end, lineEnd int, inlineContext jiraInlineContext, inTableCell bool) ([]jiraInlineHazard, error) {
+func jiraInlineHazards(ctx context.Context, source string, start, end, lineEnd int, inlineContext jiraInlineContext, inTableCell bool) []jiraInlineHazard {
 	hazards := make([]jiraInlineHazard, 0)
 	monospace := inlineContext == jiraMonospaceContext
 	add := func(kind jiraHazardKind, style inlineStyle, hazardStart, hazardEnd int, textChanges bool) {
@@ -646,25 +631,22 @@ func jiraInlineHazards(ctx context.Context, source string, start, end, lineEnd i
 	var failedEffectScans map[byte]int
 	// scanEffect reports the Text Effect opening at index and where the scan
 	// resumes, or -1 when no Effect Delimiter token opens there.
-	scanEffect := func(index int) (int, error) {
+	scanEffect := func(index int) int {
 		token, opens, scanned := jiraEffectOpener(source, start, index, end)
 		if !opens {
 			if scanned > index {
-				return scanned, nil
+				return scanned
 			}
-			return -1, nil
+			return -1
 		}
 		// A killed opener is not an exhausted scan, so it is tested before the
 		// memo and never recorded in it: a later opener carrying the same
 		// delimiter can still pair.
 		if jiraEffectOpenerKilled(source, token.End, end, token.Delimiter) {
-			return token.Start + 1, nil
+			return token.Start + 1
 		}
 		if failedFrom, known := failedEffectScans[token.Delimiter]; !known || token.End < failedFrom {
-			closeStart, closeEnd, _, err := findJiraEffectClose(ctx, source, token.End, end, token.Delimiter)
-			if err != nil {
-				return -1, err
-			}
+			closeStart, closeEnd, _ := findJiraEffectClose(ctx, source, token.End, end, token.Delimiter)
 			if closeStart < 0 {
 				if failedEffectScans == nil {
 					failedEffectScans = make(map[byte]int)
@@ -674,14 +656,10 @@ func jiraInlineHazards(ctx context.Context, source string, start, end, lineEnd i
 				add(jiraHazardEffect, token.Style, token.Start, closeEnd, true)
 			}
 		}
-		return scanned, nil
+		return scanned
 	}
 	for index := start; index < end; {
-		if (index-start)&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-		}
+		sampleConversionCancel(ctx, index-start)
 		if _, referenceEnd := jiraCharacterReference(source, index, end); referenceEnd > 0 {
 			index = referenceEnd
 			continue
@@ -731,9 +709,7 @@ func jiraInlineHazards(ctx context.Context, source string, start, end, lineEnd i
 		if character == '{' || character == '}' {
 			// The brace form of an Effect Delimiter outranks the macro rule:
 			// Jira renders `a{*}b{*}c` bold rather than lifting `{*}` out.
-			if next, err := scanEffect(index); err != nil {
-				return nil, err
-			} else if next > index {
+			if next := scanEffect(index); next > index {
 				index = next
 				continue
 			}
@@ -777,18 +753,14 @@ func jiraInlineHazards(ctx context.Context, source string, start, end, lineEnd i
 			continue
 		}
 		if strings.HasPrefix(source[index:end], "??") {
-			if close, err := jiraCitationClose(ctx, source, start, index, end); err != nil {
-				return nil, err
-			} else if close > 0 {
+			if close := jiraCitationClose(ctx, source, start, index, end); close > 0 {
 				add(jiraHazardCitation, "", index, close+2, true)
 				index += 2
 				continue
 			}
 		}
 		if character == '[' {
-			if close, changes, err := jiraLinkEnd(ctx, source, index, end); err != nil {
-				return nil, err
-			} else if close > 0 {
+			if close, changes := jiraLinkEnd(ctx, source, index, end); close > 0 {
 				add(jiraHazardLink, "", index, close+1, changes)
 				index = close + 1
 				continue
@@ -804,19 +776,14 @@ func jiraInlineHazards(ctx context.Context, source string, start, end, lineEnd i
 			index = autolinkEnd
 			continue
 		}
-		if next, err := scanEffect(index); err != nil {
-			return nil, err
-		} else if next > index {
+		if next := scanEffect(index); next > index {
 			index = next
 			continue
 		}
 		_, size := utf8.DecodeRuneInString(source[index:end])
 		index += size
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	return hazards, nil
+	return hazards
 }
 
 // jiraMonospaceSpanEnd reports the offset of the `}}` closing the Monospace Span
@@ -827,7 +794,7 @@ func jiraInlineHazards(ctx context.Context, source string, start, end, lineEnd i
 // for every later opener: whether a `}}` is hidden depends only on the raw bytes
 // in front of it, and a later opener's scan converges onto the same skips
 // because `{{` can never start inside a run of `}`.
-func jiraMonospaceSpanEnd(ctx context.Context, source string, start, offset, end int) (int, int, bool, error) {
+func jiraMonospaceSpanEnd(ctx context.Context, source string, start, offset, end int) (int, int, bool) {
 	body := offset + 2
 	close, bodyEnd := -1, -1
 	// Backslashes written in front of a `}}` decide whether it closes anything.
@@ -837,11 +804,7 @@ func jiraMonospaceSpanEnd(ctx context.Context, source string, start, offset, end
 	// `{{a\}}` reads `a`. The first `}}` left standing is the only candidate:
 	// `{{a\}}b}}` stays literal text rather than pairing with the second.
 	for index := body; index+1 < end; index++ {
-		if (index-body)&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return -1, -1, false, err
-			}
-		}
+		sampleConversionCancel(ctx, index-body)
 		if source[index] != '}' || source[index+1] != '}' {
 			continue
 		}
@@ -858,19 +821,16 @@ func jiraMonospaceSpanEnd(ctx context.Context, source string, start, offset, end
 		close, bodyEnd = index, index-backslashes
 		break
 	}
-	if err := ctx.Err(); err != nil {
-		return -1, -1, false, err
-	}
 	if close < 0 {
-		return -1, -1, false, nil
+		return -1, -1, false
 	}
 	// Braces touching a word rune are literal text on either side, so `x{{a}}`,
 	// `{{a}}y` and `中{{a}}文` all stay prose.
 	if previous, size := utf8.DecodeLastRuneInString(source[start:offset]); size != 0 && isJiraWordRune(previous) {
-		return close, bodyEnd, false, nil
+		return close, bodyEnd, false
 	}
 	if next, size := utf8.DecodeRuneInString(source[close+2 : end]); size != 0 && isJiraWordRune(next) {
-		return close, bodyEnd, false, nil
+		return close, bodyEnd, false
 	}
 	// An empty body, a literal edge space, a tab or a newline all refuse the
 	// span; a space written as a character reference does not, because Jira
@@ -878,13 +838,13 @@ func jiraMonospaceSpanEnd(ctx context.Context, source string, start, offset, end
 	// consumed backslash leaves behind, so `{{\}}` is empty and `{{a \}}` ends in
 	// a space.
 	if bodyEnd == body {
-		return close, bodyEnd, false, nil
+		return close, bodyEnd, false
 	}
 	if source[body] == ' ' || source[bodyEnd-1] == ' ' {
-		return close, bodyEnd, false, nil
+		return close, bodyEnd, false
 	}
 	if strings.ContainsAny(source[body:bodyEnd], "\t\n\r") {
-		return close, bodyEnd, false, nil
+		return close, bodyEnd, false
 	}
 	// U+200B reads as a boundary inside the body too: `{{a<U+200B>b}}` stays
 	// literal text while `{{<U+200B>a}}` and `{{a<U+200B>}}` still render a span.
@@ -895,11 +855,11 @@ func jiraMonospaceSpanEnd(ctx context.Context, source string, start, offset, end
 		}
 		at := scan + offset
 		if at != body && at+len("\u200b") != bodyEnd {
-			return close, bodyEnd, false, nil
+			return close, bodyEnd, false
 		}
 		scan = at + len("\u200b")
 	}
-	return close, bodyEnd, true, nil
+	return close, bodyEnd, true
 }
 
 // jiraCharacterReference reports the decoded rune and the end offset of the
@@ -1036,16 +996,16 @@ func jiraEmoticonAt(source string, index, end int) int {
 // word-rune boundaries, the same one-rune kill, and the same backslash
 // lookbehind, which is why `a\\??x??` opens nothing, `??ab\\\\??` finds no closer,
 // and `??ab\?? c??` closes on the later `??`.
-func jiraCitationClose(ctx context.Context, source string, start, index, end int) (int, error) {
+func jiraCitationClose(ctx context.Context, source string, start, index, end int) int {
 	if jiraBackslashPrecedes(source, index) {
-		return -1, nil
+		return -1
 	}
 	next, size := utf8.DecodeRuneInString(source[index+2 : end])
 	if size == 0 || isJiraEffectSpace(next) {
-		return -1, nil
+		return -1
 	}
 	if previous, size := utf8.DecodeLastRuneInString(source[start:index]); size != 0 && isJiraWordRune(previous) {
-		return -1, nil
+		return -1
 	}
 	// One rune of content followed by a `??` that a word rune refuses gives the
 	// opener up rather than scanning on, exactly like a bare Effect Delimiter:
@@ -1056,14 +1016,10 @@ func jiraCitationClose(ctx context.Context, source string, start, index, end int
 	if candidate := index + 2 + size; candidate+1 < end && source[candidate] == '?' &&
 		source[candidate+1] == '?' && !jiraBackslashPrecedes(source, candidate) &&
 		jiraWordRuneAfter(source, candidate+2, end) {
-		return -1, nil
+		return -1
 	}
 	for scan := index + 2; scan+1 < end; scan++ {
-		if (scan-index)&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return -1, err
-			}
-		}
+		sampleConversionCancel(ctx, scan-index)
 		if source[scan] != '?' || source[scan+1] != '?' || jiraBackslashPrecedes(source, scan) {
 			continue
 		}
@@ -1073,9 +1029,9 @@ func jiraCitationClose(ctx context.Context, source string, start, index, end int
 		if next, size := utf8.DecodeRuneInString(source[scan+2 : end]); size != 0 && isJiraWordRune(next) {
 			continue
 		}
-		return scan, nil
+		return scan
 	}
-	return -1, ctx.Err()
+	return -1
 }
 
 // jiraLinkEnd reports the offset of the `]` closing the link opened at index and
@@ -1084,20 +1040,16 @@ func jiraCitationClose(ctx context.Context, source string, start, index, end int
 // Instance rather than on the markup: an issue key, user, anchor or attachment
 // target resolves where the probed instance shows an error span. A bracketed URL
 // loses its brackets. An unpiped link to a page keeps them.
-func jiraLinkEnd(ctx context.Context, source string, index, end int) (int, bool, error) {
+func jiraLinkEnd(ctx context.Context, source string, index, end int) (int, bool) {
 	close := -1
 	for scan := index + 1; scan < end; scan++ {
-		if (scan-index)&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return -1, false, err
-			}
-		}
+		sampleConversionCancel(ctx, scan-index)
 		if source[scan] == '\\' {
 			scan++
 			continue
 		}
 		if source[scan] == '\n' || source[scan] == '\r' {
-			return -1, false, nil
+			return -1, false
 		}
 		if source[scan] == ']' {
 			close = scan
@@ -1105,24 +1057,24 @@ func jiraLinkEnd(ctx context.Context, source string, index, end int) (int, bool,
 		}
 	}
 	if close < 0 {
-		return -1, false, ctx.Err()
+		return -1, false
 	}
 	body := source[index+1 : close]
 	for scan := 0; scan < len(body); {
 		value, referenceEnd := jiraCharacterReference(body, scan, len(body))
 		if referenceEnd > 0 {
 			if value == '|' {
-				return close, true, nil
+				return close, true
 			}
 			scan = referenceEnd
 			continue
 		}
 		if body[scan] == '|' {
-			return close, true, nil
+			return close, true
 		}
 		scan++
 	}
-	return close, jiraAutolinkScheme(body, 0, len(body)) != "", nil
+	return close, jiraAutolinkScheme(body, 0, len(body)) != ""
 }
 
 // jiraRowShapeEnd reports the end of the link or image shape starting at offset,
@@ -1130,18 +1082,18 @@ func jiraLinkEnd(ctx context.Context, source string, index, end int) (int, bool,
 // every `|` inside `[...]` or inside an image `!...!` as part of the construct,
 // so `|[x|http://x]|c|` is two cells while `|{{a|b}}|c|` is three -- a Monospace
 // Span protects nothing at the row level.
-func jiraRowShapeEnd(ctx context.Context, source string, offset, end int) (int, error) {
+func jiraRowShapeEnd(ctx context.Context, source string, offset, end int) int {
 	switch source[offset] {
 	case '[':
-		close, _, err := jiraLinkEnd(ctx, source, offset, end)
-		if err != nil || close < 0 {
-			return -1, err
+		close, _ := jiraLinkEnd(ctx, source, offset, end)
+		if close < 0 {
+			return -1
 		}
-		return close + 1, nil
+		return close + 1
 	case '!':
 		return jiraImageShapeEnd(ctx, source, offset, end)
 	default:
-		return -1, nil
+		return -1
 	}
 }
 
@@ -1150,28 +1102,24 @@ func jiraRowShapeEnd(ctx context.Context, source string, offset, end int) (int, 
 // directly after the opening `!` refuses the shape (`|! a|b!|c|` is three
 // cells), and a word rune directly after a candidate closing `!` refuses that
 // closer (`|!a.png|b!x|c|` is three cells).
-func jiraImageShapeEnd(ctx context.Context, source string, offset, end int) (int, error) {
+func jiraImageShapeEnd(ctx context.Context, source string, offset, end int) int {
 	if next, size := utf8.DecodeRuneInString(source[offset+1 : end]); size == 0 || isJiraEffectSpace(next) {
-		return -1, nil
+		return -1
 	}
 	for scan := offset + 1; scan < end; scan++ {
-		if (scan-offset)&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return -1, err
-			}
-		}
+		sampleConversionCancel(ctx, scan-offset)
 		switch source[scan] {
 		case '\\':
 			scan++
 		case '\n', '\r':
-			return -1, nil
+			return -1
 		case '!':
 			if !jiraWordRuneAfter(source, scan+1, end) {
-				return scan + 1, nil
+				return scan + 1
 			}
 		}
 	}
-	return -1, ctx.Err()
+	return -1
 }
 
 // jiraAutolinkTerminators end a bare URL. Brackets and parentheses are absent on

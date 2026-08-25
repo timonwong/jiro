@@ -25,14 +25,9 @@ var jfmAutolinkURLRegexp = regexp.MustCompile(
 )
 
 func parseJFM(ctx context.Context, source string) (semanticDocument, []conversionDiagnostic, error) {
-	if err := ctx.Err(); err != nil {
-		return semanticDocument{}, nil, err
-	}
+	abortConversionOnCancel(ctx)
 	sourceBytes := []byte(source)
-	root, err := parseGoldmarkWithContext(ctx, jfmSharedGoldmark, sourceBytes)
-	if err != nil {
-		return semanticDocument{}, nil, err
-	}
+	root := parseGoldmarkWithContext(ctx, jfmSharedGoldmark, sourceBytes)
 	// The analysis reads only source, so a document holding no reference
 	// definition never pays for its two full-document scans.
 	var references *referenceDefinitionAnalysis
@@ -40,12 +35,10 @@ func parseJFM(ctx context.Context, source string) (semanticDocument, []conversio
 	document := semanticDocument{}
 	diagnostics := make([]conversionDiagnostic, 0)
 	for node := root.FirstChild(); node != nil; node = node.NextSibling() {
-		if err := ctx.Err(); err != nil {
-			return semanticDocument{}, nil, err
-		}
+		abortConversionOnCancel(ctx)
 		if definition, ok := node.(*ast.LinkReferenceDefinition); ok {
 			if references == nil {
-				analysis := analyzeReferenceDefinitions(source)
+				analysis := analyzeReferenceDefinitions(ctx, source)
 				references = &analysis
 			}
 			label := normalizeReferenceLabel(string(definition.Label))
@@ -173,9 +166,9 @@ type referenceDefinitionAnalysis struct {
 var referenceDefinitionPattern = regexp.MustCompile(`^ {0,3}\[([^]]+)\]:[ \t]+\S.*$`)
 var fullReferencePattern = regexp.MustCompile(`!?\[([^]]+)\]\[([^]]*)\]`)
 
-func analyzeReferenceDefinitions(source string) referenceDefinitionAnalysis {
+func analyzeReferenceDefinitions(ctx context.Context, source string) referenceDefinitionAnalysis {
 	analysis := referenceDefinitionAnalysis{definitions: map[string][]sourceSpan{}, used: map[string]bool{}}
-	lines := splitSourceLines(source)
+	lines := splitSourceLines(ctx, source, 0, len(source))
 	var nonDefinitions strings.Builder
 	for _, line := range lines {
 		if match := referenceDefinitionPattern.FindStringSubmatch(line.Text); match != nil {

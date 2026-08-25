@@ -13,6 +13,26 @@ type conversionContextAbort struct {
 	err error
 }
 
+// abortConversionOnCancel panics with conversionContextAbort when ctx is
+// cancelled; ToJFM and FromJFM recover it into their error result. Cancellation
+// travels as a panic because every scan helper below them can only fail this
+// one way, and threading an error result through all of them buys nothing.
+func abortConversionOnCancel(ctx context.Context) {
+	if err := ctx.Err(); err != nil {
+		panic(conversionContextAbort{err: err})
+	}
+}
+
+// sampleConversionCancel is abortConversionOnCancel sampled to every 256th
+// counter value, for the byte-granular scan loops. The sampling stride bounds
+// how much work a cancelled conversion can still do inside one long scan, so
+// widening it would weaken the cancellation contract the tests pin.
+func sampleConversionCancel(ctx context.Context, counter int) {
+	if counter&255 == 0 {
+		abortConversionOnCancel(ctx)
+	}
+}
+
 type contextCheckingReader struct {
 	text.Reader
 	ctx context.Context
@@ -84,20 +104,9 @@ func (reader *contextCheckingReader) FindClosure(opener, closer byte, options te
 	return reader.Reader.FindClosure(opener, closer, options)
 }
 
-func parseGoldmarkWithContext(ctx context.Context, markdown goldmark.Markdown, source []byte) (document ast.Node, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			if aborted, ok := recovered.(conversionContextAbort); ok {
-				document, err = nil, aborted.err
-				return
-			}
-			panic(recovered)
-		}
-	}()
+func parseGoldmarkWithContext(ctx context.Context, markdown goldmark.Markdown, source []byte) ast.Node {
 	reader := &contextCheckingReader{Reader: text.NewReader(source), ctx: ctx}
-	document = markdown.Parser().Parse(reader)
-	if contextErr := ctx.Err(); contextErr != nil {
-		return nil, contextErr
-	}
-	return document, nil
+	document := markdown.Parser().Parse(reader)
+	abortConversionOnCancel(ctx)
+	return document
 }

@@ -28,23 +28,16 @@ func imageAttributeNames(carried string) []string {
 	return []string{carried, "thumbnail", "align", "border", "bordercolor", "hspace", "vspace", "width", "height", "title"}
 }
 
-func escapeSelectedRunes(ctx context.Context, value, selected string) (string, error) {
+func escapeSelectedRunes(ctx context.Context, value, selected string) string {
 	var result strings.Builder
 	for offset, character := range value {
-		if offset&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return "", err
-			}
-		}
+		sampleConversionCancel(ctx, offset)
 		if strings.ContainsRune(selected, character) {
 			result.WriteByte('\\')
 		}
 		result.WriteRune(character)
 	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	return result.String(), nil
+	return result.String()
 }
 
 func orderDirectiveAttributes(attributes []directiveAttribute, order []string) []directiveAttribute {

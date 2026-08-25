@@ -205,10 +205,7 @@ func TestEscapeTextForJiraTextProtectsLineStarts(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			got, _, err := escapeTextForJiraText(context.Background(), test.text, jiraInlineRender{lineStart: jiraLineStartEveryRule})
-			if err != nil {
-				t.Fatal(err)
-			}
+			got, _ := escapeTextForJiraText(context.Background(), test.text, jiraInlineRender{lineStart: jiraLineStartEveryRule})
 			if got != test.want {
 				t.Fatalf("escapeTextForJiraText(%q) = %q, want %q", test.text, got, test.want)
 			}

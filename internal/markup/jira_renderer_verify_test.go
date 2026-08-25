@@ -18,9 +18,9 @@ func TestJiraInlineRunEscalatesThroughBoundedModes(t *testing.T) {
 	inlines := []semanticInline{codeInline{Span: sourceSpan{Start: 11, End: 20}, Text: body}}
 	state := &jiraRenderState{diagnostics: make([]conversionDiagnostic, 0)}
 	verified := make([]string, 0, 2)
-	rejectEverything := func(_ context.Context, rendered, _ string, _ []semanticInline, _ jiraRunContext) (jiraVerificationVerdict, error) {
+	rejectEverything := func(_ context.Context, rendered, _ string, _ []semanticInline, _ jiraRunContext) jiraVerificationVerdict {
 		verified = append(verified, rendered)
-		return jiraVerificationVerdict{}, nil
+		return jiraVerificationVerdict{}
 	}
 
 	output, err := renderJiraInlineRunWith(context.Background(), state, inlines, jiraRunContext{}, rejectEverything)
@@ -69,9 +69,9 @@ func TestJiraCodePreservedRunKeepsItsSpanAndWarnsAboutPlainText(t *testing.T) {
 	}
 	state := &jiraRenderState{diagnostics: make([]conversionDiagnostic, 0)}
 	verified := make([]string, 0, 2)
-	preserveCode := func(_ context.Context, rendered, _ string, _ []semanticInline, _ jiraRunContext) (jiraVerificationVerdict, error) {
+	preserveCode := func(_ context.Context, rendered, _ string, _ []semanticInline, _ jiraRunContext) jiraVerificationVerdict {
 		verified = append(verified, rendered)
-		return jiraVerificationVerdict{codePreserved: true}, nil
+		return jiraVerificationVerdict{codePreserved: true}
 	}
 
 	output, err := renderJiraInlineRunWith(context.Background(), state, inlines, jiraRunContext{}, preserveCode)
@@ -109,9 +109,9 @@ func TestJiraInlineRunSkipsVerificationWithoutHazards(t *testing.T) {
 	inlines := []semanticInline{textInline{Span: sourceSpan{Start: 0, End: 5}, Text: "plain"}}
 	state := &jiraRenderState{diagnostics: make([]conversionDiagnostic, 0)}
 	calls := 0
-	countCalls := func(context.Context, string, string, []semanticInline, jiraRunContext) (jiraVerificationVerdict, error) {
+	countCalls := func(context.Context, string, string, []semanticInline, jiraRunContext) jiraVerificationVerdict {
 		calls++
-		return jiraVerificationVerdict{matched: true}, nil
+		return jiraVerificationVerdict{matched: true}
 	}
 	output, err := renderJiraInlineRunWith(context.Background(), state, inlines, jiraRunContext{}, countCalls)
 	if err != nil {
@@ -135,9 +135,9 @@ func TestJiraPlainTextRunFallsBackFullyEscaped(t *testing.T) {
 	}
 	state := &jiraRenderState{diagnostics: make([]conversionDiagnostic, 0)}
 	verified := make([]string, 0, 2)
-	rejectEverything := func(_ context.Context, rendered, _ string, _ []semanticInline, _ jiraRunContext) (jiraVerificationVerdict, error) {
+	rejectEverything := func(_ context.Context, rendered, _ string, _ []semanticInline, _ jiraRunContext) jiraVerificationVerdict {
 		verified = append(verified, rendered)
-		return jiraVerificationVerdict{}, nil
+		return jiraVerificationVerdict{}
 	}
 
 	output, err := renderJiraInlineRunWith(context.Background(), state, inlines, jiraRunContext{}, rejectEverything)
@@ -290,10 +290,7 @@ func TestJiraInlineRunVerificationReadsEveryLineStart(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			intended := jiraVerificationKey(test.inlines, false)
-			verdict, err := verifyJiraInlineRun(context.Background(), test.rendered, intended, test.inlines, test.run)
-			if err != nil {
-				t.Fatal(err)
-			}
+			verdict := verifyJiraInlineRun(context.Background(), test.rendered, intended, test.inlines, test.run)
 			if verdict.accepts() != test.accepted {
 				t.Fatalf("verifyJiraInlineRun(%q) accepted = %t, want %t", test.rendered, verdict.accepts(), test.accepted)
 			}
@@ -313,18 +310,12 @@ func TestJiraLineStartMismatchStillCreditsInlineCode(t *testing.T) {
 
 	// The same render away from a line start verifies, so the line start is the
 	// only thing the rejected verdict below can be about.
-	inside, err := verifyJiraInlineRun(context.Background(), "* {{x}}", intended, inlines, jiraRunContext{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	inside := verifyJiraInlineRun(context.Background(), "* {{x}}", intended, inlines, jiraRunContext{})
 	if !inside.accepts() {
 		t.Fatalf("verdict inside a list item = %#v, want matched", inside)
 	}
 
-	verdict, err := verifyJiraInlineRun(context.Background(), "* {{x}}", intended, inlines, jiraRunContext{lineStart: jiraLineStartEveryRule})
-	if err != nil {
-		t.Fatal(err)
-	}
+	verdict := verifyJiraInlineRun(context.Background(), "* {{x}}", intended, inlines, jiraRunContext{lineStart: jiraLineStartEveryRule})
 	if verdict.accepts() || !verdict.codePreserved {
 		t.Fatalf("verdict = %#v, want matched false and codePreserved true", verdict)
 	}

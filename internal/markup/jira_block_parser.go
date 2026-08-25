@@ -12,7 +12,7 @@ import (
 // and controlEnd is the offset one past the control's `.`. Jira ends the block
 // at the end of that one line and reads no second control inside it, so
 // `h1. bq. y` is a heading whose text is `bq. y`.
-func parseJiraLineControlBlock(ctx context.Context, source string, span sourceSpan, controlEnd, level int, quote bool) (semanticBlock, []conversionDiagnostic, error) {
+func parseJiraLineControlBlock(ctx context.Context, source string, span sourceSpan, controlEnd, level int, quote bool) (semanticBlock, []conversionDiagnostic) {
 	contentStart := jiraLineControlContentStart(source[:span.End], controlEnd)
 	domain := jiraLineDomain{End: span.End}
 	if !quote {
@@ -20,15 +20,12 @@ func parseJiraLineControlBlock(ctx context.Context, source string, span sourceSp
 		// newline Jira renders here stays literal and is reported.
 		domain.Unbreakable = ConstructHeading
 	}
-	inlines, diagnostics, err := parseJiraInlines(ctx, source, contentStart, span.End, domain)
-	if err != nil {
-		return nil, nil, err
-	}
+	inlines, diagnostics := parseJiraInlines(ctx, source, contentStart, span.End, domain)
 	if quote {
 		paragraph := paragraphBlock{Span: sourceSpan{Start: contentStart, End: span.End}, Inlines: inlines}
-		return quoteBlock{Span: span, Blocks: []semanticBlock{paragraph}}, diagnostics, nil
+		return quoteBlock{Span: span, Blocks: []semanticBlock{paragraph}}, diagnostics
 	}
-	return headingBlock{Span: span, Level: level, Inlines: inlines}, diagnostics, nil
+	return headingBlock{Span: span, Level: level, Inlines: inlines}, diagnostics
 }
 
 func isJiraBlockStart(line string) bool {
@@ -56,14 +53,14 @@ func isJiraBlockStartBesidesList(line string) bool {
 
 var jiraBlockMacroPattern = regexp.MustCompile(`^\{([A-Za-z][A-Za-z0-9-]*)(?::[^}]*)?\}$`)
 
-func parseUnsupportedJiraBlockMacro(ctx context.Context, source string, lines []sourceLine, start, quoteDepth int) (jiraMacroParseResult, bool, error) {
+func parseUnsupportedJiraBlockMacro(ctx context.Context, source string, lines []sourceLine, start, quoteDepth int) (jiraMacroParseResult, bool) {
 	match := jiraBlockMacroPattern.FindStringSubmatch(lines[start].Text)
 	if match == nil {
-		return jiraMacroParseResult{}, false, nil
+		return jiraMacroParseResult{}, false
 	}
 	name := strings.ToLower(match[1])
 	if name == "quote" || name == "noformat" || name == "code" || name == "panel" || name == "color" {
-		return jiraMacroParseResult{}, false, nil
+		return jiraMacroParseResult{}, false
 	}
 	closing := "{" + match[1] + "}"
 	closeIndex := start + 1
@@ -79,14 +76,11 @@ func parseUnsupportedJiraBlockMacro(ctx context.Context, source string, lines []
 				Construct: ConstructJiraMacro,
 				Reason:    "unsupported Jira macro remains literal",
 			}}},
-		}, true, nil
+		}, true
 	}
 	bodyStart := lines[start].End + len(lines[start].EOL)
 	bodyEnd := lines[closeIndex].Start
-	bodyDocument, bodyDiagnostics, err := parseJiraMarkupAtQuoteDepth(ctx, source, bodyStart, bodyEnd, quoteDepth)
-	if err != nil {
-		return jiraMacroParseResult{}, false, err
-	}
+	bodyDocument, bodyDiagnostics := parseJiraMarkupAtQuoteDepth(ctx, source, bodyStart, bodyEnd, quoteDepth)
 	bodyDiagnostics = append([]conversionDiagnostic{{offset: lines[start].Start, warning: ConversionWarning{
 		Construct: ConstructJiraMacro,
 		Reason:    "unsupported Jira macro delimiters remain literal while its body is converted best-effort",
@@ -100,7 +94,7 @@ func parseUnsupportedJiraBlockMacro(ctx context.Context, source string, lines []
 		},
 		Next:        closeIndex + 1,
 		Diagnostics: bodyDiagnostics,
-	}, true, nil
+	}, true
 }
 
 // jiraListFrame is one Jira list level the block reader has open. Jira names a
@@ -114,7 +108,7 @@ type jiraListFrame struct {
 	end    int
 }
 
-func parseJiraLists(ctx context.Context, source string, lines []sourceLine, start int) ([]semanticBlock, int, []conversionDiagnostic, error) {
+func parseJiraLists(ctx context.Context, source string, lines []sourceLine, start int) ([]semanticBlock, int, []conversionDiagnostic) {
 	blocks := make([]semanticBlock, 0)
 	diagnostics := make([]conversionDiagnostic, 0)
 	stack := make([]jiraListFrame, 0, 4)
@@ -136,9 +130,7 @@ func parseJiraLists(ctx context.Context, source string, lines []sourceLine, star
 	}
 	index := start
 	for index < len(lines) {
-		if err := ctx.Err(); err != nil {
-			return nil, 0, nil, err
-		}
+		abortConversionOnCancel(ctx)
 		line := lines[index]
 		if jiraLineThematicBreak(line.Text) {
 			break
@@ -185,10 +177,7 @@ func parseJiraLists(ctx context.Context, source string, lines []sourceLine, star
 			// rather than more of this one, so the item takes none of them and the
 			// list ends there -- the reading a control line already gets below a
 			// plain item (jiraListItemContinues).
-			block, controlDiagnostics, err := parseJiraLineControlBlock(ctx, source, sourceSpan{Start: line.Start + contentStart, End: line.End}, line.Start+contentStart+controlEnd, level, quote)
-			if err != nil {
-				return nil, 0, nil, err
-			}
+			block, controlDiagnostics := parseJiraLineControlBlock(ctx, source, sourceSpan{Start: line.Start + contentStart, End: line.End}, line.Start+contentStart+controlEnd, level, quote)
 			item.Blocks = append(item.Blocks, block)
 			diagnostics = append(diagnostics, controlDiagnostics...)
 			diagnostics = append(diagnostics, jiraItemLineBlockContinuation(lines, index, "line control")...)
@@ -197,10 +186,7 @@ func parseJiraLists(ctx context.Context, source string, lines []sourceLine, star
 			for continuation < len(lines) && jiraListItemContinues(lines[continuation].Text) {
 				continuation++
 			}
-			inlines, inlineDiagnostics, err := parseJiraListItemContent(ctx, source, line, contentStart, lines[index:continuation])
-			if err != nil {
-				return nil, 0, nil, err
-			}
+			inlines, inlineDiagnostics := parseJiraListItemContent(ctx, source, line, contentStart, lines[index:continuation])
 			if continuation != index {
 				item.Span.End = lines[continuation-1].End
 				index = continuation
@@ -213,7 +199,7 @@ func parseJiraLists(ctx context.Context, source string, lines []sourceLine, star
 		frame.end = item.Span.End
 	}
 	closeTo(0)
-	return blocks, index, diagnostics, nil
+	return blocks, index, diagnostics
 }
 
 // jiraItemLineBlockContinuation reports the diagnostic the line at index owes
@@ -250,7 +236,7 @@ func jiraListItemContinues(line string) bool {
 // and the plain lines Jira keeps inside the item below it. Joining those lines
 // is the only span the inline parser can read them from, so every position it
 // reports inside them is an offset from the item's own start.
-func parseJiraListItemContent(ctx context.Context, source string, marker sourceLine, contentStart int, continuations []sourceLine) ([]semanticInline, []conversionDiagnostic, error) {
+func parseJiraListItemContent(ctx context.Context, source string, marker sourceLine, contentStart int, continuations []sourceLine) ([]semanticInline, []conversionDiagnostic) {
 	itemStart := marker.Start + contentStart
 	if len(continuations) == 0 {
 		return parseJiraInlines(ctx, source, itemStart, marker.End, jiraLineDomain{End: marker.End})
@@ -261,17 +247,14 @@ func parseJiraListItemContent(ctx context.Context, source string, marker sourceL
 		raw.WriteByte('\n')
 		raw.WriteString(line.Text)
 	}
-	inlines, diagnostics, err := parseJiraInlines(ctx, raw.String(), 0, raw.Len(), jiraLineDomain{End: raw.Len()})
-	if err != nil {
-		return nil, nil, err
-	}
+	inlines, diagnostics := parseJiraInlines(ctx, raw.String(), 0, raw.Len(), jiraLineDomain{End: raw.Len()})
 	for index, inline := range inlines {
 		inlines[index] = shiftSemanticInline(inline, itemStart)
 	}
 	for index := range diagnostics {
 		diagnostics[index].offset += itemStart
 	}
-	return inlines, diagnostics, nil
+	return inlines, diagnostics
 }
 
 // jiraTableRowLine reports whether the line opens a table row. Jira skips the
@@ -315,7 +298,7 @@ func jiraTableRowDelimiter(text string) string {
 // which Jira reads a block at the start of. The table ends at a blank line, at
 // the end of the range, or at the first line that opens no row while the row
 // above it is closed.
-func parseJiraTable(ctx context.Context, source string, lines []sourceLine, start int) (tableBlock, int, []conversionDiagnostic, error) {
+func parseJiraTable(ctx context.Context, source string, lines []sourceLine, start int) (tableBlock, int, []conversionDiagnostic) {
 	block := tableBlock{}
 	rawLines := make([]string, 0, len(lines)-start)
 	diagnostics := make([]conversionDiagnostic, 0)
@@ -323,9 +306,7 @@ func parseJiraTable(ctx context.Context, source string, lines []sourceLine, star
 	columnCount, rowCount := -1, 0
 	index := start
 	for index < len(lines) && jiraTableRowLine(lines[index].Text) {
-		if err := ctx.Err(); err != nil {
-			return tableBlock{}, 0, nil, err
-		}
+		abortConversionOnCancel(ctx)
 		rowStart := index
 		index++
 		for index < len(lines) && !jiraTableRowClosed(lines[index-1].Text) {
@@ -345,10 +326,7 @@ func parseJiraTable(ctx context.Context, source string, lines []sourceLine, star
 		}
 		header := jiraTableRowDelimiter(lines[rowStart].Text) == "||"
 		span := sourceSpan{Start: lines[rowStart].Start, End: lines[index-1].End}
-		cells, cellDiagnostics, cellBlockWarnings, edgeWhitespace, err := parseJiraTableRow(ctx, source, span, jiraTableRowClosed(lines[index-1].Text))
-		if err != nil {
-			return tableBlock{}, 0, nil, err
-		}
+		cells, cellDiagnostics, cellBlockWarnings, edgeWhitespace := parseJiraTableRow(ctx, source, span, jiraTableRowClosed(lines[index-1].Text))
 		diagnostics = append(diagnostics, cellDiagnostics...)
 		cellBlockDiagnostics = append(cellBlockDiagnostics, cellBlockWarnings...)
 		if edgeWhitespace || columnCount >= 0 && len(cells) != columnCount || rowCount != 0 && header {
@@ -380,7 +358,7 @@ func parseJiraTable(ctx context.Context, source string, lines []sourceLine, star
 		diagnostics = append(diagnostics, cellBlockDiagnostics...)
 	}
 	block.Raw = strings.Join(rawLines, "\n")
-	return block, index, diagnostics, nil
+	return block, index, diagnostics
 }
 
 // parseJiraTableRow reads one row's cells from the source the row spans. A row
@@ -389,7 +367,7 @@ func parseJiraTable(ctx context.Context, source string, lines []sourceLine, star
 // an open row -- one a new row line, a blank line or the end of the document cut
 // short -- has no closing delimiter to strip and Jira reads its last cell to the
 // end.
-func parseJiraTableRow(ctx context.Context, source string, span sourceSpan, closed bool) ([]tableCell, []conversionDiagnostic, []conversionDiagnostic, bool, error) {
+func parseJiraTableRow(ctx context.Context, source string, span sourceSpan, closed bool) ([]tableCell, []conversionDiagnostic, []conversionDiagnostic, bool) {
 	text := source[span.Start:span.End]
 	delimiter := jiraTableRowDelimiter(text)
 	innerStart, innerEnd := jiraLineIndentLength(text)+len(delimiter), len(text)
@@ -398,12 +376,9 @@ func parseJiraTableRow(ctx context.Context, source string, span sourceSpan, clos
 	}
 	if innerEnd <= innerStart {
 		// `|` alone is a row Jira closes with no cell in it at all.
-		return nil, nil, nil, false, nil
+		return nil, nil, nil, false
 	}
-	bounds, err := jiraTableCellBounds(ctx, text, innerStart, innerEnd, delimiter)
-	if err != nil {
-		return nil, nil, nil, false, err
-	}
+	bounds := jiraTableCellBounds(ctx, text, innerStart, innerEnd, delimiter)
 	// The delimiter a row closes on leaves no cell behind it, so `|a||` is the
 	// one cell `a` rather than `a` and an empty one.
 	if last := len(bounds) - 1; last > 0 && bounds[last].Start == bounds[last].End {
@@ -422,15 +397,12 @@ func parseJiraTableRow(ctx context.Context, source string, span sourceSpan, clos
 		// A table cell is its own line domain: `|` separates no token, so a
 		// forced newline is decided inside the cell and both cells of
 		// `|a\\b|c\\d|` break.
-		inlines, inlineDiagnostics, err := parseJiraInlines(ctx, source, cellSpan.Start, cellSpan.End, jiraLineDomain{End: cellSpan.End})
-		if err != nil {
-			return nil, nil, nil, false, err
-		}
+		inlines, inlineDiagnostics := parseJiraInlines(ctx, source, cellSpan.Start, cellSpan.End, jiraLineDomain{End: cellSpan.End})
 		diagnostics = append(diagnostics, inlineDiagnostics...)
 		cellBlockWarnings = append(cellBlockWarnings, jiraTableCellBlockDiagnostics(value, cellSpan.Start)...)
 		cells = append(cells, tableCell{Span: cellSpan, Inlines: inlines})
 	}
-	return cells, diagnostics, cellBlockWarnings, edgeWhitespace, nil
+	return cells, diagnostics, cellBlockWarnings, edgeWhitespace
 }
 
 // jiraTableRowInnerEnd reports where a closed row's cells end. The closer
@@ -477,15 +449,11 @@ func jiraTableCellBlockDiagnostics(value string, offset int) []conversionDiagnos
 // between two. The lookbehind is the whole rule, which is what makes an even run
 // of backslashes protect the delimiter exactly as an odd one does: `|a\\|b|c|`
 // is the two cells `a\\|b` and `c`.
-func jiraTableCellBounds(ctx context.Context, text string, innerStart, innerEnd int, delimiter string) ([]sourceSpan, error) {
+func jiraTableCellBounds(ctx context.Context, text string, innerStart, innerEnd int, delimiter string) []sourceSpan {
 	bounds := make([]sourceSpan, 0, 1)
 	cellStart := innerStart
 	for index := innerStart; index < innerEnd; {
-		if (index-innerStart)&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-		}
+		sampleConversionCancel(ctx, index-innerStart)
 		if text[index] == '\\' {
 			// A backslash keeps the byte behind it from opening a link or an
 			// image shape. Whether that byte also separates two cells is the
@@ -493,10 +461,7 @@ func jiraTableCellBounds(ctx context.Context, text string, innerStart, innerEnd 
 			index += 2
 			continue
 		}
-		shapeEnd, err := jiraRowShapeEnd(ctx, text, index, innerEnd)
-		if err != nil {
-			return nil, err
-		}
+		shapeEnd := jiraRowShapeEnd(ctx, text, index, innerEnd)
 		if shapeEnd > 0 {
 			index = shapeEnd
 			continue
@@ -509,10 +474,7 @@ func jiraTableCellBounds(ctx context.Context, text string, innerStart, innerEnd 
 		index += len(delimiter)
 		cellStart = index
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	return append(bounds, sourceSpan{Start: cellStart, End: innerEnd}), nil
+	return append(bounds, sourceSpan{Start: cellStart, End: innerEnd})
 }
 
 func tableCellSupportsGFM(cell tableCell) bool {
@@ -540,7 +502,7 @@ type jiraMacroParseResult struct {
 	Diagnostics []conversionDiagnostic
 }
 
-func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine, start, quoteDepth int) (jiraMacroParseResult, bool, error) {
+func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine, start, quoteDepth int) (jiraMacroParseResult, bool) {
 	opening := lines[start].Text
 	name := ""
 	switch {
@@ -553,23 +515,19 @@ func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine,
 	case opening == "{panel}" || strings.HasPrefix(opening, "{panel:") && strings.HasSuffix(opening, "}"):
 		name = "panel"
 	default:
-		return jiraMacroParseResult{}, false, nil
+		return jiraMacroParseResult{}, false
 	}
 	closing := "{" + name + "}"
 	closeIndex := start + 1
 	if name == "panel" || name == "quote" {
-		var err error
-		closeIndex, err = findJiraSymmetricMacroClose(ctx, lines, start, name)
-		if err != nil {
-			return jiraMacroParseResult{}, false, err
-		}
+		closeIndex = findJiraSymmetricMacroClose(ctx, lines, start, name)
 	} else {
 		for closeIndex < len(lines) && lines[closeIndex].Text != closing {
 			closeIndex++
 		}
 	}
 	if closeIndex == len(lines) {
-		return jiraMacroParseResult{}, false, nil
+		return jiraMacroParseResult{}, false
 	}
 	bodyStart := lines[start].End + len(lines[start].EOL)
 	bodyEnd := lines[closeIndex].Start
@@ -584,7 +542,7 @@ func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine,
 						Construct: ConstructBlockquote,
 						Reason:    "adjacent nested Jira quote delimiters are ambiguous and remain literal",
 					}}},
-				}, true, nil
+				}, true
 			}
 		}
 		if quoteDepth >= maxStructuredQuoteDepth {
@@ -595,41 +553,29 @@ func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine,
 					Construct: ConstructBlockquote,
 					Reason:    "quote nesting exceeds the maximum structured depth and remains literal",
 				}}},
-			}, true, nil
+			}, true
 		}
-		bodyDocument, diagnostics, err := parseJiraMarkupAtQuoteDepth(ctx, source, bodyStart, bodyEnd, quoteDepth+1)
-		if err != nil {
-			return jiraMacroParseResult{}, false, err
-		}
-		return jiraMacroParseResult{Block: quoteBlock{Span: span, Blocks: bodyDocument.Blocks}, Next: closeIndex + 1, Diagnostics: diagnostics}, true, nil
+		bodyDocument, diagnostics := parseJiraMarkupAtQuoteDepth(ctx, source, bodyStart, bodyEnd, quoteDepth+1)
+		return jiraMacroParseResult{Block: quoteBlock{Span: span, Blocks: bodyDocument.Blocks}, Next: closeIndex + 1, Diagnostics: diagnostics}, true
 	}
 	if name == "panel" {
-		bodyDocument, bodyDiagnostics, err := parseJiraMarkupAtQuoteDepth(ctx, source, bodyStart, bodyEnd, quoteDepth)
-		if err != nil {
-			return jiraMacroParseResult{}, false, err
-		}
-		attributes, err := parseJiraNamedAttributes(ctx, opening, "panel", lines[start].Start)
-		if err != nil {
-			return jiraMacroParseResult{}, false, err
-		}
+		bodyDocument, bodyDiagnostics := parseJiraMarkupAtQuoteDepth(ctx, source, bodyStart, bodyEnd, quoteDepth)
+		attributes := parseJiraNamedAttributes(ctx, opening, "panel", lines[start].Start)
 		_, attributes, attributeDiagnostics, invalid := validateDirectiveAttributes(attributes, jiraMacroAttributeSchema(panelAttributeOrder(), nil, "panel"))
 		bodyDiagnostics = append(bodyDiagnostics, attributeDiagnostics...)
 		if invalid {
-			return jiraMacroParseResult{Block: literalBlock{Span: span, Text: source[span.Start:span.End]}, Next: closeIndex + 1, Diagnostics: bodyDiagnostics}, true, nil
+			return jiraMacroParseResult{Block: literalBlock{Span: span, Text: source[span.Start:span.End]}, Next: closeIndex + 1, Diagnostics: bodyDiagnostics}, true
 		}
-		return jiraMacroParseResult{Block: panelBlock{Span: span, Attributes: attributes, Blocks: bodyDocument.Blocks}, Next: closeIndex + 1, Diagnostics: bodyDiagnostics}, true, nil
+		return jiraMacroParseResult{Block: panelBlock{Span: span, Attributes: attributes, Blocks: bodyDocument.Blocks}, Next: closeIndex + 1, Diagnostics: bodyDiagnostics}, true
 	}
 	body := source[bodyStart:bodyEnd]
 	if name == "noformat" {
-		return jiraMacroParseResult{Block: codeBlock{Span: span, Body: body, NoFormat: true}, Next: closeIndex + 1}, true, nil
+		return jiraMacroParseResult{Block: codeBlock{Span: span, Body: body, NoFormat: true}, Next: closeIndex + 1}, true
 	}
-	attributes, err := parseJiraCodeAttributes(ctx, opening, lines[start].Start)
-	if err != nil {
-		return jiraMacroParseResult{}, false, err
-	}
+	attributes := parseJiraCodeAttributes(ctx, opening, lines[start].Start)
 	_, attributes, attributeDiagnostics, invalid := validateDirectiveAttributes(attributes, jiraMacroAttributeSchema(codeAttributeOrder(), map[string]bool{"collapse": true, "linenumbers": true}, "code"))
 	if invalid {
-		return jiraMacroParseResult{Block: literalBlock{Span: span, Text: source[span.Start:span.End]}, Next: closeIndex + 1, Diagnostics: attributeDiagnostics}, true, nil
+		return jiraMacroParseResult{Block: literalBlock{Span: span, Text: source[span.Start:span.End]}, Next: closeIndex + 1, Diagnostics: attributeDiagnostics}, true
 	}
 	language := ""
 	for _, attribute := range attributes {
@@ -644,78 +590,59 @@ func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine,
 	if language != "" && !safeCodeFenceLanguage(language) {
 		directive = true
 	}
-	return jiraMacroParseResult{Block: codeBlock{Span: span, Body: body, Language: language, Attributes: attributes, Directive: directive}, Next: closeIndex + 1, Diagnostics: attributeDiagnostics}, true, nil
+	return jiraMacroParseResult{Block: codeBlock{Span: span, Body: body, Language: language, Attributes: attributes, Directive: directive}, Next: closeIndex + 1, Diagnostics: attributeDiagnostics}, true
 }
 
-func findJiraSymmetricMacroClose(ctx context.Context, lines []sourceLine, start int, name string) (int, error) {
+func findJiraSymmetricMacroClose(ctx context.Context, lines []sourceLine, start int, name string) int {
 	closing := "{" + name + "}"
 	prefix := "{" + name + ":"
 	candidates := make([]int, 0)
 	suffixCounts := make([]int, len(lines)+1)
 	for index := len(lines) - 1; index > start; index-- {
-		if (len(lines)-index)&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return 0, err
-			}
-		}
+		sampleConversionCancel(ctx, len(lines)-index)
 		suffixCounts[index] = suffixCounts[index+1]
 		if lines[index].Text == closing || strings.HasPrefix(lines[index].Text, prefix) && strings.HasSuffix(lines[index].Text, "}") {
 			suffixCounts[index]++
 		}
 	}
 	for index := start + 1; index < len(lines); index++ {
-		if (index-start)&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return 0, err
-			}
-		}
+		sampleConversionCancel(ctx, index-start)
 		if lines[index].Text == closing {
 			candidates = append(candidates, index)
 		}
 	}
 	if len(candidates) == 0 {
-		return len(lines), ctx.Err()
+		return len(lines)
 	}
 	for candidateIndex, candidate := range candidates[:len(candidates)-1] {
-		if candidateIndex&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return 0, err
-			}
-		}
+		sampleConversionCancel(ctx, candidateIndex)
 		hasBlankSeparator := candidate+1 < len(lines) && lines[candidate+1].Text == ""
 		if hasBlankSeparator && suffixCounts[candidate+1]%2 == 0 {
-			return candidate, nil
+			return candidate
 		}
 	}
-	return candidates[len(candidates)-1], ctx.Err()
+	return candidates[len(candidates)-1]
 }
 
-func parseJiraCodeAttributes(ctx context.Context, opening string, base int) ([]directiveAttribute, error) {
+func parseJiraCodeAttributes(ctx context.Context, opening string, base int) []directiveAttribute {
 	if opening == "{code}" {
-		return nil, nil
+		return nil
 	}
 	value := strings.TrimSuffix(strings.TrimPrefix(opening, "{code:"), "}")
-	parts, err := splitJiraParameterParts(ctx, value)
-	if err != nil {
-		return nil, err
-	}
+	parts := splitJiraParameterParts(ctx, value)
 	attributes := make([]directiveAttribute, 0, len(parts))
 	prefixOffset := base + len("{code:")
 	for _, part := range parts {
 		name, attributeValue := "language", part.Value
 		if equals := jiraUnprotectedSplit(part.Value, 0, '='); equals >= 0 {
-			value, err := decodeJiraMacroParameterValue(ctx, part.Value[equals+1:])
-			if err != nil {
-				return nil, err
-			}
-			name, attributeValue = part.Value[:equals], value
+			name, attributeValue = part.Value[:equals], decodeJiraMacroParameterValue(ctx, part.Value[equals+1:])
 		}
 		if strings.EqualFold(name, "language") {
 			attributeValue = normalizeCodeLanguage(attributeValue)
 		}
 		attributes = append(attributes, directiveAttribute{Span: sourceSpan{Start: prefixOffset + part.Start, End: prefixOffset + part.End}, Name: name, Value: attributeValue})
 	}
-	return attributes, nil
+	return attributes
 }
 
 func normalizeCodeLanguage(language string) string {
@@ -741,30 +668,23 @@ func codeAttributeOrder() []string {
 	return []string{"language", "title", "theme", "linenumbers", "firstline", "collapse", "borderStyle", "borderColor", "borderWidth", "bgColor", "titleBGColor", "titleColor"}
 }
 
-func parseJiraNamedAttributes(ctx context.Context, opening, name string, base int) ([]directiveAttribute, error) {
+func parseJiraNamedAttributes(ctx context.Context, opening, name string, base int) []directiveAttribute {
 	prefix := "{" + name + ":"
 	if opening == "{"+name+"}" {
-		return nil, nil
+		return nil
 	}
 	value := strings.TrimSuffix(strings.TrimPrefix(opening, prefix), "}")
-	parts, err := splitJiraParameterParts(ctx, value)
-	if err != nil {
-		return nil, err
-	}
+	parts := splitJiraParameterParts(ctx, value)
 	attributes := make([]directiveAttribute, 0, len(parts))
 	prefixOffset := base + len(prefix)
 	for _, part := range parts {
 		attributeName, attributeValue, bare := part.Value, "", true
 		if equals := jiraUnprotectedSplit(part.Value, 0, '='); equals >= 0 {
-			value, err := decodeJiraMacroParameterValue(ctx, part.Value[equals+1:])
-			if err != nil {
-				return nil, err
-			}
-			attributeName, attributeValue, bare = part.Value[:equals], value, false
+			attributeName, attributeValue, bare = part.Value[:equals], decodeJiraMacroParameterValue(ctx, part.Value[equals+1:]), false
 		}
 		attributes = append(attributes, directiveAttribute{Span: sourceSpan{Start: prefixOffset + part.Start, End: prefixOffset + part.End}, Name: attributeName, Value: attributeValue, Bare: bare})
 	}
-	return attributes, nil
+	return attributes
 }
 
 type jiraParameterPart struct {
@@ -775,12 +695,10 @@ type jiraParameterPart struct {
 
 // splitJiraParameterParts splits a macro header into its parameters. A
 // backslash protects no separator here: `{code:title=a\|b}` is titled `a`.
-func splitJiraParameterParts(ctx context.Context, value string) ([]jiraParameterPart, error) {
+func splitJiraParameterParts(ctx context.Context, value string) []jiraParameterPart {
 	parts := make([]jiraParameterPart, 0)
 	for start := 0; start <= len(value); {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
+		abortConversionOnCancel(ctx)
 		end := jiraUnprotectedSplit(value, start, '|')
 		if end < 0 {
 			end = len(value)
@@ -791,7 +709,7 @@ func splitJiraParameterParts(ctx context.Context, value string) ([]jiraParameter
 		}
 		start = end + 1
 	}
-	return parts, nil
+	return parts
 }
 
 func validDirectiveAttributeName(name string) bool {

@@ -60,15 +60,13 @@ type conversionDiagnostic struct {
 }
 
 // ToJFM converts Jira Markup to canonical Jiro Flavored Markdown.
-func ToJFM(ctx context.Context, jiraMarkup string) (JFMResult, error) {
+func ToJFM(ctx context.Context, jiraMarkup string) (result JFMResult, err error) {
+	defer recoverConversionAbort(&result, &err)
 	if err := ctx.Err(); err != nil {
 		return JFMResult{}, err
 	}
 	source, diagnostics := normalizeConversionInput(jiraMarkup)
-	document, parsedDiagnostics, err := parseJiraMarkup(ctx, source)
-	if err != nil {
-		return JFMResult{}, err
-	}
+	document, parsedDiagnostics := parseJiraMarkup(ctx, source)
 	diagnostics = append(diagnostics, parsedDiagnostics...)
 	markdown, err := renderJFM(ctx, document)
 	if err != nil {
@@ -78,7 +76,8 @@ func ToJFM(ctx context.Context, jiraMarkup string) (JFMResult, error) {
 }
 
 // FromJFM converts Jiro Flavored Markdown to canonical Jira Markup.
-func FromJFM(ctx context.Context, jfm string) (JiraMarkupResult, error) {
+func FromJFM(ctx context.Context, jfm string) (result JiraMarkupResult, err error) {
+	defer recoverConversionAbort(&result, &err)
 	if err := ctx.Err(); err != nil {
 		return JiraMarkupResult{}, err
 	}
@@ -94,6 +93,22 @@ func FromJFM(ctx context.Context, jfm string) (JiraMarkupResult, error) {
 	}
 	diagnostics = append(diagnostics, renderedDiagnostics...)
 	return JiraMarkupResult{Markup: markup, Warnings: finalizeDiagnostics(source, diagnostics)}, nil
+}
+
+// recoverConversionAbort turns the cancellation sentinel the conversion helpers
+// panic with into the entry point's error result, leaving a zero result behind
+// so a cancelled conversion never hands back a half-built document.
+func recoverConversionAbort[Result any](result *Result, err *error) {
+	recovered := recover()
+	if recovered == nil {
+		return
+	}
+	aborted, ok := recovered.(conversionContextAbort)
+	if !ok {
+		panic(recovered)
+	}
+	var zero Result
+	*result, *err = zero, aborted.err
 }
 
 func normalizeConversionInput(input string) (string, []conversionDiagnostic) {

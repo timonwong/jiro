@@ -93,10 +93,7 @@ func TestJiraForcedNewlineRunReadsItsDomain(t *testing.T) {
 func TestJiraTableCellReadsItsOwnForcedNewline(t *testing.T) {
 	t.Parallel()
 	const row = "||h||\n|a\\\\b|c\\\\d|"
-	document, _, err := parseJiraMarkup(context.Background(), row)
-	if err != nil {
-		t.Fatal(err)
-	}
+	document, _ := parseJiraMarkup(context.Background(), row)
 	table, ok := document.Blocks[0].(tableBlock)
 	if !ok {
 		t.Fatalf("block = %T, want a table", document.Blocks[0])
@@ -136,10 +133,7 @@ func TestDecodeJiraEscapesKeepsBackslashRuns(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := decodeJiraEscapes(context.Background(), test.body)
-			if err != nil {
-				t.Fatal(err)
-			}
+			got := decodeJiraEscapes(context.Background(), test.body)
 			if got != test.want {
 				t.Fatalf("decodeJiraEscapes(%q) = %q, want %q", test.body, got, test.want)
 			}
@@ -166,10 +160,7 @@ func TestJiraBackslashPrecedesKillsMarkup(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			closeStart, _, killed, err := findJiraEffectClose(context.Background(), test.run, 1, len(test.run), '*')
-			if err != nil {
-				t.Fatal(err)
-			}
+			closeStart, _, killed := findJiraEffectClose(context.Background(), test.run, 1, len(test.run), '*')
 			if killed {
 				t.Fatalf("findJiraEffectClose(%q) killed the opener, want a plain scan", test.run)
 			}

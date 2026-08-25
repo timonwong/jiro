@@ -165,7 +165,7 @@ func forEachInlineCode(inlines []semanticInline, visit func(codeInline)) {
 
 // jiraInlineRunVerifier proves that a rendered run reads back as the inlines it
 // was rendered from.
-type jiraInlineRunVerifier func(ctx context.Context, rendered, intended string, inlines []semanticInline, run jiraRunContext) (jiraVerificationVerdict, error)
+type jiraInlineRunVerifier func(ctx context.Context, rendered, intended string, inlines []semanticInline, run jiraRunContext) jiraVerificationVerdict
 
 // renderJiraInlineRun renders one top-level inline run and proves the escaping
 // by re-parsing it.
@@ -192,10 +192,7 @@ func renderJiraInlineRunWith(ctx context.Context, state *jiraRenderState, inline
 				return "", err
 			}
 		}
-		if verdict, err = verify(ctx, rendered, intended, inlines, run); err != nil {
-			return "", err
-		}
-		if verdict.accepts() {
+		if verdict = verify(ctx, rendered, intended, inlines, run); verdict.accepts() {
 			return rendered, nil
 		}
 	}
@@ -237,10 +234,7 @@ func renderJiraInlineRunIn(ctx context.Context, inlines []semanticInline, render
 	if err != nil {
 		return "", err
 	}
-	escaped, err := escapePlainJiraEffects(ctx, output.text, output.plainOffsets, render.mode)
-	if err != nil {
-		return "", err
-	}
+	escaped := escapePlainJiraEffects(ctx, output.text, output.plainOffsets, render.mode)
 	if render.inTableCell && strings.HasSuffix(escaped, "\\") {
 		// A backslash at the end of a cell escapes the delimiter behind it and
 		// merges the cell with the next one. The character reference is the
@@ -374,22 +368,18 @@ func (verdict jiraVerificationVerdict) accepts() bool {
 // for one re-parse and one key. A run without inline code has an empty body key
 // on both sides; that is the truthful answer, since there is no code for the
 // plain-text fallback to protect.
-func verifyJiraInlineRun(ctx context.Context, rendered, intended string, inlines []semanticInline, run jiraRunContext) (jiraVerificationVerdict, error) {
+func verifyJiraInlineRun(ctx context.Context, rendered, intended string, inlines []semanticInline, run jiraRunContext) jiraVerificationVerdict {
 	if run.inTableCell() {
-		bounds, err := jiraTableCellBounds(ctx, rendered, 0, len(rendered), run.cellDelimiter)
-		if err != nil || len(bounds) != 1 {
-			return jiraVerificationVerdict{}, err
+		if bounds := jiraTableCellBounds(ctx, rendered, 0, len(rendered), run.cellDelimiter); len(bounds) != 1 {
+			return jiraVerificationVerdict{}
 		}
 	}
-	parsed, _, err := parseJiraInlines(ctx, rendered, 0, len(rendered), jiraLineDomain{End: len(rendered)})
-	if err != nil {
-		return jiraVerificationVerdict{}, err
-	}
+	parsed, _ := parseJiraInlines(ctx, rendered, 0, len(rendered), jiraLineDomain{End: len(rendered)})
 	matched := jiraVerificationKey(parsed, true) == intended && jiraLineStartsReadAsText(rendered, run.lineStart)
 	if matched {
-		return jiraVerificationVerdict{matched: true}, nil
+		return jiraVerificationVerdict{matched: true}
 	}
-	return jiraVerificationVerdict{codePreserved: jiraCodeBodyKey(parsed) == jiraCodeBodyKey(inlines)}, nil
+	return jiraVerificationVerdict{codePreserved: jiraCodeBodyKey(parsed) == jiraCodeBodyKey(inlines)}
 }
 
 // jiraLineStartsReadAsText reports whether every line start of a rendered run is
@@ -590,20 +580,17 @@ func normalizeVerificationText(value string, reparsed bool) string {
 // renderJiraMonospaceSpanBody encodes a Monospace Span body so that Jira renders
 // its characters literally. A decimal character reference is the only encoding a
 // span body survives, so it is the only one emitted here.
-func renderJiraMonospaceSpanBody(ctx context.Context, body string, render jiraInlineRender) (string, error) {
+func renderJiraMonospaceSpanBody(ctx context.Context, body string, render jiraInlineRender) string {
 	encoded := make([]bool, len(body))
 	var marked bool
 	if render.mode == jiraEscapeFullyEncoded {
 		marked = markFullyEncodedMonospaceSpan(body, encoded)
 	} else {
-		var err error
-		if marked, err = markPredictedMonospaceSpanEncoding(ctx, body, encoded, render.inTableCell); err != nil {
-			return "", err
-		}
+		marked = markPredictedMonospaceSpanEncoding(ctx, body, encoded, render.inTableCell)
 	}
 	// A body Jira already reads literally is the common case and needs no copy.
 	if !marked {
-		return body, ctx.Err()
+		return body
 	}
 	var result strings.Builder
 	result.Grow(len(body))
@@ -618,7 +605,7 @@ func renderJiraMonospaceSpanBody(ctx context.Context, body string, render jiraIn
 		}
 		offset += size
 	}
-	return result.String(), ctx.Err()
+	return result.String()
 }
 
 func markFullyEncodedMonospaceSpan(body string, encoded []bool) bool {
@@ -641,7 +628,7 @@ func isASCIIAlphanumericRune(character rune) bool {
 // as unsafe inside a Monospace Span: the characters a body can never keep raw,
 // the `&` that starts a character reference, and the start of each scanned
 // hazard whose visible text would differ from the body.
-func markPredictedMonospaceSpanEncoding(ctx context.Context, body string, encoded []bool, inTableCell bool) (bool, error) {
+func markPredictedMonospaceSpanEncoding(ctx context.Context, body string, encoded []bool, inTableCell bool) bool {
 	marked := false
 	for offset := 0; offset < len(body); {
 		character, size := utf8.DecodeRuneInString(body[offset:])
@@ -658,10 +645,7 @@ func markPredictedMonospaceSpanEncoding(ctx context.Context, body string, encode
 	// breaking may be turned literal by a backslash the rest of the line adds.
 	// Over-reporting is safe here -- it can only encode a character the body
 	// would have kept raw, and the re-parse proves the result either way.
-	hazards, err := jiraInlineHazards(ctx, body, 0, len(body), len(body), jiraMonospaceContext, inTableCell)
-	if err != nil {
-		return false, err
-	}
+	hazards := jiraInlineHazards(ctx, body, 0, len(body), len(body), jiraMonospaceContext, inTableCell)
 	mark := func(offsets ...int) {
 		for _, offset := range offsets {
 			encoded[offset], marked = true, true
@@ -692,5 +676,5 @@ func markPredictedMonospaceSpanEncoding(ctx context.Context, body string, encode
 			mark(hazard.Start)
 		}
 	}
-	return marked, nil
+	return marked
 }

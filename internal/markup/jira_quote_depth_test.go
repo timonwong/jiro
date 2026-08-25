@@ -9,10 +9,7 @@ func TestParseJiraQuoteAtSafetyLimitFallsBackWithoutFatalError(t *testing.T) {
 	t.Parallel()
 	const input = "{quote}\nbody\n{quote}"
 
-	document, diagnostics, err := parseJiraMarkupAtQuoteDepth(context.Background(), input, 0, len(input), maxStructuredQuoteDepth)
-	if err != nil {
-		t.Fatal(err)
-	}
+	document, diagnostics := parseJiraMarkupAtQuoteDepth(context.Background(), input, 0, len(input), maxStructuredQuoteDepth)
 	if len(document.Blocks) != 1 {
 		t.Fatalf("blocks = %#v; want one literal block", document.Blocks)
 	}

@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func parseJiraMarkup(ctx context.Context, source string) (semanticDocument, []conversionDiagnostic, error) {
+func parseJiraMarkup(ctx context.Context, source string) (semanticDocument, []conversionDiagnostic) {
 	return parseJiraMarkupAtQuoteDepth(ctx, source, 0, len(source), 0)
 }
 
@@ -13,17 +13,12 @@ func parseJiraMarkup(ctx context.Context, source string) (semanticDocument, []co
 // always the whole document and the range is the part being read, so a macro
 // body reaches the parser as a range of the document it came from and every
 // span and diagnostic offset it produces is already a document offset.
-func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, start, end, quoteDepth int) (semanticDocument, []conversionDiagnostic, error) {
-	lines, err := splitSourceLinesWithContext(ctx, source, start, end)
-	if err != nil {
-		return semanticDocument{}, nil, err
-	}
+func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, start, end, quoteDepth int) (semanticDocument, []conversionDiagnostic) {
+	lines := splitSourceLines(ctx, source, start, end)
 	document := semanticDocument{}
 	diagnostics := make([]conversionDiagnostic, 0)
 	for index := 0; index < len(lines); {
-		if err := ctx.Err(); err != nil {
-			return semanticDocument{}, nil, err
-		}
+		abortConversionOnCancel(ctx)
 		if lines[index].Text == "" {
 			index++
 			continue
@@ -31,10 +26,7 @@ func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, start, end,
 		line := lines[index]
 		if level, quote, prefixEnd := jiraLineControlPrefix(line.Text); prefixEnd != 0 {
 			span := sourceSpan{Start: line.Start, End: line.End}
-			block, controlDiagnostics, err := parseJiraLineControlBlock(ctx, source, span, line.Start+prefixEnd, level, quote)
-			if err != nil {
-				return semanticDocument{}, nil, err
-			}
+			block, controlDiagnostics := parseJiraLineControlBlock(ctx, source, span, line.Start+prefixEnd, level, quote)
 			document.Blocks = append(document.Blocks, block)
 			diagnostics = append(diagnostics, controlDiagnostics...)
 			index++
@@ -52,36 +44,26 @@ func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, start, end,
 			continue
 		}
 		if _, markerEnd := jiraListMarkerPrefix(line.Text); markerEnd != 0 {
-			blocks, next, listDiagnostics, err := parseJiraLists(ctx, source, lines, index)
-			if err != nil {
-				return semanticDocument{}, nil, err
-			}
+			blocks, next, listDiagnostics := parseJiraLists(ctx, source, lines, index)
 			document.Blocks = append(document.Blocks, blocks...)
 			diagnostics = append(diagnostics, listDiagnostics...)
 			index = next
 			continue
 		}
 		if strings.HasPrefix(line.Text, "||") || strings.HasPrefix(line.Text, "|") {
-			table, next, tableDiagnostics, err := parseJiraTable(ctx, source, lines, index)
-			if err != nil {
-				return semanticDocument{}, nil, err
-			}
+			table, next, tableDiagnostics := parseJiraTable(ctx, source, lines, index)
 			document.Blocks = append(document.Blocks, table)
 			diagnostics = append(diagnostics, tableDiagnostics...)
 			index = next
 			continue
 		}
-		if macro, ok, err := parseJiraBlockMacro(ctx, source, lines, index, quoteDepth); err != nil {
-			return semanticDocument{}, nil, err
-		} else if ok {
+		if macro, ok := parseJiraBlockMacro(ctx, source, lines, index, quoteDepth); ok {
 			document.Blocks = append(document.Blocks, macro.Block)
 			diagnostics = append(diagnostics, macro.Diagnostics...)
 			index = macro.Next
 			continue
 		}
-		if macro, ok, err := parseUnsupportedJiraBlockMacro(ctx, source, lines, index, quoteDepth); err != nil {
-			return semanticDocument{}, nil, err
-		} else if ok {
+		if macro, ok := parseUnsupportedJiraBlockMacro(ctx, source, lines, index, quoteDepth); ok {
 			document.Blocks = append(document.Blocks, macro.Block)
 			diagnostics = append(diagnostics, macro.Diagnostics...)
 			index = macro.Next
@@ -107,10 +89,7 @@ func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, start, end,
 		// Joining the lines is the only span the inline parser can read a
 		// multi-line paragraph from, so its positions are offsets into that
 		// synthesized string and have to be rebased onto the document.
-		inlines, inlineDiagnostics, err := parseJiraInlines(ctx, raw.String(), 0, raw.Len(), jiraLineDomain{End: raw.Len()})
-		if err != nil {
-			return semanticDocument{}, nil, err
-		}
+		inlines, inlineDiagnostics := parseJiraInlines(ctx, raw.String(), 0, raw.Len(), jiraLineDomain{End: raw.Len()})
 		for inlineIndex, inline := range inlines {
 			inlines[inlineIndex] = shiftSemanticInline(inline, lines[paragraphStart].Start)
 		}
@@ -123,7 +102,7 @@ func parseJiraMarkupAtQuoteDepth(ctx context.Context, source string, start, end,
 			Inlines: inlines,
 		})
 	}
-	return document, diagnostics, nil
+	return document, diagnostics
 }
 
 type sourceLine struct {
@@ -133,33 +112,20 @@ type sourceLine struct {
 	EOL   string
 }
 
-func splitSourceLines(source string) []sourceLine {
-	lines, _ := splitSourceLinesWithContext(context.Background(), source, 0, len(source))
-	return lines
-}
-
-// splitSourceLinesWithContext splits source[start:end] into lines whose offsets
-// are offsets into source. The range is the only bound the split honours: a line
-// that runs to end takes no EOL, so a macro body never reads the delimiter line
-// that follows it.
-func splitSourceLinesWithContext(ctx context.Context, source string, start, end int) ([]sourceLine, error) {
+// splitSourceLines splits source[start:end] into lines whose offsets are offsets
+// into source. The range is the only bound the split honours: a line that runs
+// to end takes no EOL, so a macro body never reads the delimiter line that
+// follows it.
+func splitSourceLines(ctx context.Context, source string, start, end int) []sourceLine {
 	if start >= end {
-		return nil, ctx.Err()
+		return nil
 	}
 	lines := make([]sourceLine, 0, strings.Count(source[start:end], "\n")+1)
 	for lineStart := start; lineStart < end; {
-		if (lineStart-start)&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-		}
+		sampleConversionCancel(ctx, lineStart-start)
 		lineEnd := lineStart
 		for lineEnd < end && source[lineEnd] != '\r' && source[lineEnd] != '\n' {
-			if (lineEnd-start)&255 == 0 {
-				if err := ctx.Err(); err != nil {
-					return nil, err
-				}
-			}
+			sampleConversionCancel(ctx, lineEnd-start)
 			lineEnd++
 		}
 		eolEnd := lineEnd
@@ -173,5 +139,5 @@ func splitSourceLinesWithContext(ctx context.Context, source string, start, end 
 		lines = append(lines, sourceLine{Start: lineStart, End: lineEnd, Text: source[lineStart:lineEnd], EOL: source[lineEnd:eolEnd]})
 		lineStart = eolEnd
 	}
-	return lines, ctx.Err()
+	return lines
 }
