@@ -1,5 +1,5 @@
 source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evidence.py), captured 2026-08-23
-observed: An escaped marker on the line after a forced newline keeps that line inside the paragraph — the unprotected probe is in round7 of hack/jira-render-evidence.py.
+observed: An escaped marker on the line after a forced newline keeps that line inside the paragraph — the unprotected probe is in the list-marker-line-start campaign of hack/jira-render-evidence.py.
 -- input.jira --
 x\\
 \* item

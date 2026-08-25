@@ -8,10 +8,10 @@ import (
 // TestJiraEffectOpenerKilledMatchesRenderer pins the one-rune rule against the
 // live Jira renderer. Every row is a render that was observed; the rows whose
 // reading jiro has to produce are checked in as archives under
-// testdata/jfm/jira_evidence, and the rest are probes in round11 of
-// hack/jira-render-evidence.py, which reproduces each capture. The run is given
-// whole and the scan starts at the opener's content, which is where a caller
-// asks the question.
+// testdata/jfm/jira_evidence, and the rest are probes in the
+// forced-newline-effect-kill campaign of hack/jira-render-evidence.py, which
+// reproduces each capture. The run is given whole and the scan starts at the
+// opener's content, which is where a caller asks the question.
 func TestJiraEffectOpenerKilledMatchesRenderer(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
@@ -56,8 +56,8 @@ func TestJiraEffectOpenerKilledMatchesRenderer(t *testing.T) {
 // by the same rules as a bare Effect Delimiter -- the one-rune kill and the
 // backslash lookbehind -- so that the plain-text escaper and the Monospace Span
 // hazard scan, its only readers, cannot disagree with the parser. Every row is
-// a render that was observed, in round11 of hack/jira-render-evidence.py and in
-// the citation_* archives.
+// a render that was observed, in the forced-newline-effect-kill campaign of
+// hack/jira-render-evidence.py and in the citation_* archives.
 func TestJiraCitationCloseHonoursTheEffectDelimiterRules(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
