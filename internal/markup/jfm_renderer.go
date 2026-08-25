@@ -263,35 +263,77 @@ func renderJFMCodeSpan(ctx context.Context, value string) (string, error) {
 	return delimiter + padding + value + padding + delimiter, nil
 }
 
+// jfmTextEscapes marks the bytes a plain-text fragment always writes behind a
+// backslash. Every one is ASCII, so no UTF-8 lead or continuation byte can
+// match one and the scan can read the fragment byte by byte.
+var jfmTextEscapes = func() (escapes [256]bool) {
+	for _, character := range "\\*_~[]`<>" {
+		escapes[character] = true
+	}
+	return escapes
+}()
+
 // escapeTextForJFM writes one plain-text fragment. lineStart names the block
 // openers to escape where the fragment begins, and is "" for a fragment that
 // begins inside a line; every newline inside the fragment opens a full line
 // start of its own.
 func escapeTextForJFM(ctx context.Context, value string, lineStart string) (string, error) {
 	var result strings.Builder
-	for index := 0; index < len(value); {
-		if index&255 == 0 {
+	pending := 0
+	for offset := 0; offset < len(value); {
+		if offset&255 == 0 {
 			if err := ctx.Err(); err != nil {
 				return "", err
 			}
 		}
-		character, size := utf8.DecodeRuneInString(value[index:])
-		if character == '\\' || strings.ContainsRune("*_~[]`<>", character) {
+		character := value[offset]
+		size, escapes, invalid := 1, 0, false
+		if character < utf8.RuneSelf {
+			if jfmTextEscapes[character] {
+				escapes++
+			}
+			if lineStart != "" && strings.IndexByte(lineStart, character) >= 0 {
+				escapes++
+			}
+			lineStart = ""
+			if character == '\n' {
+				lineStart = jfmBlockOpeners
+			}
+		} else {
+			var decoded rune
+			decoded, size = utf8.DecodeRuneInString(value[offset:])
+			if lineStart != "" && strings.ContainsRune(lineStart, decoded) {
+				escapes++
+			}
+			invalid = decoded == utf8.RuneError && size == 1
+			lineStart = ""
+		}
+		if escapes == 0 && !invalid {
+			offset += size
+			continue
+		}
+		if pending < offset {
+			result.WriteString(value[pending:offset])
+		}
+		for ; escapes > 0; escapes-- {
 			result.WriteByte('\\')
 		}
-		if strings.ContainsRune(lineStart, character) {
-			result.WriteByte('\\')
+		if invalid {
+			result.WriteRune(utf8.RuneError)
+		} else {
+			result.WriteString(value[offset : offset+size])
 		}
-		result.WriteRune(character)
-		lineStart = ""
-		if character == '\n' {
-			lineStart = jfmBlockOpeners
-		}
-		index += size
+		offset += size
+		pending = offset
 	}
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	// A fragment JFM already reads as itself is the common case and needs no copy.
+	if pending == 0 {
+		return value, nil
+	}
+	result.WriteString(value[pending:])
 	return result.String(), nil
 }
 
@@ -404,12 +446,22 @@ func quoteDirectiveAttributeValue(ctx context.Context, value string) (string, er
 				return "", err
 			}
 		}
-		if character == '}' {
+		// strconv.Quote writes a printable ASCII character as itself and the two
+		// it escapes as a backslash and the character, so only the rest -- the
+		// control characters and everything above ASCII -- has to go through it.
+		switch {
+		case character == '}':
 			result.WriteString(`\}`)
-			continue
+		case character == '"':
+			result.WriteString(`\"`)
+		case character == '\\':
+			result.WriteString(`\\`)
+		case character >= ' ' && character < utf8.RuneSelf && character != 0x7f:
+			result.WriteByte(byte(character))
+		default:
+			quoted := strconv.Quote(string(character))
+			result.WriteString(quoted[1 : len(quoted)-1])
 		}
-		quoted := strconv.Quote(string(character))
-		result.WriteString(quoted[1 : len(quoted)-1])
 	}
 	if err := ctx.Err(); err != nil {
 		return "", err

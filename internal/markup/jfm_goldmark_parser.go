@@ -28,13 +28,14 @@ func parseJFM(ctx context.Context, source string) (semanticDocument, []conversio
 	if err := ctx.Err(); err != nil {
 		return semanticDocument{}, nil, err
 	}
-	markdown := newJFMGoldmark()
 	sourceBytes := []byte(source)
-	root, err := parseGoldmarkWithContext(ctx, markdown, sourceBytes)
+	root, err := parseGoldmarkWithContext(ctx, jfmSharedGoldmark, sourceBytes)
 	if err != nil {
 		return semanticDocument{}, nil, err
 	}
-	references := analyzeReferenceDefinitions(source)
+	// The analysis reads only source, so a document holding no reference
+	// definition never pays for its two full-document scans.
+	var references *referenceDefinitionAnalysis
 	seenReferences := map[string]int{}
 	document := semanticDocument{}
 	diagnostics := make([]conversionDiagnostic, 0)
@@ -43,6 +44,10 @@ func parseJFM(ctx context.Context, source string) (semanticDocument, []conversio
 			return semanticDocument{}, nil, err
 		}
 		if definition, ok := node.(*ast.LinkReferenceDefinition); ok {
+			if references == nil {
+				analysis := analyzeReferenceDefinitions(source)
+				references = &analysis
+			}
 			label := normalizeReferenceLabel(string(definition.Label))
 			occurrence := seenReferences[label]
 			seenReferences[label] = occurrence + 1
@@ -1119,18 +1124,19 @@ func adaptEmoticonDirective(source []byte, node *jfmInlineDirective, raw string,
 	return emoticonInline{Span: span, Token: token}, []conversionDiagnostic{}, next, nil
 }
 
-// jfmFragmentGoldmark parses the small inline-directive fragments handled by
-// parseJFMInlineFragment. The custom block/inline parsers registered by
-// newJFMGoldmark are stateless, so a single pipeline can be shared across
-// every fragment parse instead of building one per inline directive.
-var jfmFragmentGoldmark = newJFMGoldmark()
+// jfmSharedGoldmark parses whole JFM documents and the small inline-directive
+// fragments handled by parseJFMInlineFragment. The custom block/inline parsers
+// registered by newJFMGoldmark are stateless, so a single pipeline can be
+// shared across every parse instead of building one per document or per inline
+// directive.
+var jfmSharedGoldmark = newJFMGoldmark()
 
 func parseJFMInlineFragment(fragment string, base int) ([]semanticInline, []conversionDiagnostic, error) {
 	if fragment == "" {
 		return []semanticInline{}, nil, nil
 	}
 	fragmentBytes := []byte(fragment)
-	root := jfmFragmentGoldmark.Parser().Parse(text.NewReader(fragmentBytes))
+	root := jfmSharedGoldmark.Parser().Parse(text.NewReader(fragmentBytes))
 	if root.ChildCount() != 1 {
 		return nil, nil, fmt.Errorf("inline fragment produced %d blocks", root.ChildCount())
 	}
