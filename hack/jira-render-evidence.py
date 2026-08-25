@@ -1,21 +1,42 @@
 #!/usr/bin/env python3
-"""Probe a real Jira Server wiki renderer (read-only).
+"""Probe and verify a real Jira Server wiki renderer (read-only, anonymous).
 
-Target: ASF Jira, Jira Server 8.20.10, anonymous access to /rest/api/1.0/render.
+Target: ASF Jira, Jira Server 8.20.10, POST /rest/api/1.0/render. The script is
+both an ad-hoc probing tool and the verification harness for the evidence
+fixtures in internal/markup/testdata/jfm/jira_evidence, and it carries the
+frozen archive of the historical probe campaigns that built them.
+
+Subcommands:
+
+  probe    render markup given on the command line or on stdin
+             python3 hack/jira-render-evidence.py probe '{{*bold*}}' --json
+  round    replay one archived probe campaign, or all of them in order
+             python3 hack/jira-render-evidence.py round round16 --json
+  verify   replay each evidence fixture's own input.jira and diff rendered.html
+             python3 hack/jira-render-evidence.py verify 'autolink_*'
+
+--json prints one {"in": ..., "out": ...} object per line so captures can be
+turned into evidence fixtures without reparsing the human-readable output.
+
 Equivalent single-case curl:
 
   curl -sS -X POST 'https://issues.apache.org/jira/rest/api/1.0/render' \
     -H 'Content-Type: application/json' -H 'X-Atlassian-Token: no-check' \
     -d '{"rendererType":"atlassian-wiki-renderer","unrenderedMarkup":"{{*bold*}}"}'
 
-Usage: python3 hack/jira-render-evidence.py [round1|...|round16|all] [--json]   (default: all)
-
---json prints one {"in": ..., "out": ...} object per line so captures can be
-turned into evidence fixtures without reparsing the human-readable output.
+ROUND1..ROUND16 are a frozen historical archive: evidence fixtures and Go test
+comments cite them by round number, so never rename, renumber, reorder, or edit
+their contents. New probes go through `probe`, and the reproducibility of
+jira_evidence is checked by `verify` against each fixture's own input.jira
+rather than by keeping a superset of probe strings here.
 """
-import json, sys, time, urllib.request
+import argparse, fnmatch, json, re, sys, time, urllib.request
+from pathlib import Path
 
 URL = "https://issues.apache.org/jira/rest/api/1.0/render"
+EVIDENCE_DIR = "internal/markup/testdata/jfm/jira_evidence"
+
+# --- frozen probe archive: cited by round number from fixtures and tests; append-only, never edit ---
 
 ROUND1 = [
     # --- the originally requested 26 cases ---
@@ -39,7 +60,7 @@ ROUND1 = [
     "{{a\\}}b}}", "{{&#123;&#123;}}", "{{|}}", "{{h1. x}}", "{{* item}}", "{{{{a}}}}",
 ]
 
-ZWSP = "​"
+ZWSP = "\u200b"
 
 _EMOTICONS = ["(y)", "(n)", "(i)", "(/)", "(x)", "(!)", "(?)", "(+)", "(-)",
               "(on)", "(off)", "(*)", "(*r)", "(flag)", ":(", ":P", ":D", ";)"]
@@ -103,8 +124,8 @@ ROUND3 = [
     "{{{x}}}", "{{x{}}", "{{{}x}}",
 ]
 
-NBSP = " "
-IDEOGRAPHIC_SPACE = "　"
+NBSP = "\u00a0"
+IDEOGRAPHIC_SPACE = "\u3000"
 
 ROUND4 = [
     # --- word runes on either side of an effect delimiter ---
@@ -119,8 +140,8 @@ ROUND4 = [
 
 
 # Probe strings backing internal/markup/testdata/jfm/jira_evidence fixtures that
-# ROUND1-4 do not already cover; every rendered.html in that directory must be
-# reproducible from this script.
+# ROUND1-4 did not already cover, from when this file doubled as the directory's
+# reproducibility manifest; the verify subcommand now checks that directly.
 ROUND5 = [
     # --- autolink scheme coverage and where a URL ends ---
     "{{https://example.com/a_b*c-d}}", "{{http://example.com a}}",
@@ -507,9 +528,9 @@ ROUND10 = [
     r"{{a\\}}b\\}}",
     r"{{a\\}}b\\}}c}}",
     # --- U+200B at the body edge a consumed backslash leaves ---
-    "{{a​\\}}",
-    "{{​\\}}",
-    "{{a\\​}}",
+    "{{a\u200b\\}}",
+    "{{\u200b\\}}",
+    "{{a\\\u200b}}",
     # --- the same escapes outside a span ---
     r"a\}b",
     r"a\}}b",
@@ -725,9 +746,9 @@ ROUND14 = [
 # write, and which targets carry one. ROUND9 already holds `[x|http://x|t]`,
 # `t|u`, `t|u|v`, `t\|u`, `t\]u`, `t\=u` and `[x|http://x/a\|b]`.
 ROUND15 = [
-	# --- emoticon aliases added from the 2026-08-24 renderer probes (#120) ---
-	":p", ":P", ":-)", ":)", ":-(", ":(", ";-)", ";)", ":-P", ":-D", ":-p",
-	# --- the title decodes nothing: no backslash and no character reference ---
+    # --- emoticon aliases added from the 2026-08-24 renderer probes (#120) ---
+    ":p", ":P", ":-)", ":)", ":-(", ":(", ";-)", ";)", ":-P", ":-D", ":-p",
+    # --- the title decodes nothing: no backslash and no character reference ---
     r"[x|http://x|t\\u]", r"[x|http://x|t\u]",
     "[x|http://x|t&#124;u]", "[x|http://x|t&#93;u]", "[x|http://x|t&#92;u]",
     # --- and no markup runs inside it; Jira escapes it into the attribute ---
@@ -773,6 +794,18 @@ ROUND16 = [
 ]
 
 
+# An archived round is added as one constant above plus one entry here; `all` is
+# the concatenation in this order.
+ROUNDS = {
+    "round1": ROUND1, "round2": ROUND2, "round3": ROUND3, "round4": ROUND4,
+    "round5": ROUND5, "round6": ROUND6, "round7": ROUND7, "round8": ROUND8,
+    "round9": ROUND9, "round10": ROUND10, "round11": ROUND11, "round12": ROUND12,
+    "round13": ROUND13, "round14": ROUND14, "round15": ROUND15, "round16": ROUND16,
+}
+
+DEFAULT_DELAY = 0.3
+
+
 def render(markup, timeout=30):
     body = json.dumps({"rendererType": "atlassian-wiki-renderer",
                        "unrenderedMarkup": markup}).encode()
@@ -784,7 +817,7 @@ def render(markup, timeout=30):
         return r.read().decode("utf-8", "replace").strip()
 
 
-def run(cases, delay=0.3, as_json=False):
+def run(cases, delay=DEFAULT_DELAY, as_json=False):
     seen = set()
     for m in cases:
         if m in seen:
@@ -804,16 +837,159 @@ def run(cases, delay=0.3, as_json=False):
         time.sleep(delay)
 
 
+_TXTAR_SECTION = re.compile(r"^-- (.+?) --$")
+
+
+def parse_txtar(text):
+    """Split a txtar archive into {section name: content}; leading comment dropped."""
+    sections = {}
+    name, body = None, []
+    for line in text.split("\n"):
+        header = _TXTAR_SECTION.match(line)
+        if header:
+            if name is not None:
+                sections[name] = "\n".join(body)
+            name, body = header.group(1).strip(), []
+        elif name is not None:
+            body.append(line)
+    if name is not None:
+        sections[name] = "\n".join(body)
+    return sections
+
+
+def txtar_probe(section):
+    """Undo the one trailing newline txtar adds; a probe may end in space or tab."""
+    return section[:-1] if section.endswith("\n") else section
+
+
+def read_stdin_probes():
+    """One probe per line, JSON-encoded so a probe can show \\n and zero-width runes."""
+    for line in sys.stdin:
+        raw = line[:-1] if line.endswith("\n") else line
+        try:
+            decoded = json.loads(raw)
+        except ValueError:
+            decoded = raw
+        yield decoded if isinstance(decoded, str) else raw
+
+
+def evidence_dir(override=None):
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parent.parent / EVIDENCE_DIR
+
+
+def verify(globs, directory, limit=None, delay=DEFAULT_DELAY):
+    files = sorted(directory.glob("*.txtar"))
+    if globs:
+        files = [p for p in files
+                 if any(fnmatch.fnmatch(p.name, g) for g in globs)]
+    if limit is not None:
+        files = files[:limit]
+    counts = {"ok": 0, "diff": 0, "skip": 0, "err": 0}
+    for path in files:
+        sections = parse_txtar(path.read_text(encoding="utf-8"))
+        missing = [s for s in ("input.jira", "rendered.html") if s not in sections]
+        if missing:
+            counts["skip"] += 1
+            print("SKIP %s (no %s)" % (path.name, ", ".join(missing)))
+            sys.stdout.flush()
+            continue
+        want = sections["rendered.html"].strip()
+        try:
+            got = render(txtar_probe(sections["input.jira"]))
+        except Exception as e:
+            counts["err"] += 1
+            print("ERR %s (%r)" % (path.name, e))
+        else:
+            if got == want:
+                counts["ok"] += 1
+                print("OK %s" % path.name)
+            else:
+                counts["diff"] += 1
+                print("DIFF %s" % path.name)
+                print("  want: " + want)
+                print("  got : " + got)
+        sys.stdout.flush()
+        time.sleep(delay)
+    print("%d ok, %d diff, %d skip, %d err of %d fixtures"
+          % (counts["ok"], counts["diff"], counts["skip"], counts["err"], len(files)))
+    return 1 if counts["diff"] or counts["err"] else 0
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog="jira-render-evidence.py",
+        description="Probe the live ASF Jira wiki renderer and verify the "
+                    "evidence fixtures against it.")
+    subcommands = parser.add_subparsers(dest="command")
+
+    probe = subcommands.add_parser(
+        "probe", help="render markup given on the command line or on stdin")
+    probe.add_argument("strings", nargs="*", metavar="STRING")
+    probe.add_argument("--stdin", action="store_true",
+                       help="read one JSON-encoded probe per line from stdin")
+    probe.add_argument("--json", dest="as_json", action="store_true",
+                       help='print one {"in": ..., "out": ...} object per line')
+    probe.add_argument("--delay", type=float, default=DEFAULT_DELAY,
+                       help="seconds between requests (default: %(default)s)")
+
+    round_ = subcommands.add_parser(
+        "round", help="replay an archived probe campaign")
+    round_.add_argument("name", nargs="?", choices=list(ROUNDS) + ["all"])
+    round_.add_argument("--list", dest="list_rounds", action="store_true",
+                        help="print each round with its probe count, no requests")
+    round_.add_argument("--json", dest="as_json", action="store_true",
+                        help='print one {"in": ..., "out": ...} object per line')
+    round_.add_argument("--delay", type=float, default=DEFAULT_DELAY,
+                        help="seconds between requests (default: %(default)s)")
+
+    verify_ = subcommands.add_parser(
+        "verify", help="replay each fixture's input.jira and diff its rendered.html")
+    verify_.add_argument("globs", nargs="*", metavar="GLOB",
+                         help="match fixture file names (default: every archive)")
+    verify_.add_argument("--limit", type=int,
+                         help="stop after this many archives")
+    verify_.add_argument("--dir", dest="directory",
+                         help="evidence directory (default: %s)" % EVIDENCE_DIR)
+    verify_.add_argument("--delay", type=float, default=DEFAULT_DELAY,
+                         help="seconds between requests (default: %(default)s)")
+    return parser
+
+
+def main(argv):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command is None:
+        parser.print_help(sys.stderr)
+        return 2
+
+    if args.command == "probe":
+        cases = list(args.strings)
+        if args.stdin:
+            cases += list(read_stdin_probes())
+        if not cases:
+            parser.error("probe needs at least one STRING or --stdin")
+        run(cases, delay=args.delay, as_json=args.as_json)
+        return 0
+
+    if args.command == "round":
+        if args.list_rounds:
+            for name, probes in ROUNDS.items():
+                print("%-8s %4d probes" % (name, len(probes)))
+            return 0
+        if args.name is None:
+            parser.error("round needs a round name or --list")
+        if args.name == "all":
+            cases = [m for probes in ROUNDS.values() for m in probes]
+        else:
+            cases = ROUNDS[args.name]
+        run(cases, delay=args.delay, as_json=args.as_json)
+        return 0
+
+    return verify(args.globs, evidence_dir(args.directory),
+                  limit=args.limit, delay=args.delay)
+
+
 if __name__ == "__main__":
-    arguments = sys.argv[1:]
-    as_json = "--json" in arguments
-    arguments = [a for a in arguments if a != "--json"]
-    which = arguments[0] if arguments else "all"
-    run({"round1": ROUND1, "round2": ROUND2, "round3": ROUND3, "round4": ROUND4,
-          "round5": ROUND5, "round6": ROUND6, "round7": ROUND7, "round8": ROUND8,
-          "round9": ROUND9, "round10": ROUND10, "round11": ROUND11,
-          "round12": ROUND12, "round13": ROUND13,
-          "round14": ROUND14, "round15": ROUND15, "round16": ROUND16,
-          "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5 + ROUND6 + ROUND7
-                 + ROUND8 + ROUND9 + ROUND10 + ROUND11 + ROUND12
-                 + ROUND13 + ROUND14 + ROUND15 + ROUND16}[which], as_json=as_json)
+    sys.exit(main(sys.argv[1:]))

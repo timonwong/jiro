@@ -46,7 +46,7 @@ source: ASF Jira Server 8.20.10, POST /rest/api/1.0/render (hack/jira-render-evi
 observed: one sentence on what Jira rendered and what jiro therefore does
 ```
 
-`python3 hack/jira-render-evidence.py all --json` reproduces every `rendered.html` in the directory; `round16` is the newest round, and a new archive's probe belongs there.
+`python3 hack/jira-render-evidence.py verify` replays every archive's `input.jira` against the live renderer and diffs the stored `rendered.html`, so a new archive needs no entry anywhere else — its own `input.jira` is the probe. Capture new evidence with `python3 hack/jira-render-evidence.py probe '<markup>' --json`; the `roundN` lists in that script are a frozen historical archive cited by number from fixtures and test comments.
 
 ## JFM specification examples
 
