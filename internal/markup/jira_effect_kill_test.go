@@ -79,10 +79,7 @@ func TestJiraCitationCloseHonoursTheEffectDelimiterRules(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := jiraCitationClose(context.Background(), test.run, 0, test.at, len(test.run))
-			if err != nil {
-				t.Fatal(err)
-			}
+			got := jiraCitationClose(context.Background(), test.run, 0, test.at, len(test.run))
 			if got != test.want {
 				t.Fatalf("jiraCitationClose(%q, %d) = %d, want %d", test.run, test.at, got, test.want)
 			}
@@ -110,12 +107,9 @@ func TestJiraKilledOpenerResumesAfterItsFirstByte(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			got := make([]string, 0)
-			err := forEachJiraEffectPair(context.Background(), test.run, 0, len(test.run), func(pair jiraEffectPair) {
+			forEachJiraEffectPair(context.Background(), test.run, 0, len(test.run), func(pair jiraEffectPair) {
 				got = append(got, test.run[pair.OpenStart:pair.CloseEnd])
 			})
-			if err != nil {
-				t.Fatal(err)
-			}
 			if len(got) != len(test.pairs) {
 				t.Fatalf("pairs of %q = %q, want %q", test.run, got, test.pairs)
 			}

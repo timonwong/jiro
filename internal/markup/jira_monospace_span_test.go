@@ -50,10 +50,7 @@ func TestJiraMonospaceSpanEndMatchesRenderer(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			offset := strings.Index(test.source, "{{")
-			close, bodyEnd, ok, err := jiraMonospaceSpanEnd(context.Background(), test.source, 0, offset, len(test.source))
-			if err != nil {
-				t.Fatal(err)
-			}
+			close, bodyEnd, ok := jiraMonospaceSpanEnd(context.Background(), test.source, 0, offset, len(test.source))
 			if close != test.close || bodyEnd != test.bodyEnd || ok != test.forms {
 				t.Fatalf("jiraMonospaceSpanEnd(%q) = (%d, %d, %t), want (%d, %d, %t)", test.source, close, bodyEnd, ok, test.close, test.bodyEnd, test.forms)
 			}

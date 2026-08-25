@@ -44,10 +44,7 @@ func TestJiraTableRowSplitsAroundLinksAndImages(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			bounds, err := jiraTableCellBounds(context.Background(), test.row, 1, len(test.row)-1, "|")
-			if err != nil {
-				t.Fatal(err)
-			}
+			bounds := jiraTableCellBounds(context.Background(), test.row, 1, len(test.row)-1, "|")
 			got := make([]string, len(bounds))
 			for index, bound := range bounds {
 				got[index] = test.row[bound.Start:bound.End]
@@ -109,10 +106,7 @@ func TestJiraTableRowWritesCellsThatReadBackAsCells(t *testing.T) {
 			if len(state.diagnostics) != 0 {
 				t.Fatalf("diagnostics = %#v, want none", state.diagnostics)
 			}
-			parsed, _, _, _, err := parseJiraTableRow(context.Background(), row, sourceSpan{Start: 0, End: len(row)}, true)
-			if err != nil {
-				t.Fatal(err)
-			}
+			parsed, _, _, _ := parseJiraTableRow(context.Background(), row, sourceSpan{Start: 0, End: len(row)}, true)
 			got := make([]string, len(parsed))
 			for index, cell := range parsed {
 				got[index] = row[cell.Span.Start:cell.Span.End]

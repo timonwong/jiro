@@ -12,9 +12,7 @@ import (
 func renderJFM(ctx context.Context, document semanticDocument) (string, error) {
 	blocks := make([]string, 0, len(document.Blocks))
 	for _, block := range document.Blocks {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
+		abortConversionOnCancel(ctx)
 		switch typed := block.(type) {
 		case headingBlock:
 			content, err := renderJFMInlines(ctx, typed.Inlines, jfmBlockOpeners)
@@ -53,27 +51,16 @@ func renderJFM(ctx context.Context, document semanticDocument) (string, error) {
 			}
 			blocks = append(blocks, content)
 		case codeBlock:
-			content, err := renderJFMCodeBlock(ctx, typed)
-			if err != nil {
-				return "", err
-			}
-			blocks = append(blocks, content)
+			blocks = append(blocks, renderJFMCodeBlock(ctx, typed))
 		case panelBlock:
 			body, err := renderJFM(ctx, semanticDocument{Blocks: typed.Blocks})
 			if err != nil {
 				return "", err
 			}
-			fence, err := safeContainerFence(ctx, body)
-			if err != nil {
-				return "", err
-			}
+			fence := safeContainerFence(ctx, body)
 			header := fence + "panel"
 			if len(typed.Attributes) != 0 {
-				serialized, err := serializeDirectiveAttributes(ctx, typed.Attributes, panelAttributeOrder())
-				if err != nil {
-					return "", err
-				}
-				header += "{" + serialized + "}"
+				header += "{" + serializeDirectiveAttributes(ctx, typed.Attributes, panelAttributeOrder()) + "}"
 			}
 			blocks = append(blocks, header+"\n"+body+ensureLiteralClosingSeparation(body)+fence)
 		case unsupportedMacroBlock:
@@ -83,11 +70,7 @@ func renderJFM(ctx context.Context, document semanticDocument) (string, error) {
 			}
 			blocks = append(blocks, typed.Opening+"\n"+body+ensureLiteralClosingSeparation(body)+typed.Closing)
 		case literalBlock:
-			content, err := escapeTextForJFM(ctx, typed.Text, jfmBlockOpeners)
-			if err != nil {
-				return "", err
-			}
-			blocks = append(blocks, content)
+			blocks = append(blocks, escapeTextForJFM(ctx, typed.Text, jfmBlockOpeners))
 		default:
 			return "", fmt.Errorf("%w: unsupported semantic block in JFM renderer", ErrConversion)
 		}
@@ -110,22 +93,12 @@ const (
 func renderJFMInlines(ctx context.Context, inlines []semanticInline, lineStart string) (string, error) {
 	var result strings.Builder
 	for _, inline := range inlines {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
+		abortConversionOnCancel(ctx)
 		switch typed := inline.(type) {
 		case textInline:
-			content, err := escapeTextForJFM(ctx, typed.Text, lineStart)
-			if err != nil {
-				return "", err
-			}
-			result.WriteString(content)
+			result.WriteString(escapeTextForJFM(ctx, typed.Text, lineStart))
 		case codeInline:
-			content, err := renderJFMCodeSpan(ctx, typed.Text)
-			if err != nil {
-				return "", err
-			}
-			result.WriteString(content)
+			result.WriteString(renderJFMCodeSpan(ctx, typed.Text))
 		case hardBreakInline:
 			result.WriteString("\\\n")
 		case styledInline:
@@ -163,28 +136,17 @@ func renderJFMInlines(ctx context.Context, inlines []semanticInline, lineStart s
 				return "", err
 			}
 			if typed.Directive || typed.Dangerous {
-				content, err := escapeDirectiveContent(ctx, label)
-				if err != nil {
-					return "", err
-				}
+				content := escapeDirectiveContent(ctx, label)
 				attributes := []directiveAttribute{{Name: "target", Value: typed.Target}}
 				if typed.Title != "" {
 					attributes = append(attributes, directiveAttribute{Name: "title", Value: typed.Title})
 				}
-				serialized, err := serializeDirectiveAttributes(ctx, attributes, nil)
-				if err != nil {
-					return "", err
-				}
-				result.WriteString(":link[" + content + "]{" + serialized + "}")
+				result.WriteString(":link[" + content + "]{" + serializeDirectiveAttributes(ctx, attributes, nil) + "}")
 				break
 			}
 			title := ""
 			if typed.Title != "" {
-				escaped, err := escapeMarkdownLinkTitle(ctx, typed.Title)
-				if err != nil {
-					return "", err
-				}
-				title = ` "` + escaped + `"`
+				title = ` "` + escapeMarkdownLinkTitle(ctx, typed.Title) + `"`
 			}
 			lowerTarget := strings.ToLower(typed.Target)
 			// An autolink has no room for a title, so a titled link takes the
@@ -194,46 +156,23 @@ func renderJFMInlines(ctx context.Context, inlines []semanticInline, lineStart s
 			} else if typed.Unnamed && title == "" && strings.HasPrefix(lowerTarget, "mailto:") {
 				result.WriteString("<" + typed.Target[len("mailto:"):] + ">")
 			} else {
-				target, err := escapeMarkdownDestination(ctx, typed.Target)
-				if err != nil {
-					return "", err
-				}
-				result.WriteString("[" + label + "](" + target + title + ")")
+				result.WriteString("[" + label + "](" + escapeMarkdownDestination(ctx, typed.Target) + title + ")")
 			}
 		case imageInline:
 			if !typed.Directive && !typed.Dangerous {
-				alt, err := escapeMarkdownLabelText(ctx, typed.Alt)
-				if err != nil {
-					return "", err
-				}
-				source, err := escapeMarkdownDestination(ctx, typed.Source)
-				if err != nil {
-					return "", err
-				}
-				result.WriteString("![" + alt + "](" + source + ")")
+				result.WriteString("![" + escapeMarkdownLabelText(ctx, typed.Alt) + "](" + escapeMarkdownDestination(ctx, typed.Source) + ")")
 				break
 			}
 			attributes := []directiveAttribute{{Name: "src", Value: typed.Source}}
 			attributes = append(attributes, typed.Attributes...)
-			alt, err := escapeDirectiveContent(ctx, typed.Alt)
-			if err != nil {
-				return "", err
-			}
-			serialized, err := serializeDirectiveAttributes(ctx, attributes, imageAttributeOrder())
-			if err != nil {
-				return "", err
-			}
-			result.WriteString(":image[" + alt + "]{" + serialized + "}")
+			alt := escapeDirectiveContent(ctx, typed.Alt)
+			result.WriteString(":image[" + alt + "]{" + serializeDirectiveAttributes(ctx, attributes, imageAttributeOrder()) + "}")
 		case emoticonInline:
 			// A supported token holds neither `]` nor a backslash, so the
 			// content needs no escaping.
 			result.WriteString(":emoticon[" + typed.Token + "]")
 		case literalInline:
-			content, err := escapeTextForJFM(ctx, typed.Text, lineStart)
-			if err != nil {
-				return "", err
-			}
-			result.WriteString(content)
+			result.WriteString(escapeTextForJFM(ctx, typed.Text, lineStart))
 		default:
 			return "", fmt.Errorf("%w: unsupported semantic inline in JFM renderer", ErrConversion)
 		}
@@ -247,12 +186,8 @@ func renderJFMInlines(ctx context.Context, inlines []semanticInline, lineStart s
 	return result.String(), nil
 }
 
-func renderJFMCodeSpan(ctx context.Context, value string) (string, error) {
-	run, err := longestRunWithContext(ctx, value, '`')
-	if err != nil {
-		return "", err
-	}
-	delimiter := strings.Repeat("`", run+1)
+func renderJFMCodeSpan(ctx context.Context, value string) string {
+	delimiter := strings.Repeat("`", longestRun(ctx, value, '`')+1)
 	if delimiter == "" {
 		delimiter = "`"
 	}
@@ -260,7 +195,7 @@ func renderJFMCodeSpan(ctx context.Context, value string) (string, error) {
 	if value != "" && (value[0] == ' ' || value[len(value)-1] == ' ' || value[0] == '`' || value[len(value)-1] == '`') && strings.Trim(value, " ") != "" {
 		padding = " "
 	}
-	return delimiter + padding + value + padding + delimiter, nil
+	return delimiter + padding + value + padding + delimiter
 }
 
 // jfmTextEscapes marks the bytes a plain-text fragment always writes behind a
@@ -277,15 +212,11 @@ var jfmTextEscapes = func() (escapes [256]bool) {
 // openers to escape where the fragment begins, and is "" for a fragment that
 // begins inside a line; every newline inside the fragment opens a full line
 // start of its own.
-func escapeTextForJFM(ctx context.Context, value string, lineStart string) (string, error) {
+func escapeTextForJFM(ctx context.Context, value string, lineStart string) string {
 	var result strings.Builder
 	pending := 0
 	for offset := 0; offset < len(value); {
-		if offset&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return "", err
-			}
-		}
+		sampleConversionCancel(ctx, offset)
 		character := value[offset]
 		size, escapes, invalid := 1, 0, false
 		if character < utf8.RuneSelf {
@@ -326,15 +257,12 @@ func escapeTextForJFM(ctx context.Context, value string, lineStart string) (stri
 		offset += size
 		pending = offset
 	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
 	// A fragment JFM already reads as itself is the common case and needs no copy.
 	if pending == 0 {
-		return value, nil
+		return value
 	}
 	result.WriteString(value[pending:])
-	return result.String(), nil
+	return result.String()
 }
 
 // escapeMarkdownDestination writes a link target or an image source. Both are
@@ -342,46 +270,31 @@ func escapeTextForJFM(ctx context.Context, value string, lineStart string) (stri
 // has to leave as `&amp;`: a Markdown reader resolves the reference exactly as
 // Jira does, and without this the value would come back as the character it
 // names instead of the reference the author wrote.
-func escapeMarkdownDestination(ctx context.Context, value string) (string, error) {
+func escapeMarkdownDestination(ctx context.Context, value string) string {
 	var result strings.Builder
 	for offset, character := range value {
-		if offset&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return "", err
-			}
-		}
+		sampleConversionCancel(ctx, offset)
 		if strings.ContainsRune(`\()<> `, character) {
 			result.WriteByte('\\')
 		}
 		result.WriteRune(character)
 	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	return escapeMarkdownCharacterReferences(result.String()), nil
+	return escapeMarkdownCharacterReferences(result.String())
 }
 
 // escapeMarkdownLabelText writes an image's alternative text, which is a Jira
 // image parameter value and so is read with character references resolved; a `&`
 // that begins one leaves as `&amp;` for the same reason as in a destination.
-func escapeMarkdownLabelText(ctx context.Context, value string) (string, error) {
-	escaped, err := escapeSelectedRunes(ctx, value, `\[]`)
-	if err != nil {
-		return "", err
-	}
-	return escapeMarkdownCharacterReferences(escaped), nil
+func escapeMarkdownLabelText(ctx context.Context, value string) string {
+	return escapeMarkdownCharacterReferences(escapeSelectedRunes(ctx, value, `\[]`))
 }
 
 // escapeMarkdownLinkTitle writes a link title inside the double quotes that
 // follow a destination. A Markdown reader resolves both a backslash escape and a
 // character reference there, while the Jira title jiro carries is verbatim, so
 // each of them has to leave as the escape that reads back as itself.
-func escapeMarkdownLinkTitle(ctx context.Context, value string) (string, error) {
-	escaped, err := escapeSelectedRunes(ctx, value, `\"`)
-	if err != nil {
-		return "", err
-	}
-	return escapeMarkdownCharacterReferences(escaped), nil
+func escapeMarkdownLinkTitle(ctx context.Context, value string) string {
+	return escapeMarkdownCharacterReferences(escapeSelectedRunes(ctx, value, `\"`))
 }
 
 // escapeMarkdownCharacterReferences writes every `&` that would begin a
@@ -403,33 +316,22 @@ func escapeMarkdownCharacterReferences(value string) string {
 	return result.String()
 }
 
-func escapeDirectiveContent(ctx context.Context, value string) (string, error) {
+func escapeDirectiveContent(ctx context.Context, value string) string {
 	return escapeSelectedRunes(ctx, value, `\]`)
 }
 
-func serializeDirectiveAttributes(ctx context.Context, attributes []directiveAttribute, order []string) (string, error) {
+func serializeDirectiveAttributes(ctx context.Context, attributes []directiveAttribute, order []string) string {
 	ordered := orderDirectiveAttributes(attributes, order)
 	parts := make([]string, 0, len(ordered))
 	for index, attribute := range ordered {
-		if index&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return "", err
-			}
-		}
+		sampleConversionCancel(ctx, index)
 		if attribute.Bare {
 			parts = append(parts, attribute.Name)
 		} else {
-			value, err := quoteDirectiveAttributeValue(ctx, attribute.Value)
-			if err != nil {
-				return "", err
-			}
-			parts = append(parts, attribute.Name+"="+value)
+			parts = append(parts, attribute.Name+"="+quoteDirectiveAttributeValue(ctx, attribute.Value))
 		}
 	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	return strings.Join(parts, " "), nil
+	return strings.Join(parts, " ")
 }
 
 // quoteDirectiveAttributeValue writes one attribute value between double quotes.
@@ -437,15 +339,11 @@ func serializeDirectiveAttributes(ctx context.Context, attributes []directiveAtt
 // ends at the first `}` no backslash stands in front of: without it a value
 // holding one -- a link title, a link target, a panel or code title -- would end
 // the directive early and leave the whole source literal on the way back.
-func quoteDirectiveAttributeValue(ctx context.Context, value string) (string, error) {
+func quoteDirectiveAttributeValue(ctx context.Context, value string) string {
 	var result strings.Builder
 	result.WriteByte('"')
 	for offset, character := range value {
-		if offset&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return "", err
-			}
-		}
+		sampleConversionCancel(ctx, offset)
 		// strconv.Quote writes a printable ASCII character as itself and the two
 		// it escapes as a backslash and the character, so only the rest -- the
 		// control characters and everything above ASCII -- has to go through it.
@@ -463,11 +361,8 @@ func quoteDirectiveAttributeValue(ctx context.Context, value string) (string, er
 			result.WriteString(quoted[1 : len(quoted)-1])
 		}
 	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
 	result.WriteByte('"')
-	return result.String(), nil
+	return result.String()
 }
 
 func prefixQuotedLines(value string) string {
@@ -584,10 +479,7 @@ func renderJFMListItemLine(ctx context.Context, item listItem, marker string) (s
 
 func renderJFMTable(ctx context.Context, table tableBlock) (string, error) {
 	if table.Directive || len(table.Header) == 0 {
-		fence, err := safeContainerFence(ctx, table.Raw)
-		if err != nil {
-			return "", err
-		}
+		fence := safeContainerFence(ctx, table.Raw)
 		return fence + "table\n" + table.Raw + ensureLiteralClosingSeparation(table.Raw) + fence, nil
 	}
 	rows := make([]string, 0, len(table.Rows)+2)
@@ -623,79 +515,53 @@ func renderJFMTableRow(ctx context.Context, cells []tableCell) (string, error) {
 	return "| " + strings.Join(values, " | ") + " |", nil
 }
 
-func renderJFMCodeBlock(ctx context.Context, block codeBlock) (string, error) {
+func renderJFMCodeBlock(ctx context.Context, block codeBlock) string {
 	if block.Directive {
 		attributes := block.Attributes
 		if block.Language != "" && !containsDirectiveAttribute(attributes, "language") {
 			attributes = append([]directiveAttribute{{Name: "language", Value: block.Language}}, attributes...)
 		}
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		serialized, err := serializeCodeDirectiveAttributes(ctx, attributes)
-		if err != nil {
-			return "", err
-		}
-		fence, err := safeContainerFence(ctx, block.Body)
-		if err != nil {
-			return "", err
-		}
+		abortConversionOnCancel(ctx)
+		serialized := serializeCodeDirectiveAttributes(ctx, attributes)
+		fence := safeContainerFence(ctx, block.Body)
 		header := fence + "code"
 		if serialized != "" {
 			header += "{" + serialized + "}"
 		}
-		return header + "\n" + block.Body + ensureLiteralClosingSeparation(block.Body) + fence, nil
+		return header + "\n" + block.Body + ensureLiteralClosingSeparation(block.Body) + fence
 	}
-	run, err := longestRunWithContext(ctx, block.Body, '`')
-	if err != nil {
-		return "", err
-	}
-	fence := strings.Repeat("`", max(3, run+1))
+	fence := strings.Repeat("`", max(3, longestRun(ctx, block.Body, '`')+1))
 	opening := fence
 	if block.Language != "" {
 		opening += block.Language
 	}
-	return opening + "\n" + block.Body + ensureLiteralClosingSeparation(block.Body) + fence, nil
+	return opening + "\n" + block.Body + ensureLiteralClosingSeparation(block.Body) + fence
 }
 
-func serializeCodeDirectiveAttributes(ctx context.Context, attributes []directiveAttribute) (string, error) {
+func serializeCodeDirectiveAttributes(ctx context.Context, attributes []directiveAttribute) string {
 	ordered := orderDirectiveAttributes(attributes, codeAttributeOrder())
 	parts := make([]string, 0, len(ordered))
 	for _, attribute := range ordered {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
+		abortConversionOnCancel(ctx)
 		if strings.EqualFold(attribute.Name, "collapse") || strings.EqualFold(attribute.Name, "linenumbers") {
 			if value := strings.ToLower(attribute.Value); value == "true" || value == "false" {
 				parts = append(parts, attribute.Name+"="+value)
 				continue
 			}
 		}
-		value, err := quoteDirectiveAttributeValue(ctx, attribute.Value)
-		if err != nil {
-			return "", err
-		}
-		parts = append(parts, attribute.Name+"="+value)
+		parts = append(parts, attribute.Name+"="+quoteDirectiveAttributeValue(ctx, attribute.Value))
 	}
-	return strings.Join(parts, " "), ctx.Err()
+	return strings.Join(parts, " ")
 }
 
-func safeContainerFence(ctx context.Context, body string) (string, error) {
+func safeContainerFence(ctx context.Context, body string) string {
 	longest := 2
 	for lineStart := 0; lineStart <= len(body); {
-		if lineStart&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return "", err
-			}
-		}
+		sampleConversionCancel(ctx, lineStart)
 
 		lineEnd := lineStart
 		for lineEnd < len(body) && body[lineEnd] != '\n' && body[lineEnd] != '\r' {
-			if lineEnd&255 == 0 {
-				if err := ctx.Err(); err != nil {
-					return "", err
-				}
-			}
+			sampleConversionCancel(ctx, lineEnd)
 			lineEnd++
 		}
 		fenceStart := jfmContainerClosingFenceStart(body[lineStart:lineEnd])
@@ -705,11 +571,7 @@ func safeContainerFence(ctx context.Context, body string) (string, error) {
 		fenceStart += lineStart
 		fenceEnd := fenceStart
 		for fenceEnd < lineEnd && body[fenceEnd] == ':' {
-			if fenceEnd&255 == 0 {
-				if err := ctx.Err(); err != nil {
-					return "", err
-				}
-			}
+			sampleConversionCancel(ctx, fenceEnd)
 			fenceEnd++
 		}
 		if run := fenceEnd - fenceStart; run > longest {
@@ -724,20 +586,13 @@ func safeContainerFence(ctx context.Context, body string) (string, error) {
 			lineStart++
 		}
 	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	return strings.Repeat(":", longest+1), nil
+	return strings.Repeat(":", longest+1)
 }
 
-func longestRunWithContext(ctx context.Context, value string, target byte) (int, error) {
+func longestRun(ctx context.Context, value string, target byte) int {
 	longest, current := 0, 0
 	for index := 0; index < len(value); index++ {
-		if index&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return 0, err
-			}
-		}
+		sampleConversionCancel(ctx, index)
 		if value[index] == target {
 			current++
 			if current > longest {
@@ -747,5 +602,5 @@ func longestRunWithContext(ctx context.Context, value string, target byte) (int,
 			current = 0
 		}
 	}
-	return longest, ctx.Err()
+	return longest
 }
