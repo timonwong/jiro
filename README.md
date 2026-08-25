@@ -117,6 +117,7 @@ jiro issue add --project OPS --type Bug --summary "Broken deployment" \
   --parent OPS-10 --component API --fix-version 4.5 --sprint active
 jiro issue update OPS-42 --priority High --component API
 jiro issue comment add OPS-42 --body "Deployed to staging."
+jiro issue comment edit OPS-42 10001 --body "Deployment verified."
 jiro issue move OPS-42 --to Done --resolution Fixed
 jiro issue assign OPS-42 --assignee me
 ```
@@ -156,7 +157,7 @@ jiro issue bulk update --jql 'project = OPS' --type Story --dry-run
 
 ### Jira Markup and JFM
 
-Descriptions and comments use Jira Markup by default. Use `--input-format=jfm`
+Descriptions and comment bodies use Jira Markup by default. Use `--input-format=jfm`
 to convert from [Jiro Flavored Markdown](docs/jiro-flavored-markdown.md):
 
 ```sh

@@ -296,7 +296,7 @@ func TestSchemaDocument(t *testing.T) {
 			}
 		}
 	}
-	for _, command := range []string{"issue add", "issue clone", "issue update", "issue comment add"} {
+	for _, command := range []string{"issue add", "issue clone", "issue update", "issue comment add", "issue comment edit"} {
 		inputFormat, ok := flags[command]["input-format"]
 		if !ok || inputFormat.kind != "enum:jira|jfm|markdown" || inputFormat.defaultValue != "jira" {
 			t.Fatalf("%s --input-format schema = %+v, present=%t", command, inputFormat, ok)

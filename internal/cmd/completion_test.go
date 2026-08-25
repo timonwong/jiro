@@ -72,6 +72,7 @@ host = "https://alpha.example"
 		{"issue update clear fix versions", []string{"__complete", "issue", "update", "OPS-1", "--fix-version", ""}, []string{"none\tClear all fix versions", ":4"}},
 		{"bulk assign", []string{"__complete", "issue", "bulk", "assign", "--assignee", ""}, []string{"me\tAssign to the current Jira user", "none\tClear the assignee", ":4"}},
 		{"file or stdin", []string{"__complete", "issue", "comment", "add", "OPS-1", "--body-file", ""}, []string{"-\tRead from stdin", ":0"}},
+		{"comment edit file or stdin", []string{"__complete", "issue", "comment", "edit", "OPS-1", "7", "--body-file", ""}, []string{"-\tRead from stdin", ":0"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

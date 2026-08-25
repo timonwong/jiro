@@ -27,6 +27,7 @@ func TestCanonicalCommandTreeUsesSingularPaths(t *testing.T) {
 		"issue update",
 		"issue list-types",
 		"issue comment add",
+		"issue comment edit",
 		"issue comment list",
 		"issue link add",
 		"issue link list",

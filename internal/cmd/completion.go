@@ -100,9 +100,11 @@ func (a *app) configureCompletions(root *cobra.Command) {
 	mustRegisterFlagCompletion(mustFindCommand(root, "issue", "assign"), "assignee", assigneeCompletions)
 	mustRegisterFlagCompletion(mustFindCommand(root, "issue", "bulk", "assign"), "assignee", assigneeCompletions)
 
-	issueComment := mustFindCommand(root, "issue", "comment", "add")
-	mustRegisterFlagCompletion(issueComment, "input-format", inputFormatCompletions())
-	mustRegisterFlagCompletion(issueComment, "body-file", fileOrStdinCompletions)
+	for _, path := range [][]string{{"issue", "comment", "add"}, {"issue", "comment", "edit"}} {
+		issueComment := mustFindCommand(root, path...)
+		mustRegisterFlagCompletion(issueComment, "input-format", inputFormatCompletions())
+		mustRegisterFlagCompletion(issueComment, "body-file", fileOrStdinCompletions)
+	}
 }
 
 func inputFormatCompletions() cobra.CompletionFunc {

@@ -90,6 +90,9 @@ Read every consequential result through jiro after the write:
 
 - Use `issue show` for creation, field updates, transitions, and assignments.
 - Use `issue comment list` for Comments and `issue link list` for Issue Link changes.
+- Use `issue comment edit ISSUE-KEY COMMENT-ID` to replace one Comment body. It
+  requires `--body` or `--body-file`, defaults to Jira Markup, and uses
+  `--input-format=jfm` for newly authored Markdown.
 
 Complete readback only when every requested change is visible with its requested
 final value and every consequential resource has been checked. A missing value,

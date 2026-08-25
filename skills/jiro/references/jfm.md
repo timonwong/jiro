@@ -9,7 +9,7 @@ For a Jira mutation, use this branch together with the core `inspect -> prefligh
 - Jira Markup is the default Description and Comment Body input contract; `--input-format=jira` passes supplied Jira Markup through unchanged to the Jira REST payload.
 - Typed Issue and Comment reads expose only Jira Markup; there is no JFM read projection. Reuse that text as Jira Markup with an omitted `--input-format` or `--input-format=jira`; reserve `--input-format=jfm` for newly authored Markdown.
 - Write `--input-format=jfm`; `markdown` is a permanent, warning-free compatibility alias.
-- Use `--input-format` only where the current schema and command help expose it: Issue creation, Issue update, Comment creation, and the inline transition comment on `issue move`. Custom fields retain their declared Jira value contract.
+- Use `--input-format` only where the current schema and command help expose it: Issue creation, Issue update, Comment creation, Comment edit, and the inline transition comment on `issue move`. Custom fields retain their declared Jira value contract.
 
 ## Supply JFM to a Jira mutation
 
@@ -20,6 +20,7 @@ jiro issue add --project OPS --type Task --summary "Document rollout" \
   --description-file issue.md --input-format=jfm --output=json
 jiro issue update OPS-42 --description-file issue.md --input-format=jfm --output=json
 jiro issue comment add OPS-42 --body-file comment.md --input-format=jfm --output=json
+jiro issue comment edit OPS-42 10001 --body-file comment.md --input-format=jfm --output=json
 jiro issue move OPS-42 --to Done --comment "**Verified** in staging." \
   --input-format=jfm --resolution Fixed --output=json
 ```
