@@ -8,10 +8,11 @@ import (
 // TestJiraForcedNewlineRunMatchesRenderer pins the run classifier against the
 // live Jira renderer. Every row is a render that was observed; the rows whose
 // reading jiro has to produce are checked in as archives under
-// testdata/jfm/jira_evidence, and the rest are probes in round11 of
-// hack/jira-render-evidence.py, which reproduces each capture. The line is
-// given whole and the run under test is named by its start offset, because the
-// rule is decided on the raw line rather than on the run.
+// testdata/jfm/jira_evidence, and the rest are probes in the
+// forced-newline-effect-kill campaign of hack/jira-render-evidence.py, which
+// reproduces each capture. The line is given whole and the run under test is
+// named by its start offset, because the rule is decided on the raw line rather
+// than on the run.
 func TestJiraForcedNewlineRunMatchesRenderer(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
@@ -144,8 +145,8 @@ func TestDecodeJiraEscapesKeepsBackslashRuns(t *testing.T) {
 // TestJiraBackslashPrecedesKillsMarkup holds the lookbehind: the byte before a
 // candidate decides it, so an even backslash run leaves no closer where the old
 // sequential skip stepped over one. Every row is a render that was observed, in
-// round11 of hack/jira-render-evidence.py and in the effect_escaped_closer_*
-// and effect_closer_behind_* archives.
+// the forced-newline-effect-kill campaign of hack/jira-render-evidence.py and
+// in the effect_escaped_closer_* and effect_closer_behind_* archives.
 func TestJiraBackslashPrecedesKillsMarkup(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {

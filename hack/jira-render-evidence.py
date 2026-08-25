@@ -1,23 +1,48 @@
 #!/usr/bin/env python3
-"""Probe a real Jira Server wiki renderer (read-only).
+"""Probe and verify a real Jira Server wiki renderer (read-only, anonymous).
 
-Target: ASF Jira, Jira Server 8.20.10, anonymous access to /rest/api/1.0/render.
+Target: ASF Jira, Jira Server 8.20.10, POST /rest/api/1.0/render. The script is
+both an ad-hoc probing tool and the verification harness for the evidence
+fixtures in internal/markup/testdata/jfm/jira_evidence, and it carries the
+frozen archive of the historical probe campaigns that built them.
+
+Subcommands:
+
+  probe    render markup given on the command line or on stdin
+             python3 hack/jira-render-evidence.py probe '{{*bold*}}' --json
+  replay   replay one archived probe campaign, or all of them in order
+             python3 hack/jira-render-evidence.py replay list-marker-line-start --json
+  verify   replay each evidence fixture's own input.jira and diff rendered.html
+             python3 hack/jira-render-evidence.py verify 'autolink_*'
+
+--json prints one {"in": ..., "out": ...} object per line so captures can be
+turned into evidence fixtures without reparsing the human-readable output.
+
 Equivalent single-case curl:
 
   curl -sS -X POST 'https://issues.apache.org/jira/rest/api/1.0/render' \
     -H 'Content-Type: application/json' -H 'X-Atlassian-Token: no-check' \
     -d '{"rendererType":"atlassian-wiki-renderer","unrenderedMarkup":"{{*bold*}}"}'
 
-Usage: python3 hack/jira-render-evidence.py [round1|...|round16|all] [--json]   (default: all)
-
---json prints one {"in": ..., "out": ...} object per line so captures can be
-turned into evidence fixtures without reparsing the human-readable output.
+The campaigns below are a frozen historical archive, defined in capture order:
+evidence fixtures and Go test comments cite them by name, and their probe values
+are append-only, so never reorder or edit one. Each carries a `# formerly ROUNDN`
+marker so the round numbers used in pre-rename PR discussions still resolve. New
+probes go through `probe`, and the reproducibility of jira_evidence is checked by
+`verify` against each fixture's own input.jira rather than by keeping a superset
+of probe strings here.
 """
-import json, sys, time, urllib.request
+import argparse, fnmatch, json, re, sys, time, urllib.request
+from pathlib import Path
 
 URL = "https://issues.apache.org/jira/rest/api/1.0/render"
+EVIDENCE_DIR = "internal/markup/testdata/jfm/jira_evidence"
 
-ROUND1 = [
+# --- frozen probe archive: cited by campaign name from fixtures and tests;
+#     defined in capture order, append-only, never edit ---
+
+# formerly ROUND1
+MONOSPACE_SPAN_BASICS = [
     # --- the originally requested 26 cases ---
     "{{*bold*}}", "{{a -b- c}}", "{{foo-bar}}", "{{foo_bar_baz}}", "{{_it_}}",
     "{{a}}b}}", "{{[x]}}", "{{[x] foo}}", "{{[x|http://example.com]}}",
@@ -39,12 +64,13 @@ ROUND1 = [
     "{{a\\}}b}}", "{{&#123;&#123;}}", "{{|}}", "{{h1. x}}", "{{* item}}", "{{{{a}}}}",
 ]
 
-ZWSP = "​"
+ZWSP = "\u200b"
 
 _EMOTICONS = ["(y)", "(n)", "(i)", "(/)", "(x)", "(!)", "(?)", "(+)", "(-)",
               "(on)", "(off)", "(*)", "(*r)", "(flag)", ":(", ":P", ":D", ";)"]
 
-ROUND2 = (
+# formerly ROUND2
+INLINE_EFFECT_GATING = (
     [
         # --- boundary / adjacency (word-char rule) ---
         "a" + ZWSP + "{{b}}" + ZWSP + "c",
@@ -84,7 +110,8 @@ ROUND2 = (
 )
 
 
-ROUND3 = [
+# formerly ROUND3
+CHARREF_WHITESPACE_AND_DASHES = [
     # --- char-ref whitespace inside monospace ---
     "{{&#32;a}}", "{{a&#32;}}", "{{&#32;}}", "{{a&#32;b}}", "{{a&#9;b}}",
     "{{&#9;}}", "{{&#160;a}}", "{{&#8203;}}", "{{a&#8203;b}}",
@@ -103,10 +130,11 @@ ROUND3 = [
     "{{{x}}}", "{{x{}}", "{{{}x}}",
 ]
 
-NBSP = " "
-IDEOGRAPHIC_SPACE = "　"
+NBSP = "\u00a0"
+IDEOGRAPHIC_SPACE = "\u3000"
 
-ROUND4 = [
+# formerly ROUND4
+EFFECT_DELIMITER_BOUNDARIES = [
     # --- word runes on either side of an effect delimiter ---
     "a--b--c", "foo__bar__", "1*2*3", "é*x*é", "*x*é", "*x*1",
     "*x*_", "*x*-y", "~x~-", "x_*y*", "_*x*_", "a *b_c_ d*",
@@ -119,9 +147,11 @@ ROUND4 = [
 
 
 # Probe strings backing internal/markup/testdata/jfm/jira_evidence fixtures that
-# ROUND1-4 do not already cover; every rendered.html in that directory must be
-# reproducible from this script.
-ROUND5 = [
+# the first four campaigns did not already cover, from when this file doubled as
+# the directory's reproducibility manifest; the verify subcommand now checks that
+# directly.
+# formerly ROUND5
+FIXTURE_BACKFILL = [
     # --- autolink scheme coverage and where a URL ends ---
     "{{https://example.com/a_b*c-d}}", "{{http://example.com a}}",
     "{{http://example.com.}}", "{{(http://example.com)}}",
@@ -156,7 +186,8 @@ ROUND5 = [
 # Probe strings backing the plain-text escaping rules (#87): which characters a
 # backslash escapes, the brace form of an Effect Delimiter, how a table row
 # splits around links and images, and line-control protection.
-ROUND6 = [
+# formerly ROUND6
+PLAINTEXT_ESCAPES = [
     # --- which characters a backslash escapes in plain text ---
     r"plain \?\?", r"a\?", r"a \?b", r"a\!b", r"a\#b", r"a\.b", r"h1\. x",
     r"\h1. x", r"a\ab", r"a\,b", r"a\=b", r"a\:b", r"a\(b\)", 'a\\"b', r"a\'b",
@@ -238,7 +269,8 @@ ROUND6 = [
 
 # Probe strings backing the line-start list marker rule (#93): which marker runs
 # Jira reads as a list, where a line start is, and what keeps one off it.
-ROUND7 = [
+# formerly ROUND7
+LIST_MARKER_LINE_START = [
     # --- which marker runs at a line start are a list ---
     "* item", "- item", "# item", "** item", "*# item", "#* item",
     "-* item", "*- item", "-- item", "--- item", "-# item", "#- item",
@@ -266,7 +298,8 @@ ROUND7 = [
 # Probe strings backing the block parser's reading of list lines (#99): which
 # level a marker run nests at, when a run of dashes is a marker rather than a
 # dash, and which line starts Jira reads inside a list item or a table cell.
-ROUND8 = [
+# formerly ROUND8
+LIST_NESTING_LEVELS = [
     # --- the run's last character decides the type of the level it names ---
     "*- a", "-# a", "#- a",
     "* a\n- b", "- a\n* b", "- a\n- b", "# a\n- b", "- a\n# b", "* a\n- b\n* c",
@@ -299,7 +332,8 @@ ROUND8 = [
 # Probe strings backing the per-context delimited value rules (#96): what a
 # link target, a link's visible text, an image source, an image parameter and
 # a macro parameter each do with a backslash and with a character reference.
-ROUND9 = [
+# formerly ROUND9
+DELIMITED_VALUES = [
     # --- which characters a link target decodes ---
     r"[x|http://x/a\?b=1]",
     r"[x|http://x/a\#f]",
@@ -460,7 +494,8 @@ ROUND9 = [
 # Probe strings backing the Monospace Span closer rules (#106): how many
 # backslashes in front of a `}}` hide it, what a single one takes with it, and
 # where the scan resumes once a closer is hidden.
-ROUND10 = [
+# formerly ROUND10
+MONOSPACE_CLOSER_BACKSLASH = [
     # --- how long a backslash run in front of the closer has to be to hide it ---
     r"{{a\\\}}",
     r"{{a\\\\}}",
@@ -507,9 +542,9 @@ ROUND10 = [
     r"{{a\\}}b\\}}",
     r"{{a\\}}b\\}}c}}",
     # --- U+200B at the body edge a consumed backslash leaves ---
-    "{{a​\\}}",
-    "{{​\\}}",
-    "{{a\\​}}",
+    "{{a\u200b\\}}",
+    "{{\u200b\\}}",
+    "{{a\\\u200b}}",
     # --- the same escapes outside a span ---
     r"a\}b",
     r"a\}}b",
@@ -519,7 +554,8 @@ ROUND10 = [
 # Probe strings backing the mid-line forced newline placement and the one-rune
 # effect kill (#94): backslash runs, token separators, line domains, lookbehind
 # deadness, and the killed openers.
-ROUND11 = [
+# formerly ROUND11
+FORCED_NEWLINE_EFFECT_KILL = [
     # --- where a `\\` pair is a forced newline: the last run of a token, and
     #     only when it is exactly two backslashes long ---
     r"a\\b", r"a \\ b", r"\\a", r"a\\", r"\\", r"C:\\dir", r"C:\\dir\\file",
@@ -585,7 +621,8 @@ ROUND11 = [
 # gate in every visible context, the escapes and character references that keep
 # an emoticon-shaped literal visible, and the one backslash Jira's emoticon
 # escape consumes in front of a token.
-ROUND12 = [
+# formerly ROUND12
+EMOTICON_GATE = [
     # --- the token gate: a preceding word rune leaves the icon, a following one
     #     kills it, and U+200B is not a following word rune ---
     "(x)", "(y)", "(n)", "(i)", "(/)", "(!)", "(?)", "(+)", "(-)",
@@ -594,7 +631,7 @@ ROUND12 = [
     "x:)", "x;)", ":)y", ";)y", ":)x", "a;)b", "x(y)", "(flag)off", "(*y)x",
     # --- case and shape variants: `(a)` names no icon, every parenthesized
     #     token is lower case only, and the hyphenated aliases are covered in
-    #     round15 after the dedicated #120 probe pass ---
+    #     the link-titles campaign after the dedicated #120 probe pass ---
     "(a)", "(X)", "(Y)", "(N)", "(I)", "(ON)", "(OFF)", "(*R)", "(*Y)",
     "(FLAG)", "(Flag)", ":p", ":d", ";p", ";P", ":-)", "=)",
     "(x)" + ZWSP + "foo", "(x) ", " (x)", "((x))", "(:))", "(x)(y)",
@@ -635,7 +672,8 @@ ROUND12 = [
 # (#101) and the forms that need no space after the `.` (#121): the controls
 # at every item content start, the levels Jira has none of, and the line a
 # malformed one keeps in the paragraph above it.
-ROUND13 = [
+# formerly ROUND13
+LIST_ITEM_LINE_CONTROLS = [
     # --- `h1.` to `h6.` and `bq.` form at every list item's content start, at
     #     every nesting level and under every marker ---
     "* h1. y", "* h2. y", "* h6. y", "* h7. y", "* bq. y", "** h1. y",
@@ -676,7 +714,8 @@ ROUND13 = [
 # Probe strings backing the row a Jira table reads across physical lines (#102):
 # where a row ends, which lines open a row of their own, which ones an open row
 # absorbs, and which `|` the cell split honours.
-ROUND14 = [
+# formerly ROUND14
+TABLE_ROW_CONTINUATION = [
     # --- a row runs on past the end of its line, whether or not the pair that
     #     ends the line renders a forced newline ---
     "||h||\n|a\\\\\nb|", "||h||\n|a\nb|", "||h||\n|a\\\\\nb\\\\\nc|",
@@ -722,12 +761,14 @@ ROUND14 = [
 
 # Probe strings backing the link title, the third part of a bracket body (#104):
 # what the title decodes, what it trims, which spellings a title has no way to
-# write, and which targets carry one. ROUND9 already holds `[x|http://x|t]`,
-# `t|u`, `t|u|v`, `t\|u`, `t\]u`, `t\=u` and `[x|http://x/a\|b]`.
-ROUND15 = [
-	# --- emoticon aliases added from the 2026-08-24 renderer probes (#120) ---
-	":p", ":P", ":-)", ":)", ":-(", ":(", ";-)", ";)", ":-P", ":-D", ":-p",
-	# --- the title decodes nothing: no backslash and no character reference ---
+# write, and which targets carry one. The delimited-values campaign already holds
+# `[x|http://x|t]`, `t|u`, `t|u|v`, `t\|u`, `t\]u`, `t\=u` and
+# `[x|http://x/a\|b]`.
+# formerly ROUND15
+LINK_TITLES = [
+    # --- emoticon aliases added from the 2026-08-24 renderer probes (#120) ---
+    ":p", ":P", ":-)", ":)", ":-(", ":(", ";-)", ";)", ":-P", ":-D", ":-p",
+    # --- the title decodes nothing: no backslash and no character reference ---
     r"[x|http://x|t\\u]", r"[x|http://x|t\u]",
     "[x|http://x|t&#124;u]", "[x|http://x|t&#93;u]", "[x|http://x|t&#92;u]",
     # --- and no markup runs inside it; Jira escapes it into the attribute ---
@@ -753,9 +794,10 @@ ROUND15 = [
 
 
 # The `* ----`, `* ---- `, `* -----`, `* ----x` and `* ---- y` renders the dash
-# rule inside a list item was found in are ROUND13's, and the archives built from
-# them cite that round rather than repeat the probe here.
-ROUND16 = [
+# rule inside a list item was found in are the list-item-line-controls campaign's,
+# and the archives built from them cite it rather than repeat the probe here.
+# formerly ROUND16
+EOL_BACKSLASH_AND_HR = [
     # --- a lone backslash at the end of a line is no forced newline: Jira
     #     shows it and breaks the line as it breaks any other (#119) ---
     "a\\\nb", "a\\", "a&#92;\nb",
@@ -773,6 +815,30 @@ ROUND16 = [
 ]
 
 
+# A campaign is added as one constant above plus one entry here, both at the end;
+# `all` is the concatenation in this capture order.
+CAMPAIGNS = {
+    "monospace-span-basics": MONOSPACE_SPAN_BASICS,
+    "inline-effect-gating": INLINE_EFFECT_GATING,
+    "charref-whitespace-and-dashes": CHARREF_WHITESPACE_AND_DASHES,
+    "effect-delimiter-boundaries": EFFECT_DELIMITER_BOUNDARIES,
+    "fixture-backfill": FIXTURE_BACKFILL,
+    "plaintext-escapes": PLAINTEXT_ESCAPES,
+    "list-marker-line-start": LIST_MARKER_LINE_START,
+    "list-nesting-levels": LIST_NESTING_LEVELS,
+    "delimited-values": DELIMITED_VALUES,
+    "monospace-closer-backslash": MONOSPACE_CLOSER_BACKSLASH,
+    "forced-newline-effect-kill": FORCED_NEWLINE_EFFECT_KILL,
+    "emoticon-gate": EMOTICON_GATE,
+    "list-item-line-controls": LIST_ITEM_LINE_CONTROLS,
+    "table-row-continuation": TABLE_ROW_CONTINUATION,
+    "link-titles": LINK_TITLES,
+    "eol-backslash-and-hr": EOL_BACKSLASH_AND_HR,
+}
+
+DEFAULT_DELAY = 0.3
+
+
 def render(markup, timeout=30):
     body = json.dumps({"rendererType": "atlassian-wiki-renderer",
                        "unrenderedMarkup": markup}).encode()
@@ -784,7 +850,7 @@ def render(markup, timeout=30):
         return r.read().decode("utf-8", "replace").strip()
 
 
-def run(cases, delay=0.3, as_json=False):
+def run(cases, delay=DEFAULT_DELAY, as_json=False):
     seen = set()
     for m in cases:
         if m in seen:
@@ -804,16 +870,161 @@ def run(cases, delay=0.3, as_json=False):
         time.sleep(delay)
 
 
+_TXTAR_SECTION = re.compile(r"^-- (.+?) --$")
+
+
+def parse_txtar(text):
+    """Split a txtar archive into {section name: content}; leading comment dropped."""
+    sections = {}
+    name, body = None, []
+    for line in text.split("\n"):
+        header = _TXTAR_SECTION.match(line)
+        if header:
+            if name is not None:
+                sections[name] = "\n".join(body)
+            name, body = header.group(1).strip(), []
+        elif name is not None:
+            body.append(line)
+    if name is not None:
+        sections[name] = "\n".join(body)
+    return sections
+
+
+def txtar_probe(section):
+    """Undo the one trailing newline txtar adds; a probe may end in space or tab."""
+    return section[:-1] if section.endswith("\n") else section
+
+
+def read_stdin_probes():
+    """One probe per line, JSON-encoded so a probe can show \\n and zero-width runes."""
+    for line in sys.stdin:
+        raw = line[:-1] if line.endswith("\n") else line
+        try:
+            decoded = json.loads(raw)
+        except ValueError:
+            decoded = raw
+        yield decoded if isinstance(decoded, str) else raw
+
+
+def evidence_dir(override=None):
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parent.parent / EVIDENCE_DIR
+
+
+def verify(globs, directory, limit=None, delay=DEFAULT_DELAY):
+    files = sorted(directory.glob("*.txtar"))
+    if globs:
+        files = [p for p in files
+                 if any(fnmatch.fnmatch(p.name, g) for g in globs)]
+    if limit is not None:
+        files = files[:limit]
+    counts = {"ok": 0, "diff": 0, "skip": 0, "err": 0}
+    for path in files:
+        sections = parse_txtar(path.read_text(encoding="utf-8"))
+        missing = [s for s in ("input.jira", "rendered.html") if s not in sections]
+        if missing:
+            counts["skip"] += 1
+            print("SKIP %s (no %s)" % (path.name, ", ".join(missing)))
+            sys.stdout.flush()
+            continue
+        want = sections["rendered.html"].strip()
+        try:
+            got = render(txtar_probe(sections["input.jira"]))
+        except Exception as e:
+            counts["err"] += 1
+            print("ERR %s (%r)" % (path.name, e))
+        else:
+            if got == want:
+                counts["ok"] += 1
+                print("OK %s" % path.name)
+            else:
+                counts["diff"] += 1
+                print("DIFF %s" % path.name)
+                print("  want: " + want)
+                print("  got : " + got)
+        sys.stdout.flush()
+        time.sleep(delay)
+    print("%d ok, %d diff, %d skip, %d err of %d fixtures"
+          % (counts["ok"], counts["diff"], counts["skip"], counts["err"], len(files)))
+    return 1 if counts["diff"] or counts["err"] else 0
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog="jira-render-evidence.py",
+        description="Probe the live ASF Jira wiki renderer and verify the "
+                    "evidence fixtures against it.")
+    subcommands = parser.add_subparsers(dest="command")
+
+    probe = subcommands.add_parser(
+        "probe", help="render markup given on the command line or on stdin")
+    probe.add_argument("strings", nargs="*", metavar="STRING")
+    probe.add_argument("--stdin", action="store_true",
+                       help="read one JSON-encoded probe per line from stdin")
+    probe.add_argument("--json", dest="as_json", action="store_true",
+                       help='print one {"in": ..., "out": ...} object per line')
+    probe.add_argument("--delay", type=float, default=DEFAULT_DELAY,
+                       help="seconds between requests (default: %(default)s)")
+
+    replay = subcommands.add_parser(
+        "replay", help="replay an archived probe campaign")
+    replay.add_argument("name", nargs="?", metavar="CAMPAIGN",
+                        choices=list(CAMPAIGNS) + ["all"])
+    replay.add_argument("--list", dest="list_campaigns", action="store_true",
+                        help="print each campaign with its probe count, no requests")
+    replay.add_argument("--json", dest="as_json", action="store_true",
+                        help='print one {"in": ..., "out": ...} object per line')
+    replay.add_argument("--delay", type=float, default=DEFAULT_DELAY,
+                        help="seconds between requests (default: %(default)s)")
+
+    verify_ = subcommands.add_parser(
+        "verify", help="replay each fixture's input.jira and diff its rendered.html")
+    verify_.add_argument("globs", nargs="*", metavar="GLOB",
+                         help="match fixture file names (default: every archive)")
+    verify_.add_argument("--limit", type=int,
+                         help="stop after this many archives")
+    verify_.add_argument("--dir", dest="directory",
+                         help="evidence directory (default: %s)" % EVIDENCE_DIR)
+    verify_.add_argument("--delay", type=float, default=DEFAULT_DELAY,
+                         help="seconds between requests (default: %(default)s)")
+    return parser
+
+
+def main(argv):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command is None:
+        parser.print_help(sys.stderr)
+        return 2
+
+    if args.command == "probe":
+        cases = list(args.strings)
+        if args.stdin:
+            cases += list(read_stdin_probes())
+        if not cases:
+            parser.error("probe needs at least one STRING or --stdin")
+        run(cases, delay=args.delay, as_json=args.as_json)
+        return 0
+
+    if args.command == "replay":
+        if args.list_campaigns:
+            width = max(len(name) for name in CAMPAIGNS)
+            for name, probes in CAMPAIGNS.items():
+                print("%-*s %4d probes" % (width, name, len(probes)))
+            return 0
+        if args.name is None:
+            parser.error("replay needs a campaign name or --list")
+        if args.name == "all":
+            cases = [m for probes in CAMPAIGNS.values() for m in probes]
+        else:
+            cases = CAMPAIGNS[args.name]
+        run(cases, delay=args.delay, as_json=args.as_json)
+        return 0
+
+    return verify(args.globs, evidence_dir(args.directory),
+                  limit=args.limit, delay=args.delay)
+
+
 if __name__ == "__main__":
-    arguments = sys.argv[1:]
-    as_json = "--json" in arguments
-    arguments = [a for a in arguments if a != "--json"]
-    which = arguments[0] if arguments else "all"
-    run({"round1": ROUND1, "round2": ROUND2, "round3": ROUND3, "round4": ROUND4,
-          "round5": ROUND5, "round6": ROUND6, "round7": ROUND7, "round8": ROUND8,
-          "round9": ROUND9, "round10": ROUND10, "round11": ROUND11,
-          "round12": ROUND12, "round13": ROUND13,
-          "round14": ROUND14, "round15": ROUND15, "round16": ROUND16,
-          "all": ROUND1 + ROUND2 + ROUND3 + ROUND4 + ROUND5 + ROUND6 + ROUND7
-                 + ROUND8 + ROUND9 + ROUND10 + ROUND11 + ROUND12
-                 + ROUND13 + ROUND14 + ROUND15 + ROUND16}[which], as_json=as_json)
+    sys.exit(main(sys.argv[1:]))

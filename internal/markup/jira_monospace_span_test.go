@@ -7,9 +7,10 @@ import (
 )
 
 // TestJiraMonospaceSpanEndMatchesRenderer pins the closer search against the
-// live renders archived in round10 of hack/jira-render-evidence.py: which `}}`
-// closes a Monospace Span once backslashes sit in front of it, and where the
-// body ends when Jira consumes one of them.
+// live renders archived in the monospace-closer-backslash campaign of
+// hack/jira-render-evidence.py: which `}}` closes a Monospace Span once
+// backslashes sit in front of it, and where the body ends when Jira consumes
+// one of them.
 func TestJiraMonospaceSpanEndMatchesRenderer(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {

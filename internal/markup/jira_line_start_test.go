@@ -8,8 +8,9 @@ import (
 // TestJiraListMarkerPrefixMatchesRenderer pins the line-start reading against
 // the live Jira renderer. Every row is a render that was observed; the rows
 // whose protected form jiro has to produce are checked in as archives under
-// testdata/jfm/jira_evidence, and the rest are probes in round7 of
-// hack/jira-render-evidence.py, which reproduces each capture.
+// testdata/jfm/jira_evidence, and the rest are probes in the
+// list-marker-line-start campaign of hack/jira-render-evidence.py, which
+// reproduces each capture.
 func TestJiraListMarkerPrefixMatchesRenderer(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
@@ -216,8 +217,8 @@ func TestEscapeTextForJiraTextProtectsLineStarts(t *testing.T) {
 // TestJiraLineMarkerRunMatchesRenderer pins the reading the block parser needs
 // on top of the escaper's: the whole marker run, where the item content starts,
 // and whether the run is one of the dash runs Jira reads as a marker only while
-// a list is open. Every row is a render captured in round7 or round8 of
-// hack/jira-render-evidence.py.
+// a list is open. Every row is a render captured in the list-marker-line-start
+// or list-nesting-levels campaign of hack/jira-render-evidence.py.
 func TestJiraLineMarkerRunMatchesRenderer(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
@@ -265,7 +266,8 @@ func TestJiraLineMarkerRunMatchesRenderer(t *testing.T) {
 // the same indent: Jira draws the rule past leading spaces and tabs for a run of
 // four or five dashes and ignores the ones trailing it, while a sixth dash and
 // anything else behind the run leave the line its text. Every row is a render
-// captured in round13 or round16 of hack/jira-render-evidence.py.
+// captured in the list-item-line-controls or eol-backslash-and-hr campaign of
+// hack/jira-render-evidence.py.
 func TestJiraLineThematicBreakMatchesRenderer(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
