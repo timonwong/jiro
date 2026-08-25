@@ -600,6 +600,21 @@ func shiftSemanticInline(inline semanticInline, delta int) semanticInline {
 }
 
 func mergeAdjacentTextInlines(inlines []semanticInline) []semanticInline {
+	// A merge only ever extends a run's end to its successor's, so a pair the
+	// walk below would join is already a pair here and a chain with none needs
+	// no second slice at all.
+	merges := false
+	for index := 1; index < len(inlines) && !merges; index++ {
+		text, ok := inlines[index].(textInline)
+		if !ok {
+			continue
+		}
+		previous, previousOK := inlines[index-1].(textInline)
+		merges = previousOK && previous.Span.End == text.Span.Start
+	}
+	if !merges {
+		return inlines
+	}
 	result := make([]semanticInline, 0, len(inlines))
 	for _, inline := range inlines {
 		text, ok := inline.(textInline)
