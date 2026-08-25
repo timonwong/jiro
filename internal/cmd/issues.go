@@ -13,7 +13,7 @@ import (
 func (a *app) issueCommand() *cobra.Command {
 	command := &cobra.Command{Use: "issue", Short: "Work with Jira issues"}
 	comment := &cobra.Command{Use: "comment", Short: "Work with issue comments"}
-	comment.AddCommand(a.issueCommentCommand(), a.issueCommentsCommand())
+	comment.AddCommand(a.issueCommentCommand(), a.issueCommentEditCommand(), a.issueCommentsCommand())
 	link := &cobra.Command{Use: "link", Short: "Work with issue links"}
 	link.AddCommand(a.issueLinkCommand(), a.issueLinksCommand(), a.issueUnlinkCommand(), a.issueLinkTypesCommand())
 	bulk := &cobra.Command{Use: "bulk", Short: "Apply one action to issues selected by JQL"}
@@ -372,22 +372,11 @@ func (a *app) issueCommentCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			format, err := parseInputFormat(inputFormat)
+			bodyValue, err := a.resolveCommentBody(command, body, bodyFile, inputFormat)
 			if err != nil {
 				return err
 			}
-			bodyValue, err := readText(command.Context(), a.stdin, body, command.Flags().Changed("body"), bodyFile)
-			if err != nil {
-				return err
-			}
-			if bodyValue == nil || *bodyValue == "" {
-				return apperr.New(apperr.KindInvalidInput, "comment body is required")
-			}
-			bodyValue, err = a.convertToJiraMarkup(command.Context(), bodyValue, format, "body")
-			if err != nil {
-				return err
-			}
-			input := jira.CommentInput{Body: *bodyValue}
+			input := jira.CommentInput{Body: bodyValue}
 			comment, err := client.Comment(command.Context(), args[0], input)
 			if err != nil {
 				return err
@@ -398,6 +387,48 @@ func (a *app) issueCommentCommand() *cobra.Command {
 	flags := command.Flags()
 	flags.StringVar(&body, "body", "", "comment body")
 	flags.StringVar(&bodyFile, "body-file", "", "comment body file path, or - for stdin")
+	flags.StringVar(&inputFormat, "input-format", "jira", "text input format: jira, jfm, or markdown")
+	return command
+}
+
+func (a *app) issueCommentEditCommand() *cobra.Command {
+	var body, bodyFile, inputFormat string
+	command := &cobra.Command{
+		Use:   "edit ISSUE-KEY COMMENT-ID",
+		Short: "Edit an issue comment",
+		Args:  exactArgs(2),
+		RunE: func(command *cobra.Command, args []string) error {
+			client, _, err := a.writableClient()
+			if err != nil {
+				return err
+			}
+			bodyValue, err := a.resolveCommentBody(command, body, bodyFile, inputFormat)
+			if err != nil {
+				return err
+			}
+			if err := client.UpdateComment(command.Context(), args[0], args[1], jira.CommentInput{Body: bodyValue}); err != nil {
+				return err
+			}
+			// Verify through an independent GET so a successful PUT is not
+			// reported as complete without the server's final representation.
+			comment, err := client.ShowComment(command.Context(), args[0], args[1])
+			if err != nil {
+				result := map[string]any{
+					"issueKey": args[0], "id": args[1], "body": bodyValue,
+					"applied": true, "verified": false,
+				}
+				if renderErr := a.renderPartial(result, fmt.Sprintf("Updated comment %s on %s; read-back failed", args[1], args[0])); renderErr != nil {
+					return renderErr
+				}
+				return apperr.Wrap(apperr.KindPartialFailure, err,
+					"comment %s/%s was updated but read-back failed: %v", args[0], args[1], err)
+			}
+			return a.renderMessage(comment, fmt.Sprintf("Updated comment %s on %s", args[1], args[0]))
+		},
+	}
+	flags := command.Flags()
+	flags.StringVar(&body, "body", "", "replacement comment body")
+	flags.StringVar(&bodyFile, "body-file", "", "replacement comment body file path, or - for stdin")
 	flags.StringVar(&inputFormat, "input-format", "jira", "text input format: jira, jfm, or markdown")
 	return command
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/timonwong/jiro/internal/apperr"
 	"github.com/timonwong/jiro/internal/config"
 	"github.com/timonwong/jiro/internal/jira"
@@ -83,6 +84,25 @@ func readText(ctx context.Context, reader io.Reader, inline string, inlineSet bo
 	}
 	value := string(data)
 	return &value, nil
+}
+
+func (a *app) resolveCommentBody(command *cobra.Command, body, bodyFile, inputFormat string) (string, error) {
+	format, err := parseInputFormat(inputFormat)
+	if err != nil {
+		return "", err
+	}
+	bodyValue, err := readText(command.Context(), a.stdin, body, command.Flags().Changed("body"), bodyFile)
+	if err != nil {
+		return "", err
+	}
+	if bodyValue == nil || *bodyValue == "" {
+		return "", apperr.New(apperr.KindInvalidInput, "comment body is required")
+	}
+	bodyValue, err = a.convertToJiraMarkup(command.Context(), bodyValue, format, "body")
+	if err != nil {
+		return "", err
+	}
+	return *bodyValue, nil
 }
 
 type textInputFormat string

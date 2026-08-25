@@ -663,6 +663,16 @@ func (c *Client) Comment(ctx context.Context, key string, input CommentInput) (C
 	return normalizeComment(wire), nil
 }
 
+// UpdateComment replaces an issue comment body. Callers decide whether a
+// subsequent read-back is required for their result contract.
+func (c *Client) UpdateComment(ctx context.Context, key, id string, input CommentInput) error {
+	if strings.TrimSpace(key) == "" || strings.TrimSpace(id) == "" || input.Body == "" {
+		return apperr.New(apperr.KindInvalidInput, "issue key, comment ID, and comment body are required")
+	}
+	path := "rest/api/2/issue/" + url.PathEscape(key) + "/comment/" + url.PathEscape(id)
+	return c.do(ctx, http.MethodPut, path, nil, input, nil)
+}
+
 // AddComment is an explicit alias for Comment.
 func (c *Client) AddComment(ctx context.Context, key string, input CommentInput) (Comment, error) {
 	return c.Comment(ctx, key, input)

@@ -130,7 +130,12 @@ func schemaDocument() cliSchema {
 			}, object("issueKey", "comments")),
 			commandWithFlags("issue comment add", nil, true, "ISSUE-KEY", []flagSchema{
 				flag("body", "", "string"), flag("body-file", "", "path-or-stdin"), flagDefault("input-format", "", "enum:jira|jfm|markdown", "jira"),
-			}, object("id", "body", "author", "created")),
+			}, object("id", "body", "author", "created", "updated")),
+			// The normalized success result is a Comment; a partial_failure result
+			// uses issueKey/applied/verified to describe an unverified PUT.
+			commandWithFlags("issue comment edit", nil, true, "ISSUE-KEY COMMENT-ID", []flagSchema{
+				flag("body", "", "string"), flag("body-file", "", "path-or-stdin"), flagDefault("input-format", "", "enum:jira|jfm|markdown", "jira"),
+			}, object("id", "body", "author", "created", "updated", "issueKey", "applied", "verified")),
 			command("issue list-transitions", false, "ISSUE-KEY", object("issueKey", "transitions")),
 			commandWithFlags("issue move", nil, true, "ISSUE-KEY", []flagSchema{
 				requiredFlag("to", "", "string"), flag("comment", "", "string"),

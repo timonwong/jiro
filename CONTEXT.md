@@ -28,6 +28,14 @@ _Avoid_: Token revocation, session expiry
 The human-readable Jira identifier for an issue, such as `PROJ-123`.
 _Avoid_: Ticket ID, issue ID
 
+**Comment**:
+Text attached to one Issue in a Jira Instance. A Comment has a Jira-owned Comment ID and a replaceable body; its author and timestamps are read-only in jiro's typed mutation contract.
+_Avoid_: Note, Issue Description
+
+**Comment ID**:
+The Jira-owned identifier used with an Issue Key to address one Comment, such as `10001`.
+_Avoid_: Comment key, global comment identifier
+
 **Issue Clone**:
 A newly created Issue derived from one source Issue through `issue clone`. An Issue Clone is independent from its source, keeps the source Project and Issue Type, and may retain a directional `Cloners` Issue Link and one active Sprint Membership.
 _Avoid_: Copy, duplicate ticket
