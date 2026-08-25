@@ -1,0 +1,8 @@
+-- input.jira --
+a\\
+> b
+-- want.md --
+a\
+\> b
+-- warnings.json --
+[]

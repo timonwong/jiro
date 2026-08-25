@@ -218,13 +218,17 @@ func escapeTextForJFM(ctx context.Context, value string, lineStart string) strin
 	for offset := 0; offset < len(value); {
 		sampleConversionCancel(ctx, offset)
 		character := value[offset]
-		size, escapes, invalid := 1, 0, false
+		size, escape, invalid := 1, false, false
 		if character < utf8.RuneSelf {
+			// The always-escaped set and the line-start opener set can both
+			// name the same byte (`>` is in both); one backslash already
+			// keeps it literal, so the two rules share it rather than
+			// stacking.
 			if jfmTextEscapes[character] {
-				escapes++
+				escape = true
 			}
 			if lineStart != "" && strings.IndexByte(lineStart, character) >= 0 {
-				escapes++
+				escape = true
 			}
 			lineStart = ""
 			if character == '\n' {
@@ -234,19 +238,19 @@ func escapeTextForJFM(ctx context.Context, value string, lineStart string) strin
 			var decoded rune
 			decoded, size = utf8.DecodeRuneInString(value[offset:])
 			if lineStart != "" && strings.ContainsRune(lineStart, decoded) {
-				escapes++
+				escape = true
 			}
 			invalid = decoded == utf8.RuneError && size == 1
 			lineStart = ""
 		}
-		if escapes == 0 && !invalid {
+		if !escape && !invalid {
 			offset += size
 			continue
 		}
 		if pending < offset {
 			result.WriteString(value[pending:offset])
 		}
-		for ; escapes > 0; escapes-- {
+		if escape {
 			result.WriteByte('\\')
 		}
 		if invalid {
