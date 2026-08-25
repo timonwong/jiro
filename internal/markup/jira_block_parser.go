@@ -56,14 +56,14 @@ func isJiraBlockStartBesidesList(line string) bool {
 
 var jiraBlockMacroPattern = regexp.MustCompile(`^\{([A-Za-z][A-Za-z0-9-]*)(?::[^}]*)?\}$`)
 
-func parseUnsupportedJiraBlockMacro(ctx context.Context, source string, lines []sourceLine, start, quoteDepth int) (jiraMacroParseResult, bool) {
+func parseUnsupportedJiraBlockMacro(ctx context.Context, source string, lines []sourceLine, start, quoteDepth int) (jiraMacroParseResult, bool, error) {
 	match := jiraBlockMacroPattern.FindStringSubmatch(lines[start].Text)
 	if match == nil {
-		return jiraMacroParseResult{}, false
+		return jiraMacroParseResult{}, false, nil
 	}
 	name := strings.ToLower(match[1])
 	if name == "quote" || name == "noformat" || name == "code" || name == "panel" || name == "color" {
-		return jiraMacroParseResult{}, false
+		return jiraMacroParseResult{}, false, nil
 	}
 	closing := "{" + match[1] + "}"
 	closeIndex := start + 1
@@ -79,13 +79,13 @@ func parseUnsupportedJiraBlockMacro(ctx context.Context, source string, lines []
 				Construct: ConstructJiraMacro,
 				Reason:    "unsupported Jira macro remains literal",
 			}}},
-		}, true
+		}, true, nil
 	}
 	bodyStart := lines[start].End + len(lines[start].EOL)
 	bodyEnd := lines[closeIndex].Start
 	bodyDocument, bodyDiagnostics, err := parseJiraMarkupAtQuoteDepth(ctx, source, bodyStart, bodyEnd, quoteDepth)
 	if err != nil {
-		return jiraMacroParseResult{Err: err}, true
+		return jiraMacroParseResult{}, false, err
 	}
 	bodyDiagnostics = append([]conversionDiagnostic{{offset: lines[start].Start, warning: ConversionWarning{
 		Construct: ConstructJiraMacro,
@@ -100,7 +100,7 @@ func parseUnsupportedJiraBlockMacro(ctx context.Context, source string, lines []
 		},
 		Next:        closeIndex + 1,
 		Diagnostics: bodyDiagnostics,
-	}, true
+	}, true, nil
 }
 
 // jiraListFrame is one Jira list level the block reader has open. Jira names a
@@ -538,10 +538,9 @@ type jiraMacroParseResult struct {
 	Block       semanticBlock
 	Next        int
 	Diagnostics []conversionDiagnostic
-	Err         error
 }
 
-func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine, start, quoteDepth int) (jiraMacroParseResult, bool) {
+func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine, start, quoteDepth int) (jiraMacroParseResult, bool, error) {
 	opening := lines[start].Text
 	name := ""
 	switch {
@@ -554,7 +553,7 @@ func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine,
 	case opening == "{panel}" || strings.HasPrefix(opening, "{panel:") && strings.HasSuffix(opening, "}"):
 		name = "panel"
 	default:
-		return jiraMacroParseResult{}, false
+		return jiraMacroParseResult{}, false, nil
 	}
 	closing := "{" + name + "}"
 	closeIndex := start + 1
@@ -562,7 +561,7 @@ func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine,
 		var err error
 		closeIndex, err = findJiraSymmetricMacroClose(ctx, lines, start, name)
 		if err != nil {
-			return jiraMacroParseResult{Err: err}, true
+			return jiraMacroParseResult{}, false, err
 		}
 	} else {
 		for closeIndex < len(lines) && lines[closeIndex].Text != closing {
@@ -570,7 +569,7 @@ func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine,
 		}
 	}
 	if closeIndex == len(lines) {
-		return jiraMacroParseResult{}, false
+		return jiraMacroParseResult{}, false, nil
 	}
 	bodyStart := lines[start].End + len(lines[start].EOL)
 	bodyEnd := lines[closeIndex].Start
@@ -585,7 +584,7 @@ func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine,
 						Construct: ConstructBlockquote,
 						Reason:    "adjacent nested Jira quote delimiters are ambiguous and remain literal",
 					}}},
-				}, true
+				}, true, nil
 			}
 		}
 		if quoteDepth >= maxStructuredQuoteDepth {
@@ -596,41 +595,41 @@ func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine,
 					Construct: ConstructBlockquote,
 					Reason:    "quote nesting exceeds the maximum structured depth and remains literal",
 				}}},
-			}, true
+			}, true, nil
 		}
 		bodyDocument, diagnostics, err := parseJiraMarkupAtQuoteDepth(ctx, source, bodyStart, bodyEnd, quoteDepth+1)
 		if err != nil {
-			return jiraMacroParseResult{Err: err}, true
+			return jiraMacroParseResult{}, false, err
 		}
-		return jiraMacroParseResult{Block: quoteBlock{Span: span, Blocks: bodyDocument.Blocks}, Next: closeIndex + 1, Diagnostics: diagnostics}, true
+		return jiraMacroParseResult{Block: quoteBlock{Span: span, Blocks: bodyDocument.Blocks}, Next: closeIndex + 1, Diagnostics: diagnostics}, true, nil
 	}
 	if name == "panel" {
 		bodyDocument, bodyDiagnostics, err := parseJiraMarkupAtQuoteDepth(ctx, source, bodyStart, bodyEnd, quoteDepth)
 		if err != nil {
-			return jiraMacroParseResult{Err: err}, true
+			return jiraMacroParseResult{}, false, err
 		}
 		attributes, err := parseJiraNamedAttributes(ctx, opening, "panel", lines[start].Start)
 		if err != nil {
-			return jiraMacroParseResult{Err: err}, true
+			return jiraMacroParseResult{}, false, err
 		}
 		_, attributes, attributeDiagnostics, invalid := validateDirectiveAttributes(attributes, jiraMacroAttributeSchema(panelAttributeOrder(), nil, "panel"))
 		bodyDiagnostics = append(bodyDiagnostics, attributeDiagnostics...)
 		if invalid {
-			return jiraMacroParseResult{Block: literalBlock{Span: span, Text: source[span.Start:span.End]}, Next: closeIndex + 1, Diagnostics: bodyDiagnostics}, true
+			return jiraMacroParseResult{Block: literalBlock{Span: span, Text: source[span.Start:span.End]}, Next: closeIndex + 1, Diagnostics: bodyDiagnostics}, true, nil
 		}
-		return jiraMacroParseResult{Block: panelBlock{Span: span, Attributes: attributes, Blocks: bodyDocument.Blocks}, Next: closeIndex + 1, Diagnostics: bodyDiagnostics}, true
+		return jiraMacroParseResult{Block: panelBlock{Span: span, Attributes: attributes, Blocks: bodyDocument.Blocks}, Next: closeIndex + 1, Diagnostics: bodyDiagnostics}, true, nil
 	}
 	body := source[bodyStart:bodyEnd]
 	if name == "noformat" {
-		return jiraMacroParseResult{Block: codeBlock{Span: span, Body: body, NoFormat: true}, Next: closeIndex + 1}, true
+		return jiraMacroParseResult{Block: codeBlock{Span: span, Body: body, NoFormat: true}, Next: closeIndex + 1}, true, nil
 	}
 	attributes, err := parseJiraCodeAttributes(ctx, opening, lines[start].Start)
 	if err != nil {
-		return jiraMacroParseResult{Err: err}, true
+		return jiraMacroParseResult{}, false, err
 	}
 	_, attributes, attributeDiagnostics, invalid := validateDirectiveAttributes(attributes, jiraMacroAttributeSchema(codeAttributeOrder(), map[string]bool{"collapse": true, "linenumbers": true}, "code"))
 	if invalid {
-		return jiraMacroParseResult{Block: literalBlock{Span: span, Text: source[span.Start:span.End]}, Next: closeIndex + 1, Diagnostics: attributeDiagnostics}, true
+		return jiraMacroParseResult{Block: literalBlock{Span: span, Text: source[span.Start:span.End]}, Next: closeIndex + 1, Diagnostics: attributeDiagnostics}, true, nil
 	}
 	language := ""
 	for _, attribute := range attributes {
@@ -645,7 +644,7 @@ func parseJiraBlockMacro(ctx context.Context, source string, lines []sourceLine,
 	if language != "" && !safeCodeFenceLanguage(language) {
 		directive = true
 	}
-	return jiraMacroParseResult{Block: codeBlock{Span: span, Body: body, Language: language, Attributes: attributes, Directive: directive}, Next: closeIndex + 1, Diagnostics: attributeDiagnostics}, true
+	return jiraMacroParseResult{Block: codeBlock{Span: span, Body: body, Language: language, Attributes: attributes, Directive: directive}, Next: closeIndex + 1, Diagnostics: attributeDiagnostics}, true, nil
 }
 
 func findJiraSymmetricMacroClose(ctx context.Context, lines []sourceLine, start int, name string) (int, error) {

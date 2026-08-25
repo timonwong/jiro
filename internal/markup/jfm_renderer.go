@@ -129,17 +129,17 @@ func renderJFMInlines(ctx context.Context, inlines []semanticInline, lineStart s
 		case hardBreakInline:
 			result.WriteString("\\\n")
 		case styledInline:
-			content, err := renderJFMInlines(ctx, typed.Children, "")
-			if err != nil {
-				return "", err
-			}
 			if combined, ok := combinedBoldItalic(typed); ok {
-				content, err = renderJFMInlines(ctx, combined, "")
+				content, err := renderJFMInlines(ctx, combined, "")
 				if err != nil {
 					return "", err
 				}
 				result.WriteString("***" + content + "***")
 				break
+			}
+			content, err := renderJFMInlines(ctx, typed.Children, "")
+			if err != nil {
+				return "", err
 			}
 			switch typed.Style {
 			case styleBold:
@@ -192,7 +192,7 @@ func renderJFMInlines(ctx context.Context, inlines []semanticInline, lineStart s
 			if typed.Unnamed && title == "" && (strings.HasPrefix(lowerTarget, "http://") || strings.HasPrefix(lowerTarget, "https://")) {
 				result.WriteString("<" + typed.Target + ">")
 			} else if typed.Unnamed && title == "" && strings.HasPrefix(lowerTarget, "mailto:") {
-				result.WriteString("<" + strings.TrimPrefix(typed.Target, typed.Target[:len("mailto:")]) + ">")
+				result.WriteString("<" + typed.Target[len("mailto:"):] + ">")
 			} else {
 				target, err := escapeMarkdownDestination(ctx, typed.Target)
 				if err != nil {
@@ -214,9 +214,7 @@ func renderJFMInlines(ctx context.Context, inlines []semanticInline, lineStart s
 				break
 			}
 			attributes := []directiveAttribute{{Name: "src", Value: typed.Source}}
-			for _, attribute := range typed.Attributes {
-				attributes = append(attributes, attribute)
-			}
+			attributes = append(attributes, typed.Attributes...)
 			alt, err := escapeDirectiveContent(ctx, typed.Alt)
 			if err != nil {
 				return "", err

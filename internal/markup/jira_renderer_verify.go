@@ -272,32 +272,9 @@ func jiraRunNeedsVerification(inlines []semanticInline, rendered string) bool {
 func collectRunFallbackDiagnostic(state *jiraRenderState, inlines []semanticInline, warning ConversionWarning) {
 	offset := 0
 	if len(inlines) != 0 {
-		offset = jiraInlineSpanStart(inlines[0])
+		offset = inlines[0].span().Start
 	}
 	state.diagnostics = append(state.diagnostics, conversionDiagnostic{offset: offset, warning: warning})
-}
-
-func jiraInlineSpanStart(inline semanticInline) int {
-	switch typed := inline.(type) {
-	case textInline:
-		return typed.Span.Start
-	case literalInline:
-		return typed.Span.Start
-	case codeInline:
-		return typed.Span.Start
-	case styledInline:
-		return typed.Span.Start
-	case linkInline:
-		return typed.Span.Start
-	case imageInline:
-		return typed.Span.Start
-	case hardBreakInline:
-		return typed.Span.Start
-	case emoticonInline:
-		return typed.Span.Start
-	default:
-		return 0
-	}
 }
 
 // collectRenderLossDiagnostics reports the semantics one top-level run loses in

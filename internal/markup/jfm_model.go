@@ -110,6 +110,7 @@ func (literalBlock) semanticBlock() {}
 
 type semanticInline interface {
 	semanticInline()
+	span() sourceSpan
 }
 
 type textInline struct {
@@ -117,7 +118,8 @@ type textInline struct {
 	Text string
 }
 
-func (textInline) semanticInline() {}
+func (textInline) semanticInline()         {}
+func (inline textInline) span() sourceSpan { return inline.Span }
 
 type inlineStyle string
 
@@ -138,14 +140,16 @@ type styledInline struct {
 	Children []semanticInline
 }
 
-func (styledInline) semanticInline() {}
+func (styledInline) semanticInline()         {}
+func (inline styledInline) span() sourceSpan { return inline.Span }
 
 type codeInline struct {
 	Span sourceSpan
 	Text string
 }
 
-func (codeInline) semanticInline() {}
+func (codeInline) semanticInline()         {}
+func (inline codeInline) span() sourceSpan { return inline.Span }
 
 type linkInline struct {
 	Span   sourceSpan
@@ -161,7 +165,8 @@ type linkInline struct {
 	Dangerous bool
 }
 
-func (linkInline) semanticInline() {}
+func (linkInline) semanticInline()         {}
+func (inline linkInline) span() sourceSpan { return inline.Span }
 
 type directiveAttribute struct {
 	Span  sourceSpan
@@ -179,7 +184,8 @@ type imageInline struct {
 	Dangerous  bool
 }
 
-func (imageInline) semanticInline() {}
+func (imageInline) semanticInline()         {}
+func (inline imageInline) span() sourceSpan { return inline.Span }
 
 // emoticonInline is one Jira emoticon, written in JFM as `:emoticon[token]`.
 // Token is the canonical spelling of a token the shared Jira inline grammar
@@ -189,17 +195,20 @@ type emoticonInline struct {
 	Token string
 }
 
-func (emoticonInline) semanticInline() {}
+func (emoticonInline) semanticInline()         {}
+func (inline emoticonInline) span() sourceSpan { return inline.Span }
 
 type hardBreakInline struct {
 	Span sourceSpan
 }
 
-func (hardBreakInline) semanticInline() {}
+func (hardBreakInline) semanticInline()         {}
+func (inline hardBreakInline) span() sourceSpan { return inline.Span }
 
 type literalInline struct {
 	Span sourceSpan
 	Text string
 }
 
-func (literalInline) semanticInline() {}
+func (literalInline) semanticInline()         {}
+func (inline literalInline) span() sourceSpan { return inline.Span }
