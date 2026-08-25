@@ -34,7 +34,9 @@ func parseJFM(ctx context.Context, source string) (semanticDocument, []conversio
 	if err != nil {
 		return semanticDocument{}, nil, err
 	}
-	references := analyzeReferenceDefinitions(source)
+	// The analysis reads only source, so a document holding no reference
+	// definition never pays for its two full-document scans.
+	var references *referenceDefinitionAnalysis
 	seenReferences := map[string]int{}
 	document := semanticDocument{}
 	diagnostics := make([]conversionDiagnostic, 0)
@@ -43,6 +45,10 @@ func parseJFM(ctx context.Context, source string) (semanticDocument, []conversio
 			return semanticDocument{}, nil, err
 		}
 		if definition, ok := node.(*ast.LinkReferenceDefinition); ok {
+			if references == nil {
+				analysis := analyzeReferenceDefinitions(source)
+				references = &analysis
+			}
 			label := normalizeReferenceLabel(string(definition.Label))
 			occurrence := seenReferences[label]
 			seenReferences[label] = occurrence + 1
