@@ -13,8 +13,8 @@ Choose the body format before composing the mutation command:
 
 | Body source | Body syntax | Input flag |
 | --- | --- | --- |
-| Newly authored Markdown/JFM | `[label](target)` | `--input-format=jfm` |
-| Text copied from a `jiro` read | Jira Markup, for example `[label|target]` | `--input-format=jira` or omit |
+| Newly authored JFM | `[label](target)` | `--input-format=jfm` |
+| Text copied from a `jiro` read | Jira Markup, for example `[label\|target]` | `--input-format=jira` or omit |
 
 For example:
 
@@ -45,7 +45,7 @@ Load each conditional branch before using it:
 - For a single or bulk Issue Type change, read [Issue Type changes](references/issue-types.md).
 - For `issue clone SOURCE`, read [Issue Clone workflow](references/issue-clone.md) before mutation.
 - For Board or Sprint discovery, or any `--sprint` selector, read [Boards and Sprints](references/agile.md).
-- Before constructing any command containing an Issue Description or Comment body, read [JFM workflows](references/jfm.md) and choose the body syntax and `--input-format` from the table above. Standalone `jiro jfm` conversion is offline and skips the Jira mutation loop.
+- For JFM authoring, conversion, or `jfm_conversion` warnings, and before constructing any command containing an Issue Description or Comment body, read [JFM workflows](references/jfm.md) and choose the body syntax and `--input-format` from the table above. Standalone `jiro jfm` conversion is offline and skips the Jira mutation loop.
 - For any `issue bulk` operation, read [Bulk workflows](references/bulk.md) before dry-run.
 - When the required operation is unavailable in typed commands (confirmed by `schema` and `--help`), read [REST API fallback](references/rest-api-fallback.md).
 
@@ -74,10 +74,7 @@ Before a write, confirm the Jira Instance, every target Issue Key, and every cur
 
 Resolve Jira-owned names and write semantics before mutating:
 
-- For every Description or Comment body, record `source`, `syntax`, and
-  `--input-format` before drafting the payload: authored Markdown/JFM uses
-  Markdown syntax and `jfm`; typed-read text uses Jira Markup syntax and `jira`
-  or omitted.
+- For every Description or Comment body, record `source`, `syntax`, and `--input-format` before drafting the payload: newly authored JFM uses Markdown syntax and `jfm`; typed-read text uses Jira Markup syntax and `jira` or omitted.
 - Match a transition by the exact ID, unique name, or unique destination status returned by `issue list-transitions`.
 - Resolve a Link Type with `issue link types`; preserve the outward direction from `FROM` to `--to`.
 - Use a file or `-` for stdin for long descriptions and Comment Bodies, keeping inline and file forms mutually exclusive. `issue move --comment` is inline-only.
