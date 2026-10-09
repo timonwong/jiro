@@ -32,8 +32,9 @@ checksum:
   name_template: "{{ .ProjectName }}_{{ .Tag }}_checksums.txt"
   algorithm: sha256
 
+# release-please creates the GitHub Release and owns its notes.
 changelog:
-  use: github-native
+  disable: true
 
 release:
-  prerelease: auto
+  mode: keep-existing
