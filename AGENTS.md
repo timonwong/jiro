@@ -18,4 +18,4 @@ Golden testdata conventions are documented in `docs/agents/testing.md`.
 
 ### Releases
 
-Release tags, verification gates, and binary artifacts are documented in `docs/agents/release.md`.
+The release-please flow, verification gates, and binary artifacts are documented in `docs/agents/release.md`.
