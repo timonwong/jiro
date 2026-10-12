@@ -9,34 +9,86 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/timonwong/jiro/internal/config"
 )
 
-type promptAnswer struct {
+type terminalStep struct {
+	kind         string // "prompt", "select", "confirm", or "secret"
 	label        string
 	defaultValue string
 	value        string
+	// rejected is offered to the prompt validator first and must be refused.
+	rejected string
+	options  []string
 }
 
 type fakeLoginTerminal struct {
-	prompts []promptAnswer
-	secret  string
-	index   int
+	steps    []terminalStep
+	index    int
+	rejected []string
 }
 
 func (f *fakeLoginTerminal) IsTerminal() bool { return true }
 
-func (f *fakeLoginTerminal) Prompt(label, defaultValue string) (string, error) {
-	if f.index >= len(f.prompts) {
-		return "", fmt.Errorf("unexpected prompt %q", label)
+func (f *fakeLoginTerminal) next(kind, label, defaultValue string) (terminalStep, error) {
+	if f.index >= len(f.steps) {
+		return terminalStep{}, fmt.Errorf("unexpected %s %q", kind, label)
 	}
-	want := f.prompts[f.index]
+	want := f.steps[f.index]
 	f.index++
-	if label != want.label || defaultValue != want.defaultValue {
-		return "", fmt.Errorf("prompt = %q default %q, want %q default %q", label, defaultValue, want.label, want.defaultValue)
+	if kind != want.kind || label != want.label || defaultValue != want.defaultValue {
+		return terminalStep{}, fmt.Errorf("%s %q default %q, want %s %q default %q", kind, label, defaultValue, want.kind, want.label, want.defaultValue)
+	}
+	return want, nil
+}
+
+func (f *fakeLoginTerminal) Prompt(label, defaultValue string, validate func(string) error) (string, error) {
+	want, err := f.next("prompt", label, defaultValue)
+	if err != nil {
+		return "", err
+	}
+	if want.rejected != "" {
+		if validate == nil || validate(want.rejected) == nil {
+			return "", fmt.Errorf("prompt %q accepted %q", label, want.rejected)
+		}
+		f.rejected = append(f.rejected, want.rejected)
+	}
+	value := want.value
+	if value == "" {
+		value = defaultValue
+	}
+	if validate != nil {
+		if err := validate(value); err != nil {
+			return "", err
+		}
+	}
+	return value, nil
+}
+
+func (f *fakeLoginTerminal) PromptSecret(label string) (string, error) {
+	want, err := f.next("secret", label, "")
+	if err != nil {
+		return "", err
+	}
+	return want.value, nil
+}
+
+func (f *fakeLoginTerminal) Select(label string, options []loginOption, defaultValue string) (string, error) {
+	want, err := f.next("select", label, defaultValue)
+	if err != nil {
+		return "", err
+	}
+	values := make([]string, 0, len(options))
+	for _, option := range options {
+		values = append(values, option.Value)
+	}
+	if want.options != nil && strings.Join(values, ",") != strings.Join(want.options, ",") {
+		return "", fmt.Errorf("select %q options = %v, want %v", label, values, want.options)
 	}
 	if want.value == "" {
 		return defaultValue, nil
@@ -44,15 +96,15 @@ func (f *fakeLoginTerminal) Prompt(label, defaultValue string) (string, error) {
 	return want.value, nil
 }
 
-func (f *fakeLoginTerminal) PromptSecret(label string) (string, error) {
-	want := "Password"
-	if len(f.prompts) > 1 && strings.Contains(f.prompts[1].value+f.prompts[1].defaultValue, "pat") {
-		want = "Token"
+func (f *fakeLoginTerminal) Confirm(label string, defaultValue bool) (bool, error) {
+	want, err := f.next("confirm", label, strconv.FormatBool(defaultValue))
+	if err != nil {
+		return false, err
 	}
-	if label != want {
-		return "", fmt.Errorf("secret prompt = %q, want %q", label, want)
+	if want.value == "" {
+		return defaultValue, nil
 	}
-	return f.secret, nil
+	return strconv.ParseBool(want.value)
 }
 
 type memorySecretStore struct {
@@ -95,11 +147,12 @@ func TestLoginInteractiveBasicAndJSON(t *testing.T) {
 	defer server.Close()
 
 	path := filepath.Join(t.TempDir(), "config.toml")
-	terminal := &fakeLoginTerminal{prompts: []promptAnswer{
-		{label: "Host", value: server.URL},
-		{label: "Auth type (basic/pat)", value: "basic"},
-		{label: "Username", value: "alice"},
-	}, secret: "fresh-password"}
+	terminal := &fakeLoginTerminal{steps: []terminalStep{
+		{kind: "prompt", label: "Host", value: server.URL},
+		{kind: "select", label: "Authentication", defaultValue: "pat", value: "basic", options: []string{"pat", "basic"}},
+		{kind: "prompt", label: "Username", value: "alice"},
+		{kind: "secret", label: "Password", value: "fresh-password"},
+	}}
 	store := newMemorySecretStore()
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	a := &app{stdin: strings.NewReader(""), stdout: stdout, stderr: stderr, terminal: terminal, secretStore: store}
@@ -133,10 +186,11 @@ func TestLoginInteractivePATUsesExistingDefaultsAndFreshSecret(t *testing.T) {
 	server := authenticatedServer(t, config.AuthPAT, "", "fresh-token", http.StatusOK)
 	defer server.Close()
 	path := writeAuthConfig(t, fmt.Sprintf("[default]\nhost = %q\nauth_type = \"pat\"\nuse_keyring = false\ntoken = \"old-token\"\n", server.URL))
-	terminal := &fakeLoginTerminal{prompts: []promptAnswer{
-		{label: "Host", defaultValue: server.URL},
-		{label: "Auth type (basic/pat)", defaultValue: "pat"},
-	}, secret: "fresh-token"}
+	terminal := &fakeLoginTerminal{steps: []terminalStep{
+		{kind: "prompt", label: "Host", defaultValue: server.URL},
+		{kind: "select", label: "Authentication", defaultValue: "pat"},
+		{kind: "secret", label: "Token", value: "fresh-token"},
+	}}
 	store := newMemorySecretStore()
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	a := &app{stdin: strings.NewReader(""), stdout: stdout, stderr: stderr, terminal: terminal, secretStore: store}
@@ -148,28 +202,210 @@ func TestLoginInteractivePATUsesExistingDefaultsAndFreshSecret(t *testing.T) {
 	}
 }
 
-func TestLoginNewProfileRequiresExplicitAuthSelection(t *testing.T) {
+func TestLoginAuthenticationMenuDefaults(t *testing.T) {
+	t.Run("new profile preselects PAT", func(t *testing.T) {
+		clearCommandEnv(t)
+		server := authenticatedServer(t, config.AuthPAT, "", "fresh-token", http.StatusOK)
+		defer server.Close()
+		path := writeAuthConfig(t, fmt.Sprintf("[default]\nhost = %q\nauth_type = \"basic\"\nusername = \"alice\"\n", server.URL))
+		terminal := &fakeLoginTerminal{steps: []terminalStep{
+			{kind: "prompt", label: "Host", defaultValue: server.URL},
+			{kind: "select", label: "Authentication", defaultValue: "pat", options: []string{"pat", "basic"}},
+			{kind: "secret", label: "Token", value: "fresh-token"},
+		}}
+		stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+		a := &app{stdin: strings.NewReader(""), stdout: stdout, stderr: stderr, terminal: terminal, secretStore: newMemorySecretStore()}
+		if code := a.execute([]string{"--config", path, "--profile", "new", "auth", "login"}); code != 0 || terminal.index != len(terminal.steps) {
+			t.Fatalf("code=%d steps=%d stdout=%s stderr=%s", code, terminal.index, stdout.String(), stderr.String())
+		}
+	})
+
+	t.Run("existing basic profile preselects basic and its username", func(t *testing.T) {
+		clearCommandEnv(t)
+		server := authenticatedServer(t, config.AuthBasic, "alice", "fresh-password", http.StatusOK)
+		defer server.Close()
+		path := writeAuthConfig(t, fmt.Sprintf("[default]\nhost = %q\nauth_type = \"basic\"\nusername = \"alice\"\n", server.URL))
+		terminal := &fakeLoginTerminal{steps: []terminalStep{
+			{kind: "prompt", label: "Host", defaultValue: server.URL},
+			{kind: "select", label: "Authentication", defaultValue: "basic"},
+			{kind: "prompt", label: "Username", defaultValue: "alice"},
+			{kind: "secret", label: "Password", value: "fresh-password"},
+		}}
+		stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+		a := &app{stdin: strings.NewReader(""), stdout: stdout, stderr: stderr, terminal: terminal, secretStore: newMemorySecretStore()}
+		if code := a.execute([]string{"--config", path, "auth", "login"}); code != 0 || terminal.index != len(terminal.steps) {
+			t.Fatalf("code=%d steps=%d stdout=%s stderr=%s", code, terminal.index, stdout.String(), stderr.String())
+		}
+	})
+}
+
+func TestLoginPromptsRejectInvalidInputInPlace(t *testing.T) {
 	clearCommandEnv(t)
-	path := writeAuthConfig(t, "[default]\nhost = \"https://jira.example\"\nauth_type = \"basic\"\nusername = \"alice\"\n")
-	before, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	terminal := &fakeLoginTerminal{prompts: []promptAnswer{
-		{label: "Host", defaultValue: "https://jira.example"},
-		{label: "Auth type (basic/pat)"},
+	server := authenticatedServer(t, config.AuthBasic, "alice", "fresh-password", http.StatusOK)
+	defer server.Close()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	terminal := &fakeLoginTerminal{steps: []terminalStep{
+		{kind: "prompt", label: "Host", rejected: "ftp://jira.example", value: server.URL},
+		{kind: "select", label: "Authentication", defaultValue: "pat", value: "basic"},
+		{kind: "prompt", label: "Username", rejected: "   ", value: "alice"},
+		{kind: "secret", label: "Password", value: "fresh-password"},
 	}}
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	a := &app{stdin: strings.NewReader(""), stdout: stdout, stderr: stderr, terminal: terminal, secretStore: newMemorySecretStore()}
-	if code := a.execute([]string{"--config", path, "--profile", "new", "auth", "login"}); code != 2 || !strings.Contains(stderr.String(), "auth type") {
+	if code := a.execute([]string{"--config", path, "auth", "login"}); code != 0 {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
-	after, err := os.ReadFile(path)
+	if len(terminal.rejected) != 2 {
+		t.Fatalf("rejected = %q", terminal.rejected)
+	}
+}
+
+func TestLoginEmptySecretIsRejected(t *testing.T) {
+	clearCommandEnv(t)
+	path := filepath.Join(t.TempDir(), "config.toml")
+	terminal := &fakeLoginTerminal{steps: []terminalStep{
+		{kind: "prompt", label: "Host", value: "https://jira.example"},
+		{kind: "select", label: "Authentication", defaultValue: "pat"},
+		{kind: "secret", label: "Token"},
+	}}
+	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+	a := &app{stdin: strings.NewReader(""), stdout: stdout, stderr: stderr, terminal: terminal, secretStore: newMemorySecretStore()}
+	if code := a.execute([]string{"--config", path, "auth", "login"}); code != 2 || !strings.Contains(stderr.String(), "token must not be empty") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("failed login wrote config: %v", err)
+	}
+}
+
+// unavailableSecretStore mimics go-keyring on a Linux host without a Secret
+// Service provider.
+type unavailableSecretStore struct{ calls int }
+
+func (s *unavailableSecretStore) Get(string, string) (string, error) {
+	s.calls++
+	return "", fmt.Errorf(`exec: "dbus-launch": executable file not found in $PATH`)
+}
+
+func (s *unavailableSecretStore) Set(string, string, string) error {
+	s.calls++
+	return fmt.Errorf("keyring written")
+}
+
+func (s *unavailableSecretStore) Delete(string, string) error {
+	s.calls++
+	return fmt.Errorf("keyring deleted")
+}
+
+func TestLoginKeyringUnavailable(t *testing.T) {
+	t.Run("interactive confirmation stores the credential in config", func(t *testing.T) {
+		clearCommandEnv(t)
+		server := authenticatedServer(t, config.AuthPAT, "", "fresh-token", http.StatusOK)
+		defer server.Close()
+		path := filepath.Join(t.TempDir(), "config.toml")
+		terminal := &fakeLoginTerminal{steps: []terminalStep{
+			{kind: "confirm", label: "Store the credential in the config file (mode 0600) instead?", defaultValue: "true"},
+			{kind: "prompt", label: "Host", value: server.URL},
+			{kind: "select", label: "Authentication", defaultValue: "pat"},
+			{kind: "secret", label: "Token", value: "fresh-token"},
+		}}
+		store := &unavailableSecretStore{}
+		stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+		a := &app{stdin: strings.NewReader(""), stdout: stdout, stderr: stderr, terminal: terminal, secretStore: store}
+		if code := a.execute([]string{"--config", path, "-ojson", "auth", "login"}); code != 0 {
+			t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "OS keyring is unavailable") || !strings.Contains(stderr.String(), "dbus-launch") {
+			t.Fatalf("stderr=%s", stderr.String())
+		}
+		if !strings.Contains(stdout.String(), `"credentialStore":"config"`) {
+			t.Fatalf("stdout=%s", stdout.String())
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(data, []byte(`token = "fresh-token"`)) || !bytes.Contains(data, []byte("use_keyring = false")) {
+			t.Fatalf("config = %s", data)
+		}
+		assertConfigMode0600(t, path)
+		if store.calls != 1 {
+			t.Fatalf("keyring calls = %d, want the single probe", store.calls)
+		}
+	})
+
+	t.Run("declining the fallback stops before any other prompt", func(t *testing.T) {
+		clearCommandEnv(t)
+		path := filepath.Join(t.TempDir(), "config.toml")
+		terminal := &fakeLoginTerminal{steps: []terminalStep{
+			{kind: "confirm", label: "Store the credential in the config file (mode 0600) instead?", defaultValue: "true", value: "false"},
+		}}
+		stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+		a := &app{stdin: strings.NewReader(""), stdout: stdout, stderr: stderr, terminal: terminal, secretStore: &unavailableSecretStore{}}
+		if code := a.execute([]string{"--config", path, "auth", "login"}); code != 2 || !strings.Contains(stderr.String(), "--use-keyring=false") {
+			t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("declined login wrote config: %v", err)
+		}
+	})
+
+	t.Run("explicit keyring request fails without prompting", func(t *testing.T) {
+		clearCommandEnv(t)
+		path := filepath.Join(t.TempDir(), "config.toml")
+		terminal := &fakeLoginTerminal{}
+		stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+		a := &app{stdin: strings.NewReader(""), stdout: stdout, stderr: stderr, terminal: terminal, secretStore: &unavailableSecretStore{}}
+		if code := a.execute([]string{"--config", path, "auth", "login", "--use-keyring"}); code != 2 || !strings.Contains(stderr.String(), "OS keyring is unavailable") {
+			t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+		}
+		if terminal.index != 0 {
+			t.Fatalf("prompted %d times", terminal.index)
+		}
+	})
+
+	t.Run("non-TTY login fails before contacting Jira", func(t *testing.T) {
+		clearCommandEnv(t)
+		var calls int
+		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))
+		defer server.Close()
+		t.Setenv("JIRA_HOST", server.URL)
+		t.Setenv("JIRA_TOKEN", "env-token")
+		path := filepath.Join(t.TempDir(), "config.toml")
+		stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+		a := &app{stdin: strings.NewReader(""), stdout: stdout, stderr: stderr, secretStore: &unavailableSecretStore{}}
+		if code := a.execute([]string{"--config", path, "auth", "login"}); code != 2 || !strings.Contains(stderr.String(), "--use-keyring=false") || calls != 0 {
+			t.Fatalf("code=%d calls=%d stdout=%s stderr=%s", code, calls, stdout.String(), stderr.String())
+		}
+	})
+
+	t.Run("config storage never probes the keyring", func(t *testing.T) {
+		clearCommandEnv(t)
+		server := authenticatedServer(t, config.AuthPAT, "", "env-token", http.StatusOK)
+		defer server.Close()
+		t.Setenv("JIRA_HOST", server.URL)
+		t.Setenv("JIRA_TOKEN", "env-token")
+		path := filepath.Join(t.TempDir(), "config.toml")
+		store := &unavailableSecretStore{}
+		stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+		a := &app{stdin: strings.NewReader(""), stdout: stdout, stderr: stderr, secretStore: store}
+		if code := a.execute([]string{"--config", path, "auth", "login", "--use-keyring=false"}); code != 0 || store.calls != 0 {
+			t.Fatalf("code=%d calls=%d stdout=%s stderr=%s", code, store.calls, stdout.String(), stderr.String())
+		}
+	})
+}
+
+func assertConfigMode0600(t *testing.T, path string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		return
+	}
+	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(before, after) {
-		t.Fatal("failed login changed config")
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Fatalf("config mode = %v", mode)
 	}
 }
 
@@ -281,7 +517,7 @@ func TestLoginTTYEnvironmentCredentialBypassesCredentialPromptsAndUsesUserAgent(
 	t.Setenv("JIRA_USER_AGENT", "runtime-agent")
 
 	path := filepath.Join(t.TempDir(), "config.toml")
-	terminal := &fakeLoginTerminal{prompts: []promptAnswer{{label: "Host", defaultValue: server.URL}}}
+	terminal := &fakeLoginTerminal{steps: []terminalStep{{kind: "prompt", label: "Host", defaultValue: server.URL}}}
 	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 	a := &app{stdin: strings.NewReader(""), stdout: stdout, stderr: stderr, terminal: terminal, secretStore: newMemorySecretStore()}
 	if code := a.execute([]string{"--config", path, "auth", "login", "--use-keyring=false"}); code != 0 {

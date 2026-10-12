@@ -123,14 +123,26 @@ type signalSuspendingTerminal struct {
 
 func (t signalSuspendingTerminal) IsTerminal() bool { return t.terminal.IsTerminal() }
 
-func (t signalSuspendingTerminal) Prompt(label, defaultValue string) (string, error) {
+func (t signalSuspendingTerminal) Prompt(label, defaultValue string, validate func(string) error) (string, error) {
 	resume := t.notifier.suspend()
 	defer resume()
-	return t.terminal.Prompt(label, defaultValue)
+	return t.terminal.Prompt(label, defaultValue, validate)
 }
 
 func (t signalSuspendingTerminal) PromptSecret(label string) (string, error) {
 	resume := t.notifier.suspend()
 	defer resume()
 	return t.terminal.PromptSecret(label)
+}
+
+func (t signalSuspendingTerminal) Select(label string, options []loginOption, defaultValue string) (string, error) {
+	resume := t.notifier.suspend()
+	defer resume()
+	return t.terminal.Select(label, options, defaultValue)
+}
+
+func (t signalSuspendingTerminal) Confirm(label string, defaultValue bool) (bool, error) {
+	resume := t.notifier.suspend()
+	defer resume()
+	return t.terminal.Confirm(label, defaultValue)
 }
