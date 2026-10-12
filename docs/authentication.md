@@ -6,8 +6,11 @@ The default config path is `$XDG_CONFIG_HOME/jiro/config.toml`, falling back to
 ## Log in
 
 `jiro auth login` prompts for connection settings and a fresh Credential. It
-verifies the Credential with Jira before updating the Profile. A new Profile
-must select `basic` or `pat`; jiro does not guess an authentication type.
+verifies the Credential with Jira before updating the Profile. Choose the
+authentication type from a menu with the arrow keys: a new Profile starts on
+Personal Access Token, and an existing Basic Auth Profile starts on username
+and password. Invalid input is rejected in place, so the prompt asks again
+instead of ending the login.
 
 ```sh
 jiro auth login
@@ -27,6 +30,13 @@ jiro auth login --use-keyring=false
 On Unix-like systems, jiro requires a config file containing `password` or
 `token` to have mode `0600`. This applies to files written by
 `auth login` and to manually maintained TOML.
+
+`auth login` checks the keyring before it asks for anything else. When the
+keyring is unavailable, such as on a Linux host without a Secret Service
+provider, an interactive login offers to store the Credential in the `0600`
+config file instead and continues only if you confirm. A login that passes
+`--use-keyring` explicitly, or that runs without a terminal, fails before
+contacting Jira and suggests `--use-keyring=false`.
 
 When `use_keyring = true`, a missing keyring entry is an error. jiro does not
 fall back to a plaintext secret in the config file.

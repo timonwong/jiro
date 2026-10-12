@@ -71,7 +71,7 @@ func TestPromptSuspensionRestoresSignalDelivery(t *testing.T) {
 	defer notifier.stop()
 
 	prompting := signalSuspendingTerminal{terminal: &recordingLoginTerminal{observe: func() {}}, notifier: notifier}
-	if _, err := prompting.Prompt("Host", ""); err != nil {
+	if _, err := prompting.Prompt("Host", "", nil); err != nil {
 		t.Fatalf("Prompt() error = %v", err)
 	}
 

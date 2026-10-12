@@ -28,7 +28,7 @@ printf '%s' "$JIRA_PAT" | JIRA_HOST=https://jira.example.com \
   jiro --profile bot auth login --token-stdin --output=json
 ```
 
-Use the OS keyring as the default credential store; each Profile owns an independent credential. Use `auth login --use-keyring=false` only when plaintext TOML storage is explicitly intended.
+Use the OS keyring as the default credential store; each Profile owns an independent credential. Use `auth login --use-keyring=false` only when plaintext TOML storage is explicitly intended. A non-interactive login fails before contacting Jira when the OS keyring is unavailable; report that instead of switching to plaintext storage on your own.
 
 Complete login only after `auth status` succeeds for the intended Profile and Jira Instance.
 

@@ -1,38 +1,45 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
 
+	"github.com/charmbracelet/huh"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	"github.com/timonwong/jiro/internal/apperr"
 	"github.com/timonwong/jiro/internal/config"
 	"github.com/timonwong/jiro/internal/jira"
 	"github.com/timonwong/jiro/internal/output"
-	"golang.org/x/term"
 )
 
 type loginTerminal interface {
 	IsTerminal() bool
-	Prompt(label, defaultValue string) (string, error)
+	// Prompt prefills defaultValue and keeps asking until validate accepts.
+	Prompt(label, defaultValue string, validate func(string) error) (string, error)
 	PromptSecret(label string) (string, error)
+	Select(label string, options []loginOption, defaultValue string) (string, error)
+	Confirm(label string, defaultValue bool) (bool, error)
+}
+
+type loginOption struct {
+	Label string
+	Value string
 }
 
 type streamLoginTerminal struct {
 	input  io.Reader
 	output io.Writer
-	reader *bufio.Reader
 	file   *os.File
 }
 
 func newLoginTerminal(input io.Reader, output io.Writer) loginTerminal {
-	terminal := &streamLoginTerminal{input: input, output: output, reader: bufio.NewReader(input)}
+	terminal := &streamLoginTerminal{input: input, output: output}
 	if file, ok := input.(*os.File); ok && isTerminalFile(file) {
 		terminal.file = file
 	}
@@ -46,34 +53,77 @@ func isTerminalFile(file *os.File) bool {
 
 func (t *streamLoginTerminal) IsTerminal() bool { return t.file != nil }
 
-func (t *streamLoginTerminal) Prompt(label, defaultValue string) (string, error) {
-	if defaultValue == "" {
-		_, _ = fmt.Fprintf(t.output, "%s: ", label)
-	} else {
-		_, _ = fmt.Fprintf(t.output, "%s [%s]: ", label, defaultValue)
+func (t *streamLoginTerminal) Prompt(label, defaultValue string, validate func(string) error) (string, error) {
+	value := defaultValue
+	field := huh.NewInput().Title(label).Value(&value)
+	if validate != nil {
+		field.Validate(func(value string) error { return validate(strings.TrimSpace(value)) })
 	}
-	value, err := t.reader.ReadString('\n')
-	if err != nil && !(err == io.EOF && value != "") {
-		return "", apperr.Wrap(apperr.KindInvalidInput, err, "read %s", strings.ToLower(label))
+	if err := t.run(field); err != nil {
+		return "", err
 	}
 	value = strings.TrimSpace(value)
-	if value == "" {
-		value = defaultValue
-	}
+	t.echo(label+":", value)
 	return value, nil
 }
 
 func (t *streamLoginTerminal) PromptSecret(label string) (string, error) {
-	if t.file == nil {
-		return "", apperr.New(apperr.KindInvalidInput, "credential prompt requires a terminal")
+	var secret string
+	if err := t.run(huh.NewInput().Title(label).EchoMode(huh.EchoModePassword).Value(&secret)); err != nil {
+		return "", err
 	}
-	_, _ = fmt.Fprintf(t.output, "%s: ", label)
-	secret, err := term.ReadPassword(int(t.file.Fd()))
-	_, _ = fmt.Fprintln(t.output)
+	return secret, nil
+}
+
+func (t *streamLoginTerminal) Select(label string, options []loginOption, defaultValue string) (string, error) {
+	choices := make([]huh.Option[string], 0, len(options))
+	for _, option := range options {
+		choices = append(choices, huh.NewOption(option.Label, option.Value))
+	}
+	value := defaultValue
+	if err := t.run(huh.NewSelect[string]().Title(label).Options(choices...).Value(&value)); err != nil {
+		return "", err
+	}
+	for _, option := range options {
+		if option.Value == value {
+			t.echo(label+":", option.Label)
+		}
+	}
+	return value, nil
+}
+
+func (t *streamLoginTerminal) Confirm(label string, defaultValue bool) (bool, error) {
+	value := defaultValue
+	if err := t.run(huh.NewConfirm().Title(label).Affirmative("Yes").Negative("No").Value(&value)); err != nil {
+		return false, err
+	}
+	answer := "No"
+	if value {
+		answer = "Yes"
+	}
+	t.echo(label, answer)
+	return value, nil
+}
+
+// echo keeps a completed answer on screen, because a finished form erases
+// itself and a multi-step login would otherwise leave no record of the choices.
+func (t *streamLoginTerminal) echo(label, answer string) {
+	_, _ = fmt.Fprintf(t.output, "%s %s\n", label, answer)
+}
+
+func (t *streamLoginTerminal) run(field huh.Field) error {
+	err := huh.NewForm(huh.NewGroup(field)).
+		WithInput(t.input).
+		WithOutput(t.output).
+		WithShowHelp(false).
+		Run()
+	if errors.Is(err, huh.ErrUserAborted) {
+		return apperr.New(apperr.KindInvalidInput, "login canceled")
+	}
 	if err != nil {
-		return "", apperr.Wrap(apperr.KindInvalidInput, err, "read credential")
+		return apperr.Wrap(apperr.KindInvalidInput, err, "read login input")
 	}
-	return string(secret), nil
+	return nil
 }
 
 type loginResult struct {
@@ -124,9 +174,15 @@ func (a *app) authLoginCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			candidate, err := a.loginCandidate(draft, useKeyring, passwordStdin, tokenStdin)
+			keyringExplicit := command.Flags().Changed("use-keyring")
+			candidate, err := a.loginCandidate(draft, useKeyring, keyringExplicit, passwordStdin, tokenStdin)
 			if err != nil {
 				return err
+			}
+			if !a.terminal.IsTerminal() {
+				if err := a.selectCredentialStore(&candidate, keyringExplicit); err != nil {
+					return err
+				}
 			}
 			user, err := verifyLogin(command.Context(), candidate)
 			if err != nil {
@@ -217,7 +273,7 @@ func (a *app) authStatusCommand() *cobra.Command {
 	}
 }
 
-func (a *app) loginCandidate(draft config.Draft, useKeyring, passwordStdin, tokenStdin bool) (config.Settings, error) {
+func (a *app) loginCandidate(draft config.Draft, useKeyring, keyringExplicit, passwordStdin, tokenStdin bool) (config.Settings, error) {
 	candidate := draft.Settings
 	// Login credentials are always fresh. In particular, never reuse a secret
 	// from an existing Profile while constructing or verifying the candidate.
@@ -232,7 +288,10 @@ func (a *app) loginCandidate(draft config.Draft, useKeyring, passwordStdin, toke
 	}
 
 	if a.terminal.IsTerminal() {
-		host, err := a.terminal.Prompt("Host", candidate.Host)
+		if err := a.selectCredentialStore(&candidate, keyringExplicit); err != nil {
+			return config.Settings{}, err
+		}
+		host, err := a.terminal.Prompt("Host", candidate.Host, validateLoginHost)
 		if err != nil {
 			return config.Settings{}, err
 		}
@@ -259,20 +318,20 @@ func (a *app) loginCandidate(draft config.Draft, useKeyring, passwordStdin, toke
 		return config.Settings{}, apperr.New(apperr.KindInvalidInput, "non-TTY login requires a complete JIRA_TOKEN or JIRA_USERNAME/JIRA_PASSWORD credential, or --password-stdin/--token-stdin")
 	}
 
-	if !draft.Exists {
-		candidate.AuthType = ""
+	authDefault := string(config.AuthPAT)
+	if draft.Exists && candidate.AuthType == config.AuthBasic {
+		authDefault = string(config.AuthBasic)
 	}
-	authDefault := string(candidate.AuthType)
-	if !draft.Exists {
-		authDefault = ""
-	}
-	auth, err := a.terminal.Prompt("Auth type (basic/pat)", authDefault)
+	auth, err := a.terminal.Select("Authentication", []loginOption{
+		{Label: "Personal Access Token", Value: string(config.AuthPAT)},
+		{Label: "Username and password", Value: string(config.AuthBasic)},
+	}, authDefault)
 	if err != nil {
 		return config.Settings{}, err
 	}
-	candidate.AuthType = config.AuthType(strings.ToLower(strings.TrimSpace(auth)))
+	candidate.AuthType = config.AuthType(auth)
 	if candidate.AuthType == config.AuthBasic {
-		candidate.Username, err = a.terminal.Prompt("Username", candidate.Username)
+		candidate.Username, err = a.terminal.Prompt("Username", candidate.Username, validateLoginUsername)
 		if err != nil {
 			return config.Settings{}, err
 		}
@@ -291,6 +350,46 @@ func (a *app) loginCandidate(draft config.Draft, useKeyring, passwordStdin, toke
 	}
 	setLoginSecret(&candidate, secret)
 	return candidate, nil
+}
+
+// selectCredentialStore settles keyring availability before any secret is
+// collected or verified. Only an interactive login that did not ask for the
+// keyring explicitly may fall back to the 0600 config file, and only after the
+// user confirms, because that stores the secret in plaintext.
+func (a *app) selectCredentialStore(candidate *config.Settings, keyringExplicit bool) error {
+	if !candidate.UseKeyring {
+		return nil
+	}
+	probeErr := config.ProbeSecretStore(a.secretStore, candidate.Profile)
+	if probeErr == nil {
+		return nil
+	}
+	unavailable := apperr.Wrap(apperr.KindConfig, probeErr, "OS keyring is unavailable (%v); rerun with --use-keyring=false to store the credential in the config file", probeErr)
+	if keyringExplicit || !a.terminal.IsTerminal() {
+		return unavailable
+	}
+	_, _ = fmt.Fprintf(a.stderr, "OS keyring is unavailable: %v\n", probeErr)
+	confirmed, err := a.terminal.Confirm("Store the credential in the config file (mode 0600) instead?", true)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		return unavailable
+	}
+	candidate.UseKeyring = false
+	return nil
+}
+
+func validateLoginHost(host string) error {
+	_, err := config.NormalizeHost(host)
+	return err
+}
+
+func validateLoginUsername(username string) error {
+	if strings.TrimSpace(username) == "" {
+		return errors.New("username is required")
+	}
+	return nil
 }
 
 func (a *app) stdinLoginCandidate(candidate config.Settings, passwordStdin bool) (config.Settings, error) {

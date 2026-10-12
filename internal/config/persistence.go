@@ -424,6 +424,20 @@ type credentialChange struct {
 	beforeExists bool
 }
 
+// ProbeSecretStore reads the Profile's keyring entry so login can choose a
+// credential store before collecting a secret instead of failing at commit.
+// A missing entry still proves the keyring is reachable.
+func ProbeSecretStore(store SecretStore, profile string) error {
+	if store == nil {
+		store = OSSecretStore{}
+	}
+	_, err := store.Get(KeyringService, KeyringAccount(profile))
+	if err == nil || errors.Is(err, ErrSecretNotFound) {
+		return nil
+	}
+	return err
+}
+
 func beginCredentialChange(store SecretStore, account string) (*credentialChange, error) {
 	secret, err := store.Get(KeyringService, account)
 	if errors.Is(err, ErrSecretNotFound) {

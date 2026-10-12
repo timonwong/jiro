@@ -11,14 +11,16 @@ type readerFunc func([]byte) (int, error)
 func (r readerFunc) Read(value []byte) (int, error) { return r(value) }
 
 type recordingLoginTerminal struct {
-	observe     func()
-	promptCalls int
-	secretCalls int
+	observe      func()
+	promptCalls  int
+	secretCalls  int
+	selectCalls  int
+	confirmCalls int
 }
 
 func (t *recordingLoginTerminal) IsTerminal() bool { return true }
 
-func (t *recordingLoginTerminal) Prompt(label, defaultValue string) (string, error) {
+func (t *recordingLoginTerminal) Prompt(label, defaultValue string, _ func(string) error) (string, error) {
 	t.promptCalls++
 	t.observe()
 	return label + "=" + defaultValue, nil
@@ -28,6 +30,18 @@ func (t *recordingLoginTerminal) PromptSecret(label string) (string, error) {
 	t.secretCalls++
 	t.observe()
 	return "", errors.New(label)
+}
+
+func (t *recordingLoginTerminal) Select(label string, _ []loginOption, defaultValue string) (string, error) {
+	t.selectCalls++
+	t.observe()
+	return label + "=" + defaultValue, nil
+}
+
+func (t *recordingLoginTerminal) Confirm(_ string, defaultValue bool) (bool, error) {
+	t.confirmCalls++
+	t.observe()
+	return !defaultValue, nil
 }
 
 func TestInteractivePromptsSuspendSignalDelivery(t *testing.T) {
@@ -46,7 +60,7 @@ func TestInteractivePromptsSuspendSignalDelivery(t *testing.T) {
 	if !prompting.IsTerminal() || suspended() {
 		t.Fatalf("IsTerminal must not suspend delivery")
 	}
-	value, err := prompting.Prompt("Host", "https://jira.example")
+	value, err := prompting.Prompt("Host", "https://jira.example", nil)
 	if value != "Host=https://jira.example" || err != nil {
 		t.Fatalf("Prompt() = %q, %v", value, err)
 	}
@@ -59,10 +73,22 @@ func TestInteractivePromptsSuspendSignalDelivery(t *testing.T) {
 	if suspended() {
 		t.Fatal("PromptSecret left signal delivery suspended")
 	}
-	if terminal.promptCalls != 1 || terminal.secretCalls != 1 {
-		t.Fatalf("prompts=%d secrets=%d", terminal.promptCalls, terminal.secretCalls)
+	if value, err := prompting.Select("Authentication", nil, "pat"); value != "Authentication=pat" || err != nil {
+		t.Fatalf("Select() = %q, %v", value, err)
 	}
-	if len(inside) != 2 || !inside[0] || !inside[1] {
+	if suspended() {
+		t.Fatal("Select left signal delivery suspended")
+	}
+	if confirmed, err := prompting.Confirm("Store?", true); confirmed || err != nil {
+		t.Fatalf("Confirm() = %t, %v", confirmed, err)
+	}
+	if suspended() {
+		t.Fatal("Confirm left signal delivery suspended")
+	}
+	if terminal.promptCalls != 1 || terminal.secretCalls != 1 || terminal.selectCalls != 1 || terminal.confirmCalls != 1 {
+		t.Fatalf("prompts=%d secrets=%d selects=%d confirms=%d", terminal.promptCalls, terminal.secretCalls, terminal.selectCalls, terminal.confirmCalls)
+	}
+	if len(inside) != 4 || !inside[0] || !inside[1] || !inside[2] || !inside[3] {
 		t.Fatalf("suspended during prompts = %v", inside)
 	}
 }
@@ -100,7 +126,7 @@ func TestStoppedNotifierKeepsPromptsWorking(t *testing.T) {
 
 	terminal := &recordingLoginTerminal{observe: func() {}}
 	prompting := signalSuspendingTerminal{terminal: terminal, notifier: notifier}
-	if _, err := prompting.Prompt("Host", ""); err != nil {
+	if _, err := prompting.Prompt("Host", "", nil); err != nil {
 		t.Fatalf("Prompt() error = %v", err)
 	}
 	notifier.mutex.Lock()
