@@ -60,14 +60,17 @@ What you get:
 | From source (Go 1.26+) | `go install github.com/timonwong/jiro/cmd/jiro@latest` |
 
 Pre-built binaries for Linux, macOS, and Windows (amd64, arm64) are on
-[GitHub Releases](https://github.com/timonwong/jiro/releases), each with a
-SHA-256 checksum file. On Linux and macOS:
+[GitHub Releases](https://github.com/timonwong/jiro/releases). Each release
+includes one SHA-256 checksum file covering all six binaries. On Linux and
+macOS:
 
 ```sh
-chmod +x jiro_v0.1.0_darwin_arm64        # use your version and platform
-sudo mv jiro_v0.1.0_darwin_arm64 /usr/local/bin/jiro
+chmod +x jiro_v0.13.0_darwin_arm64        # use your tag, OS, and arch
+sudo mv jiro_v0.13.0_darwin_arm64 /usr/local/bin/jiro
 jiro --version
 ```
+
+Windows assets use a `.exe` suffix, for example `jiro_v0.13.0_windows_amd64.exe`.
 
 Source builds report a development version instead of a release version.
 
